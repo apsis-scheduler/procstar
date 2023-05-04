@@ -12,7 +12,6 @@ use procstar::sel;
 use procstar::sig;
 use procstar::spec;
 use procstar::sys;
-use tokio::main;
 use libc::pid_t;
 
 //------------------------------------------------------------------------------

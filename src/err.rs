@@ -26,16 +26,6 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Error::Eof => "EOF",
-            Error::Io(ref err) => err.description(),
-            Error::ParseInt(ref err) => err.description(),
-        }
-    }
-}
-
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::Io(err)

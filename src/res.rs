@@ -1,5 +1,6 @@
 /// Named "Res" to avoid confusion with the `Result` types.
 
+use base64::Engine;
 use crate::spec::CaptureFormat;
 use libc::{c_int, pid_t, rusage};
 use std::collections::BTreeMap;
@@ -115,7 +116,7 @@ impl FdRes {
             },
             CaptureFormat::Base64 => {
                 // FIXME: Handle errors.
-                let data = base64::encode(
+                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(
                     &buffer, 
                 );
                 FdRes::CaptureBase64 {

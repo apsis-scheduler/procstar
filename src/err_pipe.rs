@@ -3,9 +3,38 @@ use crate::fdio;
 use crate::sel;
 use crate::sys;
 use crate::sys::fd_t;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_pipe::{PipeRead, PipeWrite};
+
+async fn read_errors(mut read: PipeRead) -> Vec<String> {
+    let mut errors = Vec::<String>::new();
+    loop {
+        let len = match read.read_u32_le().await {
+            Ok(len) => len as usize,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => {
+                errors.push(format!("error pipe: {}", e));
+                break
+            },
+        };
+
+        let mut buf = Vec::with_capacity(len);
+        buf.resize(len, 0);
+        if let Err(e) = read.read_exact(&mut buf[..]).await {
+            errors.push(format!("error pipe: {}", e));
+            break
+        }
+
+        errors.push(String::from_utf8_lossy(&buf).to_string());
+    }
+
+    return errors;
+}
+
+//------------------------------------------------------------------------------
 
 pub struct ErrPipeRead {
-    fd: fd_t,
+    PipeRead: pipe,
     errs: Vec<String>,
 }
 
@@ -21,10 +50,6 @@ impl ErrPipeRead {
 }
 
 impl sel::Read for ErrPipeRead {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
-
     fn read(&mut self) -> bool {
         let err = match fdio::read_str(self.fd) {
             Ok(str) => str,

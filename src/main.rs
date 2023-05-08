@@ -154,36 +154,37 @@ async fn main() {
         });
 
         // Fork the child process.
-        let child_pid = sys::fork().unwrap_or_else(|err| {
-            panic!("failed to fork: {}", err);
-        });
+        match sys::fork() {
+            Ok(0) => {
+                // Child process.
+                let error_writer = error_pipe.in_child().unwrap();
 
-        if child_pid == 0 {
-            // Child process.
-            let error_writer = error_pipe.in_child().unwrap();
+                let mut ok = true;
+                for fd in &mut *proc_fds {
+                    fd.set_up_in_child().unwrap_or_else(|err| {
+                        error_writer.try_write(format!("failed to set up fd {}: {}", fd.get_fd(), err));
+                        ok = false;
+                    });
+                }
+                if ok {
+                    let exe = &spec.argv[0];
+                    // execve() only returns with an error; on success, the program is
+                    // replaced.
+                    let err = sys::execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
+                    error_writer.try_write(format!("exec: {}: {}", exe, err));
+                }
+                std::process::exit(exitcode::OSERR);
+            },
 
-            let mut ok = true;
-            for fd in &mut *proc_fds {
-                fd.set_up_in_child().unwrap_or_else(|err| {
-                    error_writer.try_write(format!("failed to set up fd {}: {}", fd.get_fd(), err));
-                    ok = false;
-                });
-            }
-            if ok {
-                let exe = &spec.argv[0];
-                // execve() only returns with an error; on success, the program is
-                // replaced.
-                let err = sys::execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
-                error_writer.try_write(format!("exec: {}: {}", exe, err));
-            }
-            std::process::exit(exitcode::OSERR);
-        }
+            Ok(child_pid) => {
+                // Parent process.
+                let errors_future = tokio::spawn(error_pipe.in_parent());
+                // Construct the record of this running proc.
+                procs.push(child_pid, errors_future);
+            },
 
-        else {
-            // Parent process.
-            let errors_future = tokio::spawn(error_pipe.in_parent());
-            // Construct the record of this running proc.
-            procs.push(child_pid, errors_future);
+            Err(err) =>
+                panic!("failed to fork: {}", err),
         }
     }
 

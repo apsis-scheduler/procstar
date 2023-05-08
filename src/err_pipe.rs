@@ -1,11 +1,11 @@
-use bytes::{BufMut, BytesMut};
 use crate::err::Result;
 use crate::fdio;
 use crate::sys;
+use bytes::{BufMut, BytesMut};
 use std::io;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::RawFd;
 use tokio::io::AsyncReadExt;
-use tokio_pipe::{PipeRead, PipeWrite};
+use tokio_pipe::PipeRead;
 
 /// Pipe for returning errors from the pre-exec child process to the parent.
 /// This is to notify the parent of failures that might occur in operations that
@@ -16,21 +16,19 @@ use tokio_pipe::{PipeRead, PipeWrite};
 /// 1. Create with [`ErrorPipe::new`] before forking.
 ///
 /// 2. After forking in the child process, call [`in_child()`].  This returns
-///    a writer for sending error messages back to the parent.  The post-fork
-///    logic in the child process should not be async at all, and should not
-///    return control to the reactor.
+///    a writer for (syncronous) sending error messages back to the parent.
 ///
 /// 3. After forking in the parent process, call [`in_parent()`].  This returns
-///    a future for retrieving the accumulated error messages send from the
-///    child.
+///    an async future for retrieving the accumulated error messages send from
+///    the child.
 
 pub struct ErrorPipe {
-    read_pipe: PipeRead,
-    write_pipe: PipeWrite,
+    read_fd: RawFd,
+    write_fd: RawFd,
 }
 
 pub struct ErrorWriter {
-    write_pipe: PipeWrite,
+    write_fd: RawFd,
 }
 
 impl ErrorWriter {
@@ -42,19 +40,15 @@ impl ErrorWriter {
         len.put_u16_le(bytes.len() as u16);
 
         // Write sync through the raw fd.
-        let fd: RawFd = self.write_pipe.as_raw_fd();
-        fdio::write(fd, &len)?;
-        fdio::write(fd, &bytes)
+        fdio::write(self.write_fd, &len)?;
+        fdio::write(self.write_fd, &bytes)
     }
 }
 
 impl ErrorPipe {
     pub fn new() -> Result<ErrorPipe> {
-        let (read_pipe, write_pipe) = tokio_pipe::pipe()?;
-        Ok(ErrorPipe {
-            read_pipe,
-            write_pipe,
-        })
+        let (read_fd, write_fd) = sys::pipe()?;
+        Ok(ErrorPipe { read_fd, write_fd })
     }
 
     async fn get_errors(mut read_pipe: PipeRead) -> Vec<String> {
@@ -95,12 +89,15 @@ impl ErrorPipe {
     }
 
     pub async fn in_parent(self) -> Vec<String> {
-        let ErrorPipe {
-            read_pipe,
-            write_pipe,
-        } = self;
-        // Drop and close the write pipe.
-        std::mem::drop(write_pipe);
+        let ErrorPipe { read_fd, write_fd } = self;
+
+        // Close the write pipe.  This is necessary so that we see EOF on the
+        // read pipe once the child process closes the other open read fd,
+        // usually when it exec's.
+        sys::close(write_fd).unwrap();
+
+        // Wrap the read pipe for async.
+        let read_pipe = PipeRead::from_raw_fd_checked(read_fd).unwrap();
         ErrorPipe::get_errors(read_pipe).await
     }
 
@@ -108,19 +105,13 @@ impl ErrorPipe {
     /// intentionally not `async`; we do not ever return control to the reactor
     /// in the child process.
     pub fn in_child(self) -> io::Result<ErrorWriter> {
-        let ErrorPipe {
-            read_pipe,
-            write_pipe,
-        } = self;
+        let ErrorPipe { read_fd, write_fd } = self;
 
-        // Drop and close the read pipe.  We don't simply drop `read_pipe`
-        // because of how Tokio registers fds for async notification.  If we
-        // simply drop the read pipe, the read pipe in the parent doesn't wake
-        // up the reactor anymore.  (I don't fully understand this.)
-        sys::close(read_pipe.as_raw_fd()).unwrap();
+        // Close the read pipe.
+        sys::close(read_fd).unwrap();
 
         // Note that tokio-pipe sets CLOEXEC by default, so the write pipe will close
         // automatically in the child process when it exec's.
-        Ok(ErrorWriter { write_pipe })
+        Ok(ErrorWriter { write_fd })
     }
 }

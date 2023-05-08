@@ -160,24 +160,22 @@ async fn main() {
 
         if child_pid == 0 {
             // Child process.
-            let error_writer = error_pipe.in_child().unwrap();  // FIXME: Error?
+            let error_writer = error_pipe.in_child().unwrap();
 
             let mut ok = true;
             for fd in &mut *proc_fds {
                 fd.set_up_in_child().unwrap_or_else(|err| {
-                    error_writer.write(format!("failed to set up fd {}: {}", fd.get_fd(), err)).unwrap();  // FIXME: Error?
+                    error_writer.try_write(format!("failed to set up fd {}: {}", fd.get_fd(), err));
                     ok = false;
                 });
             }
-            if !ok {
-                std::process::exit(exitcode::OSERR);
+            if ok {
+                let exe = &spec.argv[0];
+                // execve() only returns with an error; on success, the program is
+                // replaced.
+                let err = sys::execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
+                error_writer.try_write(format!("exec: {}: {}", exe, err));
             }
-
-            let exe = &spec.argv[0];
-            let err = sys::execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
-
-            // If we got here, exec failed; send the error to the parent process.
-            error_writer.write(format!("exec: {}: {}", exe, err)).unwrap(); // FIXME: Don't unwrap.
             std::process::exit(exitcode::OSERR);
         }
 

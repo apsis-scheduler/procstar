@@ -43,6 +43,11 @@ impl ErrorWriter {
         fdio::write(self.write_fd, &len)?;
         fdio::write(self.write_fd, &bytes)
     }
+
+    /// Like [`write`], but ignores errors.
+    pub fn try_write(&self, error: String) {
+        _ = self.write(error);
+    }
 }
 
 impl ErrorPipe {

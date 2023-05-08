@@ -5,7 +5,7 @@ extern crate exitcode;
 #[macro_use] extern crate maplit;
 
 use procstar::environ;
-use procstar::err_pipe::new_err_pipe;
+use procstar::err_pipe::ErrorPipe;
 use procstar::fd::parse_fd;
 use procstar::res;
 use procstar::sel;
@@ -46,9 +46,13 @@ fn wait(block: bool) -> Option<sys::WaitInfo> {
 
 //------------------------------------------------------------------------------
 
+type ErrorsFuture = tokio::task::JoinHandle<Vec<String>>;
+
 /// A proc we're running, or that has terminated.
 struct Proc {
     pub pid: pid_t,
+
+    pub errors_future: ErrorsFuture,
 
     /// None while the proc is running; the result of wait4() once the proc has
     /// terminated and been cleaned up.
@@ -65,8 +69,8 @@ impl Procs {
         Self { procs: Vec::new(), num_running: 0 }
     }
 
-    pub fn push(&mut self, pid: pid_t) {
-        self.procs.push(Proc { pid, wait_info: None });
+    pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture) {
+        self.procs.push(Proc { pid, errors_future, wait_info: None });
         self.num_running += 1;
     }
 
@@ -105,7 +109,7 @@ impl Procs {
 
 //------------------------------------------------------------------------------
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let json_path = match std::env::args().skip(1).next() {
         Some(p) => p,
@@ -123,11 +127,6 @@ async fn main() {
 
     // Set up the selector, which will manage events while the child runs.
     let mut select = sel::Select::new();
-
-    // Build pipe for passing errors from child to parent.
-    let (mut err_read, err_write) = new_err_pipe();
-    // Read errors from the error pipe.
-    select.insert_reader(&mut err_read);
 
     // Build the objects presenting each of the file descriptors in each proc.
     let mut fds = input.procs.iter().map(|spec| {
@@ -149,6 +148,11 @@ async fn main() {
     for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
         let env = environ::build(std::env::vars(), &spec.env);
 
+        let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
+            eprintln!("failed to create pipe: {}", err);
+            std::process::exit(exitcode::OSFILE);
+        });
+
         // Fork the child process.
         let child_pid = sys::fork().unwrap_or_else(|err| {
             panic!("failed to fork: {}", err);
@@ -156,14 +160,12 @@ async fn main() {
 
         if child_pid == 0 {
             // Child process.
-
-            // Close the read end of the error pipe.
-            err_read.close().unwrap();
+            let error_writer = error_pipe.in_child().unwrap();  // FIXME: Error?
 
             let mut ok = true;
             for fd in &mut *proc_fds {
                 fd.set_up_in_child().unwrap_or_else(|err| {
-                    err_write.send(&format!("failed to set up fd {}: {}", fd.get_fd(), err));
+                    error_writer.write(format!("failed to set up fd {}: {}", fd.get_fd(), err)).unwrap();  // FIXME: Error?
                     ok = false;
                 });
             }
@@ -175,22 +177,21 @@ async fn main() {
             let err = sys::execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
 
             // If we got here, exec failed; send the error to the parent process.
-            err_write.send(&format!("exec: {}: {}", exe, err));
+            error_writer.write(format!("exec: {}: {}", exe, err)).unwrap(); // FIXME: Don't unwrap.
             std::process::exit(exitcode::OSERR);
         }
 
         else {
-            // Parent process.  Construct the record of this running proc.
-            procs.push(child_pid);
+            // Parent process.
+            let errors_future = tokio::spawn(error_pipe.in_parent());
+            // Construct the record of this running proc.
+            procs.push(child_pid, errors_future);
         }
     }
 
     // Install a SIGCHLD signal handler that sets a flag.  This way we know when
     // a proc has terminated.
     let sigchld_flag = sig::SignalFlag::new(libc::SIGCHLD);
-
-    // Close the write end of the error pipe.
-    err_write.close().unwrap();
 
     // Finish setting up all file descriptors for all procs.
     for proc_fds in &mut fds {
@@ -230,37 +231,33 @@ async fn main() {
     procs.wait_all();
 
     // Collect proc results.
-    result.procs = procs.into_iter()
-        .zip(fds.into_iter())
-        .map(|(proc, fds)| {
-            let (_, status, rusage) = proc.wait_info.unwrap();
+    for (proc, fds) in procs.into_iter().zip(fds.into_iter()) {
+        let errors = proc.errors_future.await.unwrap();  // FIXME
+        let (_, status, rusage) = proc.wait_info.unwrap();
 
-            // Build the proc res.
-            let mut proc_res = res::ProcRes::new(proc.pid, status, rusage);
+        // Build the proc res.
+        let mut proc_res = res::ProcRes::new(errors, proc.pid, status, rusage);
 
-            // Build fd res's into it.
-            for mut fd in fds {
-                match fd.clean_up_in_parent() {
-                    Ok(Some(fd_result)) => {
-                        proc_res.fds.insert(
-                            procstar::fd::get_fd_name(fd.get_fd()), fd_result);
-                    }
-                    Ok(None) => {
-                    },
-                    Err(err) => {
-                        proc_res.fds.insert(
-                            procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
-                        result.errors.push(
-                            format!("failed to clean up fd {}: {}", fd.get_fd(), err));
-                    },
-                };
-            }
+        // Build fd res's into it.
+        for mut fd in fds {
+            match fd.clean_up_in_parent() {
+                Ok(Some(fd_result)) => {
+                    proc_res.fds.insert(
+                        procstar::fd::get_fd_name(fd.get_fd()), fd_result);
+                }
+                Ok(None) => {
+                },
+                Err(err) => {
+                    proc_res.fds.insert(
+                        procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
+                    result.errors.push(
+                        format!("failed to clean up fd {}: {}", fd.get_fd(), err));
+                },
+            };
+        }
 
-            proc_res
-        }).collect();
-
-    // Transfer errors retrieved from the error pipe buffer into results.
-    result.errors.append(&mut err_read.get_errors());
+        result.procs.push(proc_res);
+    }
 
     res::print(&result);
     println!("");

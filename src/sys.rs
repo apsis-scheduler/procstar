@@ -3,6 +3,7 @@ extern crate libc;
 use libc::{c_int, pid_t, rusage, ssize_t};
 use std::ffi::CString;
 use std::io;
+use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
 use std::mem::MaybeUninit;
 use std::string::String;
@@ -262,5 +263,31 @@ pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
         n if n >= 0 => Ok(n),
         ret => panic!("write returned {}", ret),
     }
+}
+
+//------------------------------------------------------------------------------
+
+pub fn fcntl_getfd(fd: RawFd) -> io::Result<i32> {
+    match unsafe { libc::fcntl(fd, libc::F_GETFD) } {
+        -1 => Err(io::Error::last_os_error()),
+        flags => Ok(flags),
+    }
+}
+
+pub fn fcntl_setfd(fd: RawFd, flags: i32) -> io::Result<()> {
+    match unsafe { libc::fcntl(fd, libc::F_SETFD, flags) } {
+        -1 => Err(io::Error::last_os_error()),
+        _ => Ok(()),
+    }
+}
+
+pub fn set_cloexec(fd: RawFd) -> io::Result<()> {
+    let flags = fcntl_getfd(fd)?;
+    return if flags & libc::FD_CLOEXEC == 0 {
+        fcntl_setfd(fd, flags | libc::FD_CLOEXEC)
+    } else {
+        // Already set; nothing to do.
+        Ok(())
+    };
 }
 

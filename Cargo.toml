@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 assert_cmd = "2"
 base64 = "0.21"
+bytes = "1"
 exitcode = "1"
 libc = "0.2"
 maplit = "1.0.2"

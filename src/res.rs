@@ -132,6 +132,8 @@ impl FdRes {
 
 #[derive(Serialize)]
 pub struct ProcRes {
+    /// Errors starting the process.
+    pub errors: Vec<String>,
     /// The pid with which the process ran.
     pub pid: pid_t,
 
@@ -158,7 +160,7 @@ fn time_to_sec(time: libc::timeval) -> f64 {
 }
 
 impl ProcRes {
-    pub fn new(pid: pid_t, status: c_int, rusage: rusage) -> ProcRes {
+    pub fn new(errors: Vec<String>, pid: pid_t, status: c_int, rusage: rusage) -> ProcRes {
         let (exit_code, signum, core_dump)= {
             if libc::WIFEXITED(status) {
                 (Some(libc::WEXITSTATUS(status)), None, false)
@@ -167,6 +169,7 @@ impl ProcRes {
             }
         };
         ProcRes {
+            errors,
             pid,
             status,
             exit_code, signum, core_dump,

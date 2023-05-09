@@ -2,8 +2,10 @@ extern crate exitcode;
 
 // Used for tests.
 #[allow(unused_imports)]
-#[macro_use] extern crate maplit;
+#[macro_use]
+extern crate maplit;
 
+use libc::pid_t;
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 use procstar::fd::parse_fd;
@@ -12,7 +14,6 @@ use procstar::sel;
 use procstar::sig;
 use procstar::spec;
 use procstar::sys;
-use libc::pid_t;
 
 //------------------------------------------------------------------------------
 
@@ -20,25 +21,25 @@ use libc::pid_t;
 fn wait(block: bool) -> Option<sys::WaitInfo> {
     loop {
         match sys::wait4(-1, block) {
-            Ok(Some(ti)) =>
-                return Some(ti),
-            Ok(None) =>
+            Ok(Some(ti)) => return Some(ti),
+            Ok(None) => {
                 if block {
                     panic!("wait4 empty result");
-                }
-                else {
+                } else {
                     return None;
-                },
-            Err(ref err)if err.kind() == std::io::ErrorKind::Interrupted =>
-                // wait4 interrupted, possibly by SIGCHLD.
+                }
+            }
+            Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted =>
+            // wait4 interrupted, possibly by SIGCHLD.
+            {
                 if block {
                     // Keep going.
                     continue;
-                }
-                else {
+                } else {
                     // Return, as the caller might want to do something.
                     return None;
-                },
+                }
+            }
             Err(err) => panic!("wait4 failed: {}", err),
         };
     }
@@ -66,11 +67,18 @@ struct Procs {
 
 impl Procs {
     pub fn new() -> Self {
-        Self { procs: Vec::new(), num_running: 0 }
+        Self {
+            procs: Vec::new(),
+            num_running: 0,
+        }
     }
 
     pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture) {
-        self.procs.push(Proc { pid, errors_future, wait_info: None });
+        self.procs.push(Proc {
+            pid,
+            errors_future,
+            wait_info: None,
+        });
         self.num_running += 1;
     }
 
@@ -84,27 +92,32 @@ impl Procs {
                         assert!(proc.wait_info.replace(wait_info).is_none());
                         self.num_running -= 1;
                         pid_found = true;
-                        break
+                        break;
                     }
                 }
                 assert!(pid_found, "wait returned unexpected pid: {}", pid);
-            }
-            else {
-                assert!(! block, "blocking wait returned no pid");
-                break
+            } else {
+                assert!(!block, "blocking wait returned no pid");
+                break;
             }
         }
     }
 
     /// Waits any procs that terminated and are zombies, and stores their wait
     /// info.
-    pub fn wait_any(&mut self) { self.wait(false); }
+    pub fn wait_any(&mut self) {
+        self.wait(false);
+    }
 
     /// Blocks and waits for all remaining procs to terminate, and stores their
     /// wait info.
-    pub fn wait_all(&mut self) { self.wait(true); }
+    pub fn wait_all(&mut self) {
+        self.wait(true);
+    }
 
-    pub fn into_iter(self) -> std::vec::IntoIter<Proc> { self.procs.into_iter() }
+    pub fn into_iter(self) -> std::vec::IntoIter<Proc> {
+        self.procs.into_iter()
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -113,7 +126,7 @@ impl Procs {
 async fn main() {
     let json_path = match std::env::args().skip(1).next() {
         Some(p) => p,
-        None => panic!("no file given"),  // FIXME
+        None => panic!("no file given"), // FIXME
     };
 
     let input = spec::load_file(&json_path).unwrap_or_else(|err| {
@@ -129,20 +142,27 @@ async fn main() {
     let mut select = sel::Select::new();
 
     // Build the objects presenting each of the file descriptors in each proc.
-    let mut fds = input.procs.iter().map(|spec| {
-        spec.fds.iter().map(|(fd_str, fd_spec)| {
-            // FIXME: Parse when deserializing, rather than here.
-            let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
-                eprintln!("failed to parse fd {}: {}", fd_str, err);
-                std::process::exit(exitcode::OSERR);
-            });
+    let mut fds = input
+        .procs
+        .iter()
+        .map(|spec| {
+            spec.fds
+                .iter()
+                .map(|(fd_str, fd_spec)| {
+                    // FIXME: Parse when deserializing, rather than here.
+                    let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
+                        eprintln!("failed to parse fd {}: {}", fd_str, err);
+                        std::process::exit(exitcode::OSERR);
+                    });
 
-            procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
-                eprintln!("failed to create fd {}: {}", fd_str, err);
-                std::process::exit(exitcode::OSERR);
-            })
-        }).collect::<Vec<_>>()
-    }).collect::<Vec<_>>();
+                    procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
+                        eprintln!("failed to create fd {}: {}", fd_str, err);
+                        std::process::exit(exitcode::OSERR);
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     let mut procs = Procs::new();
     for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
@@ -162,7 +182,11 @@ async fn main() {
                 let mut ok = true;
                 for fd in &mut *proc_fds {
                     fd.set_up_in_child().unwrap_or_else(|err| {
-                        error_writer.try_write(format!("failed to set up fd {}: {}", fd.get_fd(), err));
+                        error_writer.try_write(format!(
+                            "failed to set up fd {}: {}",
+                            fd.get_fd(),
+                            err
+                        ));
                         ok = false;
                     });
                 }
@@ -174,17 +198,16 @@ async fn main() {
                     error_writer.try_write(format!("exec: {}: {}", exe, err));
                 }
                 std::process::exit(exitcode::OSERR);
-            },
+            }
 
             Ok(child_pid) => {
                 // Parent process.
                 let errors_future = tokio::spawn(error_pipe.in_parent());
                 // Construct the record of this running proc.
                 procs.push(child_pid, errors_future);
-            },
+            }
 
-            Err(err) =>
-                panic!("failed to fork: {}", err),
+            Err(err) => panic!("failed to fork: {}", err),
         }
     }
 
@@ -197,7 +220,9 @@ async fn main() {
         for fd in proc_fds {
             let f = fd.get_fd();
             match (*fd).set_up_in_parent() {
-                Err(err) => result.errors.push(format!("failed to set up fd {}: {}", f, err)),
+                Err(err) => result
+                    .errors
+                    .push(format!("failed to set up fd {}: {}", f, err)),
                 Ok(None) => (),
                 Ok(Some(read)) => select.insert_reader(read),
             };
@@ -211,19 +236,19 @@ async fn main() {
         match select.select(None) {
             Ok(_) => {
                 // select did something.  Keep going.
-            },
+            }
             Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
                 // select interrupted, possibly by SIGCHLD.  Keep going.
-            },
+            }
             Err(err) => {
                 panic!("select failed: {}", err)
-            },
+            }
         };
         // If we received SIGCHLD, clean up any terminated procs.
         if sigchld_flag.get() {
             procs.wait_any();
         }
-    };
+    }
     std::mem::drop(select);
 
     // Wait for all remaining procs to terminate and clean them up.
@@ -231,7 +256,7 @@ async fn main() {
 
     // Collect proc results.
     for (proc, fds) in procs.into_iter().zip(fds.into_iter()) {
-        let errors = proc.errors_future.await.unwrap();  // FIXME
+        let errors = proc.errors_future.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_info.unwrap();
 
         // Build the proc res.
@@ -241,17 +266,19 @@ async fn main() {
         for mut fd in fds {
             match fd.clean_up_in_parent() {
                 Ok(Some(fd_result)) => {
-                    proc_res.fds.insert(
-                        procstar::fd::get_fd_name(fd.get_fd()), fd_result);
+                    proc_res
+                        .fds
+                        .insert(procstar::fd::get_fd_name(fd.get_fd()), fd_result);
                 }
-                Ok(None) => {
-                },
+                Ok(None) => {}
                 Err(err) => {
-                    proc_res.fds.insert(
-                        procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
-                    result.errors.push(
-                        format!("failed to clean up fd {}: {}", fd.get_fd(), err));
-                },
+                    proc_res
+                        .fds
+                        .insert(procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
+                    result
+                        .errors
+                        .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
+                }
             };
         }
 
@@ -261,6 +288,9 @@ async fn main() {
     res::print(&result);
     println!("");
 
-    std::process::exit(if result.errors.len() > 0 { 1 } else { exitcode::OK });
+    std::process::exit(if result.errors.len() > 0 {
+        1
+    } else {
+        exitcode::OK
+    });
 }
-

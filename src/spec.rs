@@ -1,6 +1,6 @@
 use crate::sys::fd_t;
 use libc::c_int;
-use serde::{Serialize, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::File;
@@ -13,7 +13,7 @@ use std::vec::Vec;
 // Serde helpers
 //------------------------------------------------------------------------------
 
-/// Deserializer that accepts either a single map or a sequence of items.  In 
+/// Deserializer that accepts either a single map or a sequence of items.  In
 /// the former case, the map is wrapped into a single-element sequence.
 
 fn one_or_many<'de, T, D>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -55,9 +55,8 @@ where
             // into a `Deserializer`, allowing it to be used as the input to T's
             // `Deserialize` implementation. T then deserializes itself using
             // the entries from the map visitor.
-            let res = Deserialize::deserialize(
-                serde::de::value::MapAccessDeserializer::new(map))?;
-            Ok(vec!(res))
+            let res = Deserialize::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+            Ok(vec![res])
         }
     }
 
@@ -106,17 +105,19 @@ type Result<T> = std::result::Result<T, Error>;
 pub enum EnvInherit {
     None,
     All,
-    Vars(Vec<String>),  // FIXME: Use OsString instead?
+    Vars(Vec<String>), // FIXME: Use OsString instead?
 }
 
 impl Default for EnvInherit {
-    fn default() -> Self { Self::All }
+    fn default() -> Self {
+        Self::All
+    }
 }
 
 impl<'de> Deserialize<'de> for EnvInherit {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
-        D: Deserializer<'de>
+        D: Deserializer<'de>,
     {
         struct Visitor;
         impl<'de> serde::de::Visitor<'de> for Visitor {
@@ -127,17 +128,21 @@ impl<'de> Deserialize<'de> for EnvInherit {
             }
 
             fn visit_bool<E>(self, v: bool) -> std::result::Result<Self::Value, E> {
-                Ok(if v { Self::Value::All } else { Self::Value::None })
+                Ok(if v {
+                    Self::Value::All
+                } else {
+                    Self::Value::None
+                })
             }
 
-            fn visit_seq<S>(self, mut seq: S) -> std::result::Result<Self::Value, S::Error> 
+            fn visit_seq<S>(self, mut seq: S) -> std::result::Result<Self::Value, S::Error>
             where
-                S: serde::de::SeqAccess<'de>
+                S: serde::de::SeqAccess<'de>,
             {
                 let mut vars = Vec::new();
                 while let Some(var) = seq.next_element()? {
                     vars.push(var);
-                }                    
+                }
                 Ok(Self::Value::Vars(vars))
             }
         }
@@ -161,10 +166,9 @@ pub struct Env {
 #[serde(deny_unknown_fields)]
 pub enum OpenFlag {
     // FIXME: Generalize.
-
     /// Equivalent to `Read` for stdin, `Write` for stdout/stderr,
     /// `ReadWrite` for others.
-    Default,  
+    Default,
 
     /// Open existing file for reading.
     Read,
@@ -183,7 +187,9 @@ pub enum OpenFlag {
 }
 
 impl Default for OpenFlag {
-    fn default() -> Self { Self::Default }
+    fn default() -> Self {
+        Self::Default
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -195,7 +201,9 @@ pub enum CaptureMode {
 }
 
 impl Default for CaptureMode {
-    fn default() -> Self { Self::TempFile }
+    fn default() -> Self {
+        Self::TempFile
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -207,7 +215,9 @@ pub enum CaptureFormat {
 }
 
 impl Default for CaptureFormat {
-    fn default() -> Self { Self::Text }
+    fn default() -> Self {
+        Self::Text
+    }
 }
 
 fn get_default_mode() -> c_int {
@@ -231,7 +241,7 @@ pub enum Fd {
     },
 
     /// Open this fd to a file.
-    File { 
+    File {
         path: PathBuf,
         #[serde(default)]
         flags: OpenFlag,
@@ -241,9 +251,7 @@ pub enum Fd {
     },
 
     /// Duplicate another existing fd to this one.
-    Dup {
-        fd: fd_t
-    },
+    Dup { fd: fd_t },
 
     /// Capture output from fd; include in results.
     Capture {
@@ -253,11 +261,12 @@ pub enum Fd {
         #[serde(default)]
         format: CaptureFormat,
     },
-
 }
 
 impl Default for Fd {
-    fn default() -> Self { Self::Inherit }
+    fn default() -> Self {
+        Self::Inherit
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -295,4 +304,3 @@ pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     // Return the spec.
     Ok(spec)
 }
-

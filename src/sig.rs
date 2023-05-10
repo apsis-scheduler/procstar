@@ -3,6 +3,10 @@ extern crate libc;
 use libc::{c_int, sigset_t};
 use std::io;
 
+use tokio::signal::unix::{signal, SignalKind, Signal};
+use tokio::sync::watch::{channel, Sender, Receiver};
+use tokio::sync::watch::error::SendError;
+
 //------------------------------------------------------------------------------
 
 /// Signal handler callback fn.
@@ -132,7 +136,7 @@ impl SignalFlag {
     pub fn new(signum: c_int) -> Self {
         assert!(signum > 0);
         assert!(signum < NSIG as c_int);
-        
+
         extern "system" fn handler(signum: c_int) {
             // Accessing a static global is in general not threadsafe, but this
             // signal handler will only ever be called on the main thread.
@@ -159,6 +163,43 @@ impl SignalFlag {
             let val = SIGNAL_FLAGS[self.signum];
             SIGNAL_FLAGS[self.signum] = false;
             val
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+
+pub type SignalReceiver = Receiver<()>;
+
+pub struct SignalWatcher {
+    stream: Signal,
+    sender: Sender<()>,
+}
+
+impl SignalWatcher {
+    pub fn new(kind: SignalKind) -> (SignalWatcher, SignalReceiver) {
+        let stream = signal(kind).unwrap();
+        let (sender, receiver) = channel(());
+        (
+            SignalWatcher {
+                stream,
+                sender,
+            },
+            receiver
+        )
+    }
+
+    pub async fn watch(&mut self) {
+        // Transmit all incoming signal events to the watch channel, until all
+        // channel receivers are closed.
+        loop {
+            println!("waiting for signal");
+            self.stream.recv().await.expect("signal watcher stream recv");
+            println!("received signal");
+            match self.sender.send(()) {
+                Ok(()) => {},
+                Err(SendError(())) => break,
+            }
         }
     }
 }

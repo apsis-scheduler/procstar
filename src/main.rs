@@ -10,7 +10,6 @@ use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 use procstar::fd::parse_fd;
 use procstar::res;
-use procstar::sel;
 use procstar::sig;
 use procstar::spec;
 use procstar::sys;
@@ -18,10 +17,14 @@ use procstar::sys;
 //------------------------------------------------------------------------------
 
 // FIXME: Elsewhere.
-fn wait(block: bool) -> Option<sys::WaitInfo> {
+fn wait(pid: pid_t, block: bool) -> Option<sys::WaitInfo> {
     loop {
-        match sys::wait4(-1, block) {
-            Ok(Some(ti)) => return Some(ti),
+        match sys::wait4(pid, block) {
+            Ok(Some(ti)) => {
+                let (wait_pid, _, _) = ti;
+                assert!(wait_pid == pid);
+                return Some(ti);
+            },
             Ok(None) => {
                 if block {
                     panic!("wait4 empty result");
@@ -48,12 +51,14 @@ fn wait(block: bool) -> Option<sys::WaitInfo> {
 //------------------------------------------------------------------------------
 
 type ErrorsFuture = tokio::task::JoinHandle<Vec<String>>;
+type ProcTask = tokio::task::JoinHandle<sys::WaitInfo>;
 
 /// A proc we're running, or that has terminated.
 struct Proc {
     pub pid: pid_t,
 
     pub errors_future: ErrorsFuture,
+    pub proc_task: ProcTask,
 
     /// None while the proc is running; the result of wait4() once the proc has
     /// terminated and been cleaned up.
@@ -73,10 +78,11 @@ impl Procs {
         }
     }
 
-    pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture) {
+    pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture, proc_task: ProcTask) {
         self.procs.push(Proc {
             pid,
             errors_future,
+            proc_task,
             wait_info: None,
         });
         self.num_running += 1;
@@ -120,6 +126,18 @@ impl Procs {
     }
 }
 
+async fn proc_task(proc: &mut Proc, sigchld_receiver: sig::SignalReceiver) {
+    loop {
+        sigchld_receiver.await;
+        if let Some(wait_info) = wait(proc.pid, false) {
+            // Process terminated.
+            let old_wait_info = proc.wait_info.replace(wait_info);
+            assert!(old_wait_info.is_none());
+            break;
+        }
+    }
+}
+
 //------------------------------------------------------------------------------
 
 #[tokio::main(flavor = "current_thread")]
@@ -135,11 +153,6 @@ async fn main() {
     });
     eprintln!("input: {:?}", input);
     eprintln!("");
-
-    let mut result = res::Res::new();
-
-    // Set up the selector, which will manage events while the child runs.
-    let mut select = sel::Select::new();
 
     // Build the objects presenting each of the file descriptors in each proc.
     let mut fds = input
@@ -164,6 +177,12 @@ async fn main() {
         })
         .collect::<Vec<_>>();
 
+    let mut result = res::Res::new();
+
+    let (sigchld_watcher, sigchld_receiver) =
+        sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
+    let sigchld_task = tokio::spawn(sigchld_watcher);
+
     let mut procs = Procs::new();
     for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
         let env = environ::build(std::env::vars(), &spec.env);
@@ -180,16 +199,16 @@ async fn main() {
                 let error_writer = error_pipe.in_child().unwrap();
 
                 let mut ok = true;
-                for fd in &mut *proc_fds {
-                    fd.set_up_in_child().unwrap_or_else(|err| {
-                        error_writer.try_write(format!(
-                            "failed to set up fd {}: {}",
-                            fd.get_fd(),
-                            err
-                        ));
-                        ok = false;
-                    });
-                }
+                // for fd in &mut *proc_fds {
+                //     fd.set_up_in_child().unwrap_or_else(|err| {
+                //         error_writer.try_write(format!(
+                //             "failed to set up fd {}: {}",
+                //             fd.get_fd(),
+                //             err
+                //         ));
+                //         ok = false;
+                //     });
+                // }
                 if ok {
                     let exe = &spec.argv[0];
                     // execve() only returns with an error; on success, the program is
@@ -202,57 +221,57 @@ async fn main() {
 
             Ok(child_pid) => {
                 // Parent process.
+
+                // Start a task to receive errors from the child.
                 let errors_future = tokio::spawn(error_pipe.in_parent());
+                // Start a task to wait for the child to complete.
+                let proc_task = tokio::spawn(proc_task(&mut proc, sigchld_receiver.clone()));
                 // Construct the record of this running proc.
-                procs.push(child_pid, errors_future);
+                procs.push(child_pid, errors_future, proc_task);
             }
 
             Err(err) => panic!("failed to fork: {}", err),
         }
     }
 
-    // Install a SIGCHLD signal handler that sets a flag.  This way we know when
-    // a proc has terminated.
-    let sigchld_flag = sig::SignalFlag::new(libc::SIGCHLD);
+    // // Finish setting up all file descriptors for all procs.
+    // for proc_fds in &mut fds {
+    //     for fd in proc_fds {
+    //         let f = fd.get_fd();
+    //         match (*fd).set_up_in_parent() {
+    //             Err(err) => result
+    //                 .errors
+    //                 .push(format!("failed to set up fd {}: {}", f, err)),
+    //             Ok(None) => (),
+    //             Ok(Some(read)) => select.insert_reader(read),
+    //         };
+    //     }
+    // }
 
-    // Finish setting up all file descriptors for all procs.
-    for proc_fds in &mut fds {
-        for fd in proc_fds {
-            let f = fd.get_fd();
-            match (*fd).set_up_in_parent() {
-                Err(err) => result
-                    .errors
-                    .push(format!("failed to set up fd {}: {}", f, err)),
-                Ok(None) => (),
-                Ok(Some(read)) => select.insert_reader(read),
-            };
-        }
-    }
-
-    // Clean up procs that might have completed already.
-    procs.wait_any();
-    // Now we wait for the procs to run.
-    while select.any() {
-        match select.select(None) {
-            Ok(_) => {
-                // select did something.  Keep going.
-            }
-            Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
-                // select interrupted, possibly by SIGCHLD.  Keep going.
-            }
-            Err(err) => {
-                panic!("select failed: {}", err)
-            }
-        };
-        // If we received SIGCHLD, clean up any terminated procs.
-        if sigchld_flag.get() {
-            procs.wait_any();
-        }
-    }
-    std::mem::drop(select);
+    // // Clean up procs that might have completed already.
+    // procs.wait_any();
+    // // Now we wait for the procs to run.
+    // while select.any() {
+    //     match select.select(None) {
+    //         Ok(_) => {
+    //             // select did something.  Keep going.
+    //         }
+    //         Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
+    //             // select interrupted, possibly by SIGCHLD.  Keep going.
+    //         }
+    //         Err(err) => {
+    //             panic!("select failed: {}", err)
+    //         }
+    //     };
+    //     // If we received SIGCHLD, clean up any terminated procs.
+    //     if sigchld_flag.get() {
+    //         procs.wait_any();
+    //     }
+    // }
+    // std::mem::drop(select);
 
     // Wait for all remaining procs to terminate and clean them up.
-    procs.wait_all();
+    // procs.wait_all();
 
     // Collect proc results.
     for (proc, fds) in procs.into_iter().zip(fds.into_iter()) {

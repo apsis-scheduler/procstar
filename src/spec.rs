@@ -1,7 +1,9 @@
+use crate::err::SpecError;
 use crate::sys::fd_t;
 use libc::c_int;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
@@ -277,6 +279,7 @@ impl Default for Fd {
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct Proc {
+    pub id: Option<String>,
     pub argv: Vec<String>,
     pub env: Env,
     pub fds: Vec<(String, Fd)>,
@@ -303,4 +306,45 @@ pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
 
     // Return the spec.
     Ok(spec)
+}
+
+//------------------------------------------------------------------------------
+
+/// Checks that no two specs have the same ID, and assigns in place an unused ID
+/// to each spec that doesn't already have one.
+pub fn assign_ids(input: &mut Input) -> std::result::Result<(), SpecError> {
+    // Collecting existing IDs, and also duplicates.
+    let mut ids = HashSet::<String>::new();
+    let mut dups = HashSet::<String>::new();
+    for proc in &mut input.procs {
+        if let Some(id) = proc.id.clone() {
+            if let Some(existing_id) = ids.replace(id) {
+                dups.insert(existing_id);
+            }
+        }
+    }
+
+    // Assign an unused ID, generated from consecutive integers, to any spec
+    // that doesn't already have an ID.
+    let mut next: u64 = 0;
+    for proc in &mut input.procs {
+        if proc.id.is_none() {
+            let id = loop {
+                let id: String = next.to_string();
+                next += 1;
+                if ! ids.contains(&id) {
+                    break id;
+                }
+            };
+
+            ids.insert(id.clone());
+            proc.id = Some(id);
+        }
+    }
+
+    if dups.len() == 0 {
+        Ok(())
+    } else {
+        Err(SpecError::DupId(dups.into_iter().collect::<Vec<_>>()))
+    }
 }

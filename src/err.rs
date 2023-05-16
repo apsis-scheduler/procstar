@@ -1,8 +1,24 @@
-/// All the potentially user-visible things that can go wrong while setting up
-/// or running a process.
+/// An error in the specification of a process.
+#[derive(Debug)]
+pub enum SpecError {
+    DupId(Vec<String>),
+}
+
+impl std::fmt::Display for SpecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SpecError::DupId(ids) => {
+                f.write_str("duplicate IDs: ")?;
+                f.write_str(&ids.join(" "))
+            },
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 
+/// All the potentially user-visible things that can go wrong while setting up
+/// or running a process.
 #[derive(Debug)]
 pub enum Error {
     Eof,

@@ -169,7 +169,18 @@ impl SignalFlag {
 
 //------------------------------------------------------------------------------
 
-pub type SignalReceiver = Receiver<()>;
+#[derive(Clone)]
+pub struct SignalReceiver(Receiver<()>);
+
+impl SignalReceiver {
+    /// Blocks until a signal has been received.
+    pub async fn signal(&mut self) {
+        // changed() returns Error only if the sender is dropped, which it
+        // shouldn't be because the signal watcher task runs in an infinite
+        // loop.
+        self.0.changed().await.unwrap();
+    }
+}
 
 pub struct SignalWatcher {
     stream: Signal,
@@ -185,17 +196,15 @@ impl SignalWatcher {
                 stream,
                 sender,
             },
-            receiver
+            SignalReceiver(receiver)
         )
     }
 
-    pub async fn watch(&mut self) {
+    pub async fn watch(mut self) {
         // Transmit all incoming signal events to the watch channel, until all
         // channel receivers are closed.
         loop {
-            println!("waiting for signal");
             self.stream.recv().await.expect("signal watcher stream recv");
-            println!("received signal");
             match self.sender.send(()) {
                 Ok(()) => {},
                 Err(SendError(())) => break,

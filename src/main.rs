@@ -8,7 +8,7 @@ extern crate maplit;
 use libc::pid_t;
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
-use procstar::fd::parse_fd;
+// use procstar::fd::parse_fd;
 use procstar::res;
 use procstar::sig;
 use procstar::spec;
@@ -51,89 +51,95 @@ fn wait(pid: pid_t, block: bool) -> Option<sys::WaitInfo> {
 //------------------------------------------------------------------------------
 
 type ErrorsFuture = tokio::task::JoinHandle<Vec<String>>;
-type ProcTask = tokio::task::JoinHandle<sys::WaitInfo>;
+type WaitFuture = tokio::task::JoinHandle<sys::WaitInfo>;
 
-/// A proc we're running, or that has terminated.
-struct Proc {
+struct RunningProc {
     pub pid: pid_t,
-
-    pub errors_future: ErrorsFuture,
-    pub proc_task: ProcTask,
-
-    /// None while the proc is running; the result of wait4() once the proc has
-    /// terminated and been cleaned up.
-    pub wait_info: Option<sys::WaitInfo>,
+    pub errors_task: ErrorsFuture,
+    pub wait_task: WaitFuture,
 }
 
-struct Procs {
-    procs: Vec<Proc>,
-    num_running: usize,
-}
+// /// A proc we're running, or that has terminated.
+// struct Proc {
+//     pub pid: pid_t,
 
-impl Procs {
-    pub fn new() -> Self {
-        Self {
-            procs: Vec::new(),
-            num_running: 0,
-        }
-    }
+//     pub errors_future: ErrorsFuture,
 
-    pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture, proc_task: ProcTask) {
-        self.procs.push(Proc {
-            pid,
-            errors_future,
-            proc_task,
-            wait_info: None,
-        });
-        self.num_running += 1;
-    }
+//     /// None while the proc is running; the result of wait4() once the proc has
+//     /// terminated and been cleaned up.
+//     pub wait_info: Option<sys::WaitInfo>,
+// }
 
-    fn wait(&mut self, block: bool) {
-        while self.num_running > 0 {
-            if let Some(wait_info) = wait(block) {
-                let pid = wait_info.0;
-                let mut pid_found = false;
-                for proc in &mut self.procs {
-                    if proc.pid == pid {
-                        assert!(proc.wait_info.replace(wait_info).is_none());
-                        self.num_running -= 1;
-                        pid_found = true;
-                        break;
-                    }
-                }
-                assert!(pid_found, "wait returned unexpected pid: {}", pid);
-            } else {
-                assert!(!block, "blocking wait returned no pid");
-                break;
-            }
-        }
-    }
+// struct Procs {
+//     procs: Vec<Proc>,
+//     num_running: usize,
+// }
 
-    /// Waits any procs that terminated and are zombies, and stores their wait
-    /// info.
-    pub fn wait_any(&mut self) {
-        self.wait(false);
-    }
+// impl Procs {
+//     pub fn new() -> Self {
+//         Self {
+//             procs: Vec::new(),
+//             num_running: 0,
+//         }
+//     }
 
-    /// Blocks and waits for all remaining procs to terminate, and stores their
-    /// wait info.
-    pub fn wait_all(&mut self) {
-        self.wait(true);
-    }
+//     pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture, proc_task: ProcTask) {
+//         self.procs.push(Proc {
+//             pid,
+//             errors_future,
+//             proc_task,
+//             wait_info: None,
+//         });
+//         self.num_running += 1;
+//     }
 
-    pub fn into_iter(self) -> std::vec::IntoIter<Proc> {
-        self.procs.into_iter()
-    }
-}
+//     fn wait(&mut self, block: bool) {
+//         while self.num_running > 0 {
+//             if let Some(wait_info) = wait(-1, block) {
+//                 let pid = wait_info.0;
+//                 let mut pid_found = false;
+//                 for proc in &mut self.procs {
+//                     if proc.pid == pid {
+//                         assert!(proc.wait_info.replace(wait_info).is_none());
+//                         self.num_running -= 1;
+//                         pid_found = true;
+//                         break;
+//                     }
+//                 }
+//                 assert!(pid_found, "wait returned unexpected pid: {}", pid);
+//             } else {
+//                 assert!(!block, "blocking wait returned no pid");
+//                 break;
+//             }
+//         }
+//     }
 
-async fn proc_task(proc: &mut Proc, sigchld_receiver: sig::SignalReceiver) {
+//     /// Waits any procs that terminated and are zombies, and stores their wait
+//     /// info.
+//     pub fn wait_any(&mut self) {
+//         self.wait(false);
+//     }
+
+//     /// Blocks and waits for all remaining procs to terminate, and stores their
+//     /// wait info.
+//     pub fn wait_all(&mut self) {
+//         self.wait(true);
+//     }
+
+//     pub fn into_iter(self) -> std::vec::IntoIter<Proc> {
+//         self.procs.into_iter()
+//     }
+// }
+
+async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) -> sys::WaitInfo {
     loop {
-        sigchld_receiver.await;
-        if let Some(wait_info) = wait(proc.pid, false) {
+        // Wait until the process receives SIGCHLD.  
+        sigchld_receiver.signal().await;
+
+        // Check if this pid has terminated, with a nonblocking wait.
+        if let Some(wait_info) = wait(pid, false) {
             // Process terminated.
-            let old_wait_info = proc.wait_info.replace(wait_info);
-            assert!(old_wait_info.is_none());
-            break;
+            return wait_info;
         }
     }
 }
@@ -147,44 +153,50 @@ async fn main() {
         None => panic!("no file given"), // FIXME
     };
 
-    let input = spec::load_file(&json_path).unwrap_or_else(|err| {
+    let mut input = spec::load_file(&json_path).unwrap_or_else(|err| {
         eprintln!("failed to load {}: {}", json_path, err);
         std::process::exit(exitcode::OSFILE);
     });
     eprintln!("input: {:?}", input);
     eprintln!("");
 
-    // Build the objects presenting each of the file descriptors in each proc.
-    let mut fds = input
-        .procs
-        .iter()
-        .map(|spec| {
-            spec.fds
-                .iter()
-                .map(|(fd_str, fd_spec)| {
-                    // FIXME: Parse when deserializing, rather than here.
-                    let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
-                        eprintln!("failed to parse fd {}: {}", fd_str, err);
-                        std::process::exit(exitcode::OSERR);
-                    });
+    spec::assign_ids(&mut input).unwrap_or_else(|err| {
+        eprintln!("failed to parse {}: {}", json_path, err);
+        std::process::exit(exitcode::OSFILE);
+    });
 
-                    procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
-                        eprintln!("failed to create fd {}: {}", fd_str, err);
-                        std::process::exit(exitcode::OSERR);
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    // // Build the objects presenting each of the file descriptors in each proc.
+    // let mut fds = input
+    //     .procs
+    //     .iter()
+    //     .map(|spec| {
+    //         spec.fds
+    //             .iter()
+    //             .map(|(fd_str, fd_spec)| {
+    //                 // FIXME: Parse when deserializing, rather than here.
+    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
+    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 });
+
+    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
+    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 })
+    //             })
+    //             .collect::<Vec<_>>()
+    //     })
+    //     .collect::<Vec<_>>();
 
     let mut result = res::Res::new();
 
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
-    let sigchld_task = tokio::spawn(sigchld_watcher);
+    let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
 
-    let mut procs = Procs::new();
-    for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
+    let mut running_procs = Vec::<RunningProc>::new();
+    // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
+    for spec in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
@@ -199,6 +211,7 @@ async fn main() {
                 let error_writer = error_pipe.in_child().unwrap();
 
                 let mut ok = true;
+
                 // for fd in &mut *proc_fds {
                 //     fd.set_up_in_child().unwrap_or_else(|err| {
                 //         error_writer.try_write(format!(
@@ -209,6 +222,7 @@ async fn main() {
                 //         ok = false;
                 //     });
                 // }
+
                 if ok {
                     let exe = &spec.argv[0];
                     // execve() only returns with an error; on success, the program is
@@ -223,11 +237,15 @@ async fn main() {
                 // Parent process.
 
                 // Start a task to receive errors from the child.
-                let errors_future = tokio::spawn(error_pipe.in_parent());
+                let errors_task = tokio::spawn(error_pipe.in_parent());
                 // Start a task to wait for the child to complete.
-                let proc_task = tokio::spawn(proc_task(&mut proc, sigchld_receiver.clone()));
+                let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
                 // Construct the record of this running proc.
-                procs.push(child_pid, errors_future, proc_task);
+                running_procs.push(RunningProc {
+                    pid: child_pid,
+                    errors_task,
+                    wait_task,
+                });
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -274,32 +292,33 @@ async fn main() {
     // procs.wait_all();
 
     // Collect proc results.
-    for (proc, fds) in procs.into_iter().zip(fds.into_iter()) {
-        let errors = proc.errors_future.await.unwrap(); // FIXME
-        let (_, status, rusage) = proc.wait_info.unwrap();
+    // for (proc, fds) in running_procs.into_iter().zip(fds.into_iter()) {
+    for proc in running_procs.into_iter() {
+        let errors = proc.errors_task.await.unwrap(); // FIXME
+        let (_, status, rusage) = proc.wait_task.await.unwrap();
 
         // Build the proc res.
-        let mut proc_res = res::ProcRes::new(errors, proc.pid, status, rusage);
+        let proc_res = res::ProcRes::new(errors, proc.pid, status, rusage);
 
-        // Build fd res's into it.
-        for mut fd in fds {
-            match fd.clean_up_in_parent() {
-                Ok(Some(fd_result)) => {
-                    proc_res
-                        .fds
-                        .insert(procstar::fd::get_fd_name(fd.get_fd()), fd_result);
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    proc_res
-                        .fds
-                        .insert(procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
-                    result
-                        .errors
-                        .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
-                }
-            };
-        }
+        // // Build fd res's into it.
+        // for mut fd in fds {
+        //     match fd.clean_up_in_parent() {
+        //         Ok(Some(fd_result)) => {
+        //             proc_res
+        //                 .fds
+        //                 .insert(procstar::fd::get_fd_name(fd.get_fd()), fd_result);
+        //         }
+        //         Ok(None) => {}
+        //         Err(err) => {
+        //             proc_res
+        //                 .fds
+        //                 .insert(procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
+        //             result
+        //                 .errors
+        //                 .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
+        //         }
+        //     };
+        // }
 
         result.procs.push(proc_res);
     }

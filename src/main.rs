@@ -9,6 +9,7 @@ use libc::pid_t;
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 // use procstar::fd::parse_fd;
+use procstar::input;
 use procstar::res;
 use procstar::sig;
 use procstar::spec;
@@ -24,7 +25,7 @@ fn wait(pid: pid_t, block: bool) -> Option<sys::WaitInfo> {
                 let (wait_pid, _, _) = ti;
                 assert!(wait_pid == pid);
                 return Some(ti);
-            },
+            }
             Ok(None) => {
                 if block {
                     panic!("wait4 empty result");
@@ -133,7 +134,7 @@ struct RunningProc {
 
 async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) -> sys::WaitInfo {
     loop {
-        // Wait until the process receives SIGCHLD.  
+        // Wait until the process receives SIGCHLD.
         sigchld_receiver.signal().await;
 
         // Check if this pid has terminated, with a nonblocking wait.
@@ -153,15 +154,16 @@ async fn main() {
         None => panic!("no file given"), // FIXME
     };
 
-    let mut input = spec::load_file(&json_path).unwrap_or_else(|err| {
+    let input = input::load_file(&json_path).unwrap_or_else(|err| {
         eprintln!("failed to load {}: {}", json_path, err);
         std::process::exit(exitcode::OSFILE);
     });
     eprintln!("input: {:?}", input);
     eprintln!("");
 
-    spec::assign_ids(&mut input).unwrap_or_else(|err| {
-        eprintln!("failed to parse {}: {}", json_path, err);
+    let proc_specs = spec::map_by_id(input.procs).unwrap_or_else(|(_, dups)| {
+        let dup_ids = dups.into_iter().map(|s| { s.id.unwrap() }).collect::<Vec<_>>().join(" ");
+        eprintln!("duplicate IDs: {}", dup_ids);
         std::process::exit(exitcode::OSFILE);
     });
 
@@ -196,7 +198,7 @@ async fn main() {
 
     let mut running_procs = Vec::<RunningProc>::new();
     // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
-    for spec in input.procs.into_iter() {
+    for (_id, spec) in proc_specs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {

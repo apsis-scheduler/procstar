@@ -1,21 +1,24 @@
-use crate::spec;
+use crate::input;
 use std::collections::BTreeMap;
 
 //------------------------------------------------------------------------------
 
-pub type Env = BTreeMap<String, String>;  // FIXME: Use OsString instead?
+pub type Env = BTreeMap<String, String>; // FIXME: Use OsString instead?
 
 //------------------------------------------------------------------------------
 
-pub fn build(start_env: std::env::Vars, spec: &spec::Env) -> Env {
-    start_env.filter(|(env_var, _)| {
-        match &spec.inherit {
-            spec::EnvInherit::None => false,
-            spec::EnvInherit::All => true,
-            spec::EnvInherit::Vars(vars) => vars.contains(env_var),
-        }
-    })
-        .chain((&spec.vars).into_iter().map(|(n, v)| (n.clone(), v.clone())))
+pub fn build(start_env: std::env::Vars, input: &input::Env) -> Env {
+    start_env
+        .filter(|(env_var, _)| match &input.inherit {
+            input::EnvInherit::None => false,
+            input::EnvInherit::All => true,
+            input::EnvInherit::Vars(vars) => vars.contains(env_var),
+        })
+        .chain(
+            (&input.vars)
+                .into_iter()
+                .map(|(n, v)| (n.clone(), v.clone())),
+        )
         .collect()
 }
 
@@ -23,20 +26,24 @@ pub fn build(start_env: std::env::Vars, spec: &spec::Env) -> Env {
 
 #[cfg(test)]
 mod tests {
+    use super::input::EnvInherit::*;
     use super::*;
-    use super::spec::EnvInherit::*;
 
-    fn assert_json(json: &'static str, expected: spec::Env) {
+    fn assert_json(json: &'static str, expected: input::Env) {
         assert_eq!(
-            serde_json::from_str::<'static, spec::Env>(json).unwrap(),
-            expected);
+            serde_json::from_str::<'static, input::Env>(json).unwrap(),
+            expected
+        );
     }
 
     #[test]
     fn empty() {
         assert_json(
-            r#" {} "#, 
-            spec::Env { inherit: All, ..Default::default() }
+            r#" {} "#,
+            input::Env {
+                inherit: All,
+                ..Default::default()
+            },
         );
     }
 
@@ -44,7 +51,10 @@ mod tests {
     fn inherit_none() {
         assert_json(
             r#" {"inherit": false} "#,
-            spec::Env { inherit: None, ..Default::default() }
+            input::Env {
+                inherit: None,
+                ..Default::default()
+            },
         );
     }
 
@@ -52,14 +62,14 @@ mod tests {
     fn inherit_vars() {
         assert_json(
             r#" {"inherit": ["HOME", "USER", "PATH"]} "#,
-            spec::Env {
-                inherit: Vars(vec!(
+            input::Env {
+                inherit: Vars(vec![
                     "HOME".to_string(),
                     "USER".to_string(),
-                    "PATH".to_string())
-                ),
+                    "PATH".to_string(),
+                ]),
                 ..Default::default()
-            }
+            },
         );
     }
 
@@ -67,15 +77,13 @@ mod tests {
     fn vars() {
         assert_json(
             r#" {"vars": {"FOO": "42", "BAR": "somewhere with drinks"}} "#,
-            spec::Env {
-                vars: btreemap!{
+            input::Env {
+                vars: btreemap! {
                     "FOO".to_string() => "42".to_string(),
                     "BAR".to_string() => "somewhere with drinks".to_string(),
                 },
                 ..Default::default()
-            }
+            },
         );
     }
-
 }
-

@@ -2,15 +2,15 @@ use crate::err::{Error, Result};
 use crate::fdio;
 use crate::res::FdRes;
 use crate::sel;
-use crate::spec;
+use crate::input;
 use crate::sys;
 use crate::sys::fd_t;
+use libc;
 use std::io;
 use std::io::Read;
 use std::io::Seek;
 use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
-use libc;
 
 //------------------------------------------------------------------------------
 
@@ -33,21 +33,21 @@ pub fn get_fd_name(fd: fd_t) -> String {
 }
 
 // FIXME: Generalize: split out R/W/RW from file creation flags.
-fn get_oflags(flags: &spec::OpenFlag, fd: fd_t) -> libc::c_int {
-    use spec::OpenFlag::*;
+fn get_oflags(flags: &input::OpenFlag, fd: fd_t) -> libc::c_int {
+    use input::OpenFlag::*;
     match flags {
         Default => match fd {
-            0           => libc::O_RDONLY,
-            1 | 2       => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
-            _           => libc::O_RDWR   | libc::O_CREAT | libc::O_TRUNC,
+            0 => libc::O_RDONLY,
+            1 | 2 => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+            _ => libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
         },
-        Read            => libc::O_RDONLY,
-        Write           => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
-        Create          => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
-        Replace         => libc::O_WRONLY                 | libc::O_TRUNC,
-        Append          => libc::O_WRONLY                 | libc::O_APPEND,
-        CreateAppend    => libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
-        ReadWrite       => libc::O_RDWR   | libc::O_CREAT | libc::O_TRUNC,
+        Read => libc::O_RDONLY,
+        Write => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        Create => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        Replace => libc::O_WRONLY | libc::O_TRUNC,
+        Append => libc::O_WRONLY | libc::O_APPEND,
+        CreateAppend => libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
+        ReadWrite => libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
     }
 }
 
@@ -78,11 +78,15 @@ struct Inherit {
 }
 
 impl Fd for Inherit {
-    fn get_fd(&self) -> fd_t { self.fd }
+    fn get_fd(&self) -> fd_t {
+        self.fd
+    }
 }
 
 impl Inherit {
-    fn new(fd: fd_t) -> Inherit { Inherit { fd } }
+    fn new(fd: fd_t) -> Inherit {
+        Inherit { fd }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -98,7 +102,9 @@ impl Close {
 }
 
 impl Fd for Close {
-    fn get_fd(&self) -> fd_t { self.fd }
+    fn get_fd(&self) -> fd_t {
+        self.fd
+    }
 
     fn set_up_in_child(&mut self) -> io::Result<()> {
         sys::close(self.fd)?;
@@ -116,19 +122,22 @@ struct File {
 }
 
 impl File {
-    fn new(fd: fd_t, path: PathBuf, flags: spec::OpenFlag, mode: libc::c_int)
-        -> File
-    {
-        File { fd, path, oflags: get_oflags(&flags, fd), mode }
+    fn new(fd: fd_t, path: PathBuf, flags: input::OpenFlag, mode: libc::c_int) -> File {
+        File {
+            fd,
+            path,
+            oflags: get_oflags(&flags, fd),
+            mode,
+        }
     }
 }
-        
 
 impl Fd for File {
-    fn get_fd(&self) -> fd_t { self.fd }
+    fn get_fd(&self) -> fd_t {
+        self.fd
+    }
 
-    fn set_up_in_child(&mut self) -> io::Result<()>
-    {
+    fn set_up_in_child(&mut self) -> io::Result<()> {
         let file_fd = sys::open(&self.path, self.oflags, self.mode)?;
         sys::dup2(file_fd, self.fd)?;
         sys::close(file_fd)?;
@@ -136,7 +145,9 @@ impl Fd for File {
     }
 
     fn clean_up_in_parent(&mut self) -> io::Result<Option<FdRes>> {
-        Ok(Some(FdRes::File { path: self.path.clone() }))
+        Ok(Some(FdRes::File {
+            path: self.path.clone(),
+        }))
     }
 }
 
@@ -155,7 +166,9 @@ impl Dup {
 }
 
 impl Fd for Dup {
-    fn get_fd(&self) -> fd_t { self.fd }
+    fn get_fd(&self) -> fd_t {
+        self.fd
+    }
 
     fn set_up_in_child(&mut self) -> io::Result<()> {
         sys::dup2(self.dup_fd, self.fd)?;
@@ -170,14 +183,14 @@ impl Fd for Dup {
 struct TempFileCapture {
     fd: fd_t,
     tmp_fd: fd_t,
-    format: spec::CaptureFormat,
+    format: input::CaptureFormat,
 }
 
 // FIXME: Template.
 const TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 
 impl TempFileCapture {
-    fn new(fd: fd_t, format: spec::CaptureFormat) -> Result<TempFileCapture> {
+    fn new(fd: fd_t, format: input::CaptureFormat) -> Result<TempFileCapture> {
         let (tmp_path, tmp_fd) = sys::mkstemp(TMP_TEMPLATE)?;
         std::fs::remove_file(tmp_path)?;
         Ok(TempFileCapture { fd, tmp_fd, format })
@@ -185,7 +198,9 @@ impl TempFileCapture {
 }
 
 impl Fd for TempFileCapture {
-    fn get_fd(&self) -> fd_t { self.fd }
+    fn get_fd(&self) -> fd_t {
+        self.fd
+    }
 
     fn set_up_in_child(&mut self) -> io::Result<()> {
         sys::dup2(self.tmp_fd, self.fd)?;
@@ -223,14 +238,14 @@ pub struct MemoryCapture {
     write_fd: fd_t,
 
     /// Format for output.
-    format: spec::CaptureFormat,
+    format: input::CaptureFormat,
 
     /// Captured output.
     buf: Vec<u8>,
 }
 
 impl MemoryCapture {
-    fn new(fd: fd_t, format: spec::CaptureFormat) -> Result<MemoryCapture> {
+    fn new(fd: fd_t, format: input::CaptureFormat) -> Result<MemoryCapture> {
         let (read_fd, write_fd) = sys::pipe()?;
         Ok(MemoryCapture {
             fd,
@@ -284,25 +299,18 @@ impl Fd for MemoryCapture {
 
 //------------------------------------------------------------------------------
 
-pub fn create_fd(fd: fd_t, fd_spec: &spec::Fd) -> Result<Box<dyn Fd>> {
-    Ok(match fd_spec {
-        spec::Fd::Inherit
-            => Box::new(Inherit::new(fd)),
-        spec::Fd::Close
-            => Box::new(Close::new(fd)),
-        spec::Fd::Null { flags }
-            => Box::new(File::new(fd, PathBuf::from("/dev/null"), *flags, 0)),
-        spec::Fd::File { path, flags, mode }
-            => Box::new(File::new(fd, path.to_path_buf(), *flags, *mode)),
-        spec::Fd::Dup { fd: other_fd }
-            => Box::new(Dup::new(fd, *other_fd)),
-        spec::Fd::Capture { mode, format }
-            => match mode {
-                spec::CaptureMode::TempFile
-                    => Box::new(TempFileCapture::new(fd, *format)?),
-                spec::CaptureMode::Memory
-                    => Box::new(MemoryCapture::new(fd, *format)?),
-            },
+pub fn create_fd(fd: fd_t, fd_input: &input::Fd) -> Result<Box<dyn Fd>> {
+    Ok(match fd_input {
+        input::Fd::Inherit => Box::new(Inherit::new(fd)),
+        input::Fd::Close => Box::new(Close::new(fd)),
+        input::Fd::Null { flags } => Box::new(File::new(fd, PathBuf::from("/dev/null"), *flags, 0)),
+        input::Fd::File { path, flags, mode } => {
+            Box::new(File::new(fd, path.to_path_buf(), *flags, *mode))
+        }
+        input::Fd::Dup { fd: other_fd } => Box::new(Dup::new(fd, *other_fd)),
+        input::Fd::Capture { mode, format } => match mode {
+            input::CaptureMode::TempFile => Box::new(TempFileCapture::new(fd, *format)?),
+            input::CaptureMode::Memory => Box::new(MemoryCapture::new(fd, *format)?),
+        },
     })
 }
-

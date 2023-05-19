@@ -332,7 +332,7 @@ pub fn assign_ids(input: &mut Input) -> std::result::Result<(), SpecError> {
             let id = loop {
                 let id: String = next.to_string();
                 next += 1;
-                if ! ids.contains(&id) {
+                if !ids.contains(&id) {
                     break id;
                 }
             };

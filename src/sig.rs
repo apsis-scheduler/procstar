@@ -3,29 +3,29 @@ extern crate libc;
 use libc::{c_int, sigset_t};
 use std::io;
 
-use tokio::signal::unix::{signal, SignalKind, Signal};
-use tokio::sync::watch::{channel, Sender, Receiver};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::watch::error::SendError;
+use tokio::sync::watch::{channel, Receiver, Sender};
 
 //------------------------------------------------------------------------------
 
 /// Signal handler callback fn.
 // FIXME: ucontext_t?
-// FIXME: Handler type has to be predicated on flags & SA_SIGINFO.  With 
+// FIXME: Handler type has to be predicated on flags & SA_SIGINFO.  With
 //        SA_SIGINFO, the signature is,
 //            extern "system" fn(c_int, *const libc::siginfo_t, *const libc::c_void);
 type Sighandler = extern "system" fn(c_int) -> ();
 
-pub fn empty_sigset() -> sigset_t
-{
+pub fn empty_sigset() -> sigset_t {
     unsafe { std::mem::zeroed() }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn make_sigaction(
-    sa_sigaction: libc::sighandler_t, sa_mask: sigset_t, 
-    sa_flags: c_int) -> libc::sigaction
-{
+    sa_sigaction: libc::sighandler_t,
+    sa_mask: sigset_t,
+    sa_flags: c_int,
+) -> libc::sigaction {
     libc::sigaction {
         sa_sigaction,
         sa_mask,
@@ -35,24 +35,20 @@ fn make_sigaction(
 
 #[cfg(target_os = "linux")]
 fn make_sigaction(
-    sa_sigaction: libc::sighandler_t, sa_mask: sigset_t, 
-    sa_flags: c_int) -> libc::sigaction
-{
+    sa_sigaction: libc::sighandler_t,
+    sa_mask: sigset_t,
+    sa_flags: c_int,
+) -> libc::sigaction {
     libc::sigaction {
         sa_sigaction,
         sa_mask,
         sa_flags,
-        sa_restorer: None,  // Linux only
+        sa_restorer: None, // Linux only
     }
 }
 
-fn empty_sigaction() -> libc::sigaction
-{
-    make_sigaction(
-        libc::SIG_DFL,
-        empty_sigset(),
-        0,
-    )
+fn empty_sigaction() -> libc::sigaction {
+    make_sigaction(libc::SIG_DFL, empty_sigset(), 0)
 }
 
 impl std::convert::Into<libc::sigaction> for Sigaction {
@@ -101,14 +97,13 @@ pub struct Sigaction {
 ///
 /// If sigaction is `Some`, sets the signal action and returns the previous.  If
 /// sigaction is `None`, retrieves the signal action without changing it.
-pub fn sigaction(signum: c_int, sigaction: Option<Sigaction>) -> io::Result<Sigaction>
-{
+pub fn sigaction(signum: c_int, sigaction: Option<Sigaction>) -> io::Result<Sigaction> {
     let act: libc::sigaction;
     let act_ptr = match sigaction {
         Some(sa) => {
             act = sa.into();
             &act
-        },
+        }
         None => std::ptr::null(),
     };
     let mut old = empty_sigaction();
@@ -140,21 +135,29 @@ impl SignalFlag {
         extern "system" fn handler(signum: c_int) {
             // Accessing a static global is in general not threadsafe, but this
             // signal handler will only ever be called on the main thread.
-            unsafe { SIGNAL_FLAGS[signum as usize] = true; }
+            unsafe {
+                SIGNAL_FLAGS[signum as usize] = true;
+            }
         }
 
         // Set up the handler.
         // FIXME: Check that we're not colliding with an existing handler.
-        sigaction(signum, Some(Sigaction {
-            disposition: Sigdisposition::Handler(handler),
-            mask: empty_sigset(),
-            flags: libc::SA_NOCLDSTOP,
-        })).unwrap_or_else(|err| {
+        sigaction(
+            signum,
+            Some(Sigaction {
+                disposition: Sigdisposition::Handler(handler),
+                mask: empty_sigset(),
+                flags: libc::SA_NOCLDSTOP,
+            }),
+        )
+        .unwrap_or_else(|err| {
             eprintln!("sigaction failed: {}", err);
             std::process::exit(exitcode::OSERR);
         });
 
-        Self { signum: signum as usize }
+        Self {
+            signum: signum as usize,
+        }
     }
 
     /// Retrieves the flag value, and clears it.
@@ -191,25 +194,21 @@ impl SignalWatcher {
     pub fn new(kind: SignalKind) -> (SignalWatcher, SignalReceiver) {
         let stream = signal(kind).unwrap();
         let (sender, receiver) = channel(());
-        (
-            SignalWatcher {
-                stream,
-                sender,
-            },
-            SignalReceiver(receiver)
-        )
+        (SignalWatcher { stream, sender }, SignalReceiver(receiver))
     }
 
     pub async fn watch(mut self) {
         // Transmit all incoming signal events to the watch channel, until all
         // channel receivers are closed.
         loop {
-            self.stream.recv().await.expect("signal watcher stream recv");
+            self.stream
+                .recv()
+                .await
+                .expect("signal watcher stream recv");
             match self.sender.send(()) {
-                Ok(()) => {},
+                Ok(()) => {}
                 Err(SendError(())) => break,
             }
         }
     }
 }
-

@@ -3,9 +3,9 @@ extern crate libc;
 use libc::{c_int, pid_t, rusage, ssize_t};
 use std::ffi::CString;
 use std::io;
+use std::mem::MaybeUninit;
 use std::os::fd::RawFd;
 use std::path::{Path, PathBuf};
-use std::mem::MaybeUninit;
 use std::string::String;
 use std::vec::Vec;
 
@@ -31,25 +31,26 @@ struct CStringVec {
 }
 
 impl CStringVec {
-    pub fn as_ptr(&self) -> *const *const i8 { self.ptrs.as_ptr() as *const *const i8 }
+    pub fn as_ptr(&self) -> *const *const i8 {
+        self.ptrs.as_ptr() as *const *const i8
+    }
 }
 
 impl<T> From<T> for CStringVec
-where T: IntoIterator<Item = String>
+where
+    T: IntoIterator<Item = String>,
 {
     fn from(strings: T) -> Self {
         // Build nul-terminated strings.
-        let strs
-            = strings.into_iter()
-            .map(|s| { CString::new(s).unwrap() })
+        let strs = strings
+            .into_iter()
+            .map(|s| CString::new(s).unwrap())
             .collect::<Vec<_>>();
 
         // Grab their pointers into an array.
-        let mut ptrs
-            = strs.iter()
-            .map(|s| {
-                s.as_ptr() as *const i8
-            })
+        let mut ptrs = strs
+            .iter()
+            .map(|s| s.as_ptr() as *const i8)
             .collect::<Vec<_>>();
         // NULL-terminate the pointer array.
         ptrs.push(std::ptr::null());
@@ -66,10 +67,13 @@ pub struct FdSet(libc::fd_set, fd_t);
 impl FdSet {
     pub fn new() -> Self {
         let mut set = MaybeUninit::uninit();
-        FdSet(unsafe {
-            libc::FD_ZERO(set.as_mut_ptr());
-            set.assume_init()
-        }, -1)
+        FdSet(
+            unsafe {
+                libc::FD_ZERO(set.as_mut_ptr());
+                set.assume_init()
+            },
+            -1,
+        )
     }
 
     pub fn from_fds<I: Iterator<Item = fd_t>>(fds: I) -> Self {
@@ -104,8 +108,8 @@ pub fn close(fd: fd_t) -> io::Result<()> {
     let res = unsafe { libc::close(fd) };
     match res {
         -1 => Err(io::Error::last_os_error()),
-         0 => Ok(()),
-         _ => panic!("close returned {}", res),
+        0 => Ok(()),
+        _ => panic!("close returned {}", res),
     }
 }
 
@@ -119,11 +123,7 @@ pub fn dup2(fd: fd_t, fd2: fd_t) -> io::Result<()> {
 }
 
 pub fn execv(exe: String, args: Vec<String>) -> io::Result<()> {
-    let res = unsafe {
-        libc::execv(
-            exe.as_ptr() as *const i8,
-            CStringVec::from(args).as_ptr())
-    };
+    let res = unsafe { libc::execv(exe.as_ptr() as *const i8, CStringVec::from(args).as_ptr()) };
     // execv only returns on failure, with result -1.
     assert!(res == -1);
     Err(io::Error::last_os_error())
@@ -131,16 +131,18 @@ pub fn execv(exe: String, args: Vec<String>) -> io::Result<()> {
 
 pub fn execve(exe: String, args: Vec<String>, env: Env) -> io::Result<()> {
     // Construct NAME=val strings for env vars.
-    let env: Vec<String> = env.into_iter().map(|(n, v)| {
-        format!("{}={}", n, v)
-    }).collect();
+    let env: Vec<String> = env
+        .into_iter()
+        .map(|(n, v)| format!("{}={}", n, v))
+        .collect();
 
     let exe = CString::new(exe).unwrap();
     let res = unsafe {
         libc::execve(
             exe.as_ptr() as *const i8,
-            CStringVec::from(args).as_ptr(), 
-            CStringVec::from(env).as_ptr())
+            CStringVec::from(args).as_ptr(),
+            CStringVec::from(env).as_ptr(),
+        )
     };
     // execve only returns on failure, with result -1.
     assert!(res == -1);
@@ -182,7 +184,7 @@ pub fn open(path: &Path, oflag: c_int, mode: c_int) -> io::Result<fd_t> {
     match fd {
         -1 => Err(io::Error::last_os_error()),
         _ if fd >= 0 => Ok(fd),
-        _ => panic!("open returned {}", fd)
+        _ => panic!("open returned {}", fd),
     }
 }
 
@@ -199,9 +201,7 @@ pub fn pipe() -> io::Result<(RawFd, RawFd)> {
 }
 
 pub fn read(fd: fd_t, buf: &mut [u8]) -> io::Result<usize> {
-    match unsafe {
-        libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-    } {
+    match unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) } {
         -1 => Err(io::Error::last_os_error()),
         n if n >= 0 => Ok(n as usize),
         ret => panic!("read returned {}", ret),
@@ -209,29 +209,34 @@ pub fn read(fd: fd_t, buf: &mut [u8]) -> io::Result<usize> {
 }
 
 pub fn select(
-    readfds: &mut FdSet, writefds: &mut FdSet, errorfds: &mut FdSet, 
-    timeout: Option<f64>) -> io::Result<c_int>
-{
+    readfds: &mut FdSet,
+    writefds: &mut FdSet,
+    errorfds: &mut FdSet,
+    timeout: Option<f64>,
+) -> io::Result<c_int> {
     let nfds = std::cmp::max(readfds.1, std::cmp::max(writefds.1, errorfds.1)) + 1;
 
     // Linux updates timeval with remaining time, while most others don't
     // modify it.  We ignore the resulting value.
     #[allow(unused_assignments)]
-    let mut tv = libc::timeval { tv_sec: 0, tv_usec: 0 };
+    let mut tv = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
     let tvp: *mut libc::timeval = match timeout {
         Some(t) => {
             let tv_sec = t as libc::c_long;
             let tv_usec = ((t * 1e6) as i64 % 1000000) as libc::c_int;
-            tv = libc::timeval { tv_sec, tv_usec: tv_usec.into() };
+            tv = libc::timeval {
+                tv_sec,
+                tv_usec: tv_usec.into(),
+            };
             &mut tv
-        },
+        }
         None => std::ptr::null_mut(),
     };
 
-    match unsafe {
-        libc::select(
-            nfds, &mut readfds.0, &mut writefds.0, &mut errorfds.0, tvp)
-    } {
+    match unsafe { libc::select(nfds, &mut readfds.0, &mut writefds.0, &mut errorfds.0, tvp) } {
         -1 => Err(io::Error::last_os_error()),
         nfd if nfd >= 0 => Ok(nfd),
         ret => panic!("select returned {}", ret),
@@ -246,9 +251,7 @@ pub fn wait4(pid: pid_t, block: bool) -> io::Result<Option<WaitInfo>> {
     let mut status: c_int = 0;
     let mut usage = MaybeUninit::<rusage>::uninit();
     let options = if block { 0 } else { libc::WNOHANG };
-    match unsafe { 
-        libc::wait4(pid, &mut status, options, usage.as_mut_ptr())
-    } {
+    match unsafe { libc::wait4(pid, &mut status, options, usage.as_mut_ptr()) } {
         -1 => Err(io::Error::last_os_error()),
         0 => Ok(None),
         child_pid => Ok(Some((child_pid, status, unsafe { usage.assume_init() }))),
@@ -256,9 +259,7 @@ pub fn wait4(pid: pid_t, block: bool) -> io::Result<Option<WaitInfo>> {
 }
 
 pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
-    match unsafe {
-        libc::write(fd, data.as_ptr() as *const libc::c_void, data.len())
-    } {
+    match unsafe { libc::write(fd, data.as_ptr() as *const libc::c_void, data.len()) } {
         -1 => Err(io::Error::last_os_error()),
         n if n >= 0 => Ok(n),
         ret => panic!("write returned {}", ret),
@@ -290,4 +291,3 @@ pub fn set_cloexec(fd: RawFd) -> io::Result<()> {
         Ok(())
     };
 }
-

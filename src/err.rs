@@ -10,7 +10,7 @@ impl std::fmt::Display for SpecError {
             SpecError::DupId(ids) => {
                 f.write_str("duplicate IDs: ")?;
                 f.write_str(&ids.join(" "))
-            },
+            }
         }
     }
 }
@@ -55,4 +55,3 @@ impl From<std::num::ParseIntError> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-

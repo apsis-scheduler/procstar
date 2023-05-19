@@ -1,11 +1,10 @@
+use crate::input::CaptureFormat;
 /// Named "Res" to avoid confusion with the `Result` types.
-
 use base64::Engine;
-use crate::spec::CaptureFormat;
 use libc::{c_int, pid_t, rusage};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use serde::{Serialize};
 
 //------------------------------------------------------------------------------
 
@@ -76,32 +75,23 @@ mod libc_serde {
         #[cfg(any(target_env = "musl", target_os = "emscripten"))]
         __reserved: [c_long; 16],
     }
-
 }
 
 //------------------------------------------------------------------------------
 
 #[derive(Serialize)]
-#[serde(rename_all="lowercase")]
+#[serde(rename_all = "lowercase")]
 #[serde(untagged)]
 pub enum FdRes {
     Error,
 
-    None {
-    },
+    None {},
 
-    File {
-        path: PathBuf,
-    },
+    File { path: PathBuf },
 
-    CaptureUtf8 {
-        text: String,
-    },
+    CaptureUtf8 { text: String },
 
-    CaptureBase64 {
-        data: String,
-        encoding: String,
-    },
+    CaptureBase64 { data: String, encoding: String },
 }
 
 impl FdRes {
@@ -110,20 +100,16 @@ impl FdRes {
             CaptureFormat::Text => {
                 // FIXME: Handle errors.
                 let text = String::from_utf8_lossy(&buffer).to_string();
-                FdRes::CaptureUtf8 {
-                    text
-                }
-            },
+                FdRes::CaptureUtf8 { text }
+            }
             CaptureFormat::Base64 => {
                 // FIXME: Handle errors.
-                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(
-                    &buffer, 
-                );
+                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&buffer);
                 FdRes::CaptureBase64 {
                     data,
-                    encoding: "base64".to_string()
+                    encoding: "base64".to_string(),
                 }
-            },
+            }
         }
     }
 }
@@ -161,7 +147,7 @@ fn time_to_sec(time: libc::timeval) -> f64 {
 
 impl ProcRes {
     pub fn new(errors: Vec<String>, pid: pid_t, status: c_int, rusage: rusage) -> ProcRes {
-        let (exit_code, signum, core_dump)= {
+        let (exit_code, signum, core_dump) = {
             if libc::WIFEXITED(status) {
                 (Some(libc::WEXITSTATUS(status)), None, false)
             } else {
@@ -172,7 +158,9 @@ impl ProcRes {
             errors,
             pid,
             status,
-            exit_code, signum, core_dump,
+            exit_code,
+            signum,
+            core_dump,
             fds: BTreeMap::new(),
             rusage,
         }
@@ -199,7 +187,9 @@ pub struct Res {
 
 impl Res {
     pub fn new() -> Res {
-        Res { ..Default::default() }
+        Res {
+            ..Default::default()
+        }
     }
 }
 
@@ -208,4 +198,3 @@ impl Res {
 pub fn print(result: &Res) {
     serde_json::to_writer(std::io::stdout(), result).unwrap();
 }
-

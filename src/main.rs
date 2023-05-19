@@ -12,7 +12,11 @@ use procstar::err_pipe::ErrorPipe;
 use procstar::res;
 use procstar::sig;
 use procstar::spec;
+use procstar::spec::ProcId;
 use procstar::sys;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 //------------------------------------------------------------------------------
 
@@ -58,6 +62,8 @@ struct RunningProc {
     pub errors_task: ErrorsFuture,
     pub wait_task: WaitFuture,
 }
+
+type RunningProcs = BTreeMap<ProcId, Arc<RwLock<RunningProc>>>;
 
 // /// A proc we're running, or that has terminated.
 // struct Proc {
@@ -153,17 +159,12 @@ async fn main() {
         None => panic!("no file given"), // FIXME
     };
 
-    let mut input = spec::load_file(&json_path).unwrap_or_else(|err| {
+    let input = spec::load_file(&json_path).unwrap_or_else(|err| {
         eprintln!("failed to load {}: {}", json_path, err);
         std::process::exit(exitcode::OSFILE);
     });
     eprintln!("input: {:?}", input);
     eprintln!("");
-
-    spec::assign_ids(&mut input).unwrap_or_else(|err| {
-        eprintln!("failed to parse {}: {}", json_path, err);
-        std::process::exit(exitcode::OSFILE);
-    });
 
     // // Build the objects presenting each of the file descriptors in each proc.
     // let mut fds = input
@@ -194,9 +195,9 @@ async fn main() {
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
 
-    let mut running_procs = Vec::<RunningProc>::new();
+    let running_procs = Arc::new(RwLock::new(RunningProcs::new()));
     // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
-    for spec in input.procs.into_iter() {
+    for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
@@ -241,11 +242,13 @@ async fn main() {
                 // Start a task to wait for the child to complete.
                 let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
                 // Construct the record of this running proc.
-                running_procs.push(RunningProc {
-                    pid: child_pid,
-                    errors_task,
-                    wait_task,
-                });
+                running_procs.write().await.insert(
+                    proc_id,
+                    Arc::new(RwLock::new(RunningProc {
+                        pid: child_pid,
+                        errors_task,
+                        wait_task,
+                    })));
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -293,7 +296,7 @@ async fn main() {
 
     // Collect proc results.
     // for (proc, fds) in running_procs.into_iter().zip(fds.into_iter()) {
-    for proc in running_procs.into_iter() {
+    for (proc_id, proc) in running_procs.read().await.into_iter() {
         let errors = proc.errors_task.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_task.await.unwrap();
 
@@ -320,7 +323,7 @@ async fn main() {
         //     };
         // }
 
-        result.procs.push(proc_res);
+        result.procs.insert(proc_id, proc_res);
     }
 
     res::print(&result);

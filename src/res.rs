@@ -1,11 +1,11 @@
 /// Named "Res" to avoid confusion with the `Result` types.
 
 use base64::Engine;
-use crate::spec::CaptureFormat;
+use crate::spec::{ProcId, CaptureFormat};
 use libc::{c_int, pid_t, rusage};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use serde::{Serialize};
+use serde::Serialize;
 
 //------------------------------------------------------------------------------
 
@@ -193,7 +193,7 @@ impl ProcRes {
 
 #[derive(Default, Serialize)]
 pub struct Res {
-    pub procs: Vec<ProcRes>,
+    pub procs: BTreeMap<ProcId, ProcRes>,
     pub errors: Vec<String>,
 }
 

@@ -16,7 +16,7 @@ use procstar::spec::ProcId;
 use procstar::sys;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 //------------------------------------------------------------------------------
 
@@ -63,7 +63,15 @@ struct RunningProc {
     pub wait_task: WaitFuture,
 }
 
-type RunningProcs = BTreeMap<ProcId, Arc<RwLock<RunningProc>>>;
+impl std::fmt::Debug for RunningProc {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.debug_struct("RunningProc")
+            .field("pid", &self.pid)
+            .finish()
+    }
+}
+
+type RunningProcs = BTreeMap<ProcId, Arc<Mutex<RunningProc>>>;
 
 // /// A proc we're running, or that has terminated.
 // struct Proc {
@@ -195,7 +203,7 @@ async fn main() {
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
 
-    let running_procs = Arc::new(RwLock::new(RunningProcs::new()));
+    let running_procs = Arc::new(Mutex::new(RunningProcs::new()));
     // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
     for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
@@ -242,9 +250,9 @@ async fn main() {
                 // Start a task to wait for the child to complete.
                 let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
                 // Construct the record of this running proc.
-                running_procs.write().await.insert(
+                running_procs.lock().await.insert(
                     proc_id,
-                    Arc::new(RwLock::new(RunningProc {
+                    Arc::new(Mutex::new(RunningProc {
                         pid: child_pid,
                         errors_task,
                         wait_task,
@@ -296,7 +304,9 @@ async fn main() {
 
     // Collect proc results.
     // for (proc, fds) in running_procs.into_iter().zip(fds.into_iter()) {
-    for (proc_id, proc) in running_procs.read().await.into_iter() {
+    for (proc_id, proc1) in running_procs.lock().await.into_iter() {
+        let proc_mutex: Mutex<RunningProc> = Arc::try_unwrap(proc1.into()).unwrap();
+        let proc = proc_mutex.into_inner();
         let errors = proc.errors_task.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_task.await.unwrap();
 
@@ -323,7 +333,7 @@ async fn main() {
         //     };
         // }
 
-        result.procs.insert(proc_id, proc_res);
+        result.procs.insert(proc_id.clone(), proc_res);
     }
 
     res::print(&result);

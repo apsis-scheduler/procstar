@@ -16,6 +16,10 @@ use procstar::spec::ProcId;
 use procstar::sys;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+// FIXME: Docs (https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html) say
+// that std::sync::Mutex is often preferred, though it's not clear to me that a
+// blocking lock will work correctly in a single-threaded executor
+// (i.e. `flavor="current_thread"`).
 use tokio::sync::Mutex;
 
 //------------------------------------------------------------------------------
@@ -302,11 +306,9 @@ async fn main() {
     // Wait for all remaining procs to terminate and clean them up.
     // procs.wait_all();
 
-    // Collect proc results.
-    // for (proc, fds) in running_procs.into_iter().zip(fds.into_iter()) {
-    for (proc_id, proc1) in running_procs.lock().await.into_iter() {
-        let proc_mutex: Mutex<RunningProc> = Arc::try_unwrap(proc1.into()).unwrap();
-        let proc = proc_mutex.into_inner();
+    // Collect proc results by removing and waiting each running proc.
+    while let Some((proc_id, proc1)) = running_procs.lock().await.pop_first() {
+        let proc = Arc::<Mutex<RunningProc>>::try_unwrap(proc1.into()).unwrap().into_inner();
         let errors = proc.errors_task.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_task.await.unwrap();
 
@@ -335,6 +337,9 @@ async fn main() {
 
         result.procs.insert(proc_id.clone(), proc_res);
     }
+    // Nothing should be left running.
+    assert!(running_procs.lock().await.len() == 0);
+    drop(running_procs);
 
     res::print(&result);
     println!("");

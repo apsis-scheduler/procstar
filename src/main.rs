@@ -75,7 +75,37 @@ impl std::fmt::Debug for RunningProc {
     }
 }
 
-type RunningProcs = BTreeMap<ProcId, Arc<Mutex<RunningProc>>>;
+struct SharedRunningProcs {
+    procs: Arc<Mutex<BTreeMap<ProcId, Arc<Mutex<RunningProc>>>>>,
+}
+
+impl SharedRunningProcs {
+    pub fn new() -> SharedRunningProcs {
+        SharedRunningProcs {
+            procs: Arc::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+
+    pub async fn insert(&self, proc_id: ProcId, proc: RunningProc) {
+        self.procs.lock().await.insert(
+            proc_id,
+            Arc::new(Mutex::new(proc)),
+        );
+    }
+
+    pub async fn pop(&self) -> Option<(ProcId, RunningProc)> {
+        if let Some((proc_id, proc)) = self.procs.lock().await.pop_first() {
+            let proc = Arc::<Mutex<RunningProc>>::try_unwrap(proc.into()).unwrap().into_inner();
+            Some((proc_id, proc))
+        } else {
+            None
+        }
+    }
+
+    pub async fn len(&self) -> usize {
+        self.procs.lock().await.len()
+    }
+}
 
 // /// A proc we're running, or that has terminated.
 // struct Proc {
@@ -207,7 +237,7 @@ async fn main() {
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
 
-    let running_procs = Arc::new(Mutex::new(RunningProcs::new()));
+    let running_procs = SharedRunningProcs::new();
     // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
     for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
@@ -254,13 +284,13 @@ async fn main() {
                 // Start a task to wait for the child to complete.
                 let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
                 // Construct the record of this running proc.
-                running_procs.lock().await.insert(
+                running_procs.insert(
                     proc_id,
-                    Arc::new(Mutex::new(RunningProc {
+                    RunningProc {
                         pid: child_pid,
                         errors_task,
                         wait_task,
-                    })));
+                    }).await;
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -307,8 +337,7 @@ async fn main() {
     // procs.wait_all();
 
     // Collect proc results by removing and waiting each running proc.
-    while let Some((proc_id, proc1)) = running_procs.lock().await.pop_first() {
-        let proc = Arc::<Mutex<RunningProc>>::try_unwrap(proc1.into()).unwrap().into_inner();
+    while let Some((proc_id, proc)) = running_procs.pop().await {
         let errors = proc.errors_task.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_task.await.unwrap();
 
@@ -338,7 +367,7 @@ async fn main() {
         result.procs.insert(proc_id.clone(), proc_res);
     }
     // Nothing should be left running.
-    assert!(running_procs.lock().await.len() == 0);
+    assert!(running_procs.len().await == 0);
     drop(running_procs);
 
     res::print(&result);

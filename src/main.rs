@@ -15,12 +15,8 @@ use procstar::spec;
 use procstar::spec::ProcId;
 use procstar::sys;
 use std::collections::BTreeMap;
-use std::sync::Arc;
-// FIXME: Docs (https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html) say
-// that std::sync::Mutex is often preferred, though it's not clear to me that a
-// blocking lock will work correctly in a single-threaded executor
-// (i.e. `flavor="current_thread"`).
-use tokio::sync::Mutex;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 //------------------------------------------------------------------------------
 
@@ -76,26 +72,26 @@ impl std::fmt::Debug for RunningProc {
 }
 
 struct SharedRunningProcs {
-    procs: Arc<Mutex<BTreeMap<ProcId, Arc<Mutex<RunningProc>>>>>,
+    procs: Rc<RefCell<BTreeMap<ProcId, Rc<RefCell<RunningProc>>>>>,
 }
 
 impl SharedRunningProcs {
     pub fn new() -> SharedRunningProcs {
         SharedRunningProcs {
-            procs: Arc::new(Mutex::new(BTreeMap::new())),
+            procs: Rc::new(RefCell::new(BTreeMap::new())),
         }
     }
 
     pub async fn insert(&self, proc_id: ProcId, proc: RunningProc) {
-        self.procs.lock().await.insert(
+        self.procs.borrow_mut().insert(
             proc_id,
-            Arc::new(Mutex::new(proc)),
+            Rc::new(RefCell::new(proc)),
         );
     }
 
     pub async fn pop(&self) -> Option<(ProcId, RunningProc)> {
-        if let Some((proc_id, proc)) = self.procs.lock().await.pop_first() {
-            let proc = Arc::<Mutex<RunningProc>>::try_unwrap(proc.into()).unwrap().into_inner();
+        if let Some((proc_id, proc)) = self.procs.borrow_mut().pop_first() {
+            let proc = Rc::<RefCell<RunningProc>>::try_unwrap(proc.into()).unwrap().into_inner();
             Some((proc_id, proc))
         } else {
             None
@@ -103,7 +99,7 @@ impl SharedRunningProcs {
     }
 
     pub async fn len(&self) -> usize {
-        self.procs.lock().await.len()
+        self.procs.borrow().len()
     }
 }
 
@@ -194,43 +190,7 @@ async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) ->
 
 //------------------------------------------------------------------------------
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let json_path = match std::env::args().skip(1).next() {
-        Some(p) => p,
-        None => panic!("no file given"), // FIXME
-    };
-
-    let input = spec::load_file(&json_path).unwrap_or_else(|err| {
-        eprintln!("failed to load {}: {}", json_path, err);
-        std::process::exit(exitcode::OSFILE);
-    });
-    eprintln!("input: {:?}", input);
-    eprintln!("");
-
-    // // Build the objects presenting each of the file descriptors in each proc.
-    // let mut fds = input
-    //     .procs
-    //     .iter()
-    //     .map(|spec| {
-    //         spec.fds
-    //             .iter()
-    //             .map(|(fd_str, fd_spec)| {
-    //                 // FIXME: Parse when deserializing, rather than here.
-    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
-    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 });
-
-    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
-    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 })
-    //             })
-    //             .collect::<Vec<_>>()
-    //     })
-    //     .collect::<Vec<_>>();
-
+async fn run(input: spec::Input) -> res::Res {
     let mut result = res::Res::new();
 
     let (sigchld_watcher, sigchld_receiver) =
@@ -368,7 +328,49 @@ async fn main() {
     }
     // Nothing should be left running.
     assert!(running_procs.len().await == 0);
-    drop(running_procs);
+
+    result
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let json_path = match std::env::args().skip(1).next() {
+        Some(p) => p,
+        None => panic!("no file given"), // FIXME
+    };
+
+    let input = spec::load_file(&json_path).unwrap_or_else(|err| {
+        eprintln!("failed to load {}: {}", json_path, err);
+        std::process::exit(exitcode::OSFILE);
+    });
+    eprintln!("input: {:?}", input);
+    eprintln!("");
+
+    // // Build the objects presenting each of the file descriptors in each proc.
+    // let mut fds = input
+    //     .procs
+    //     .iter()
+    //     .map(|spec| {
+    //         spec.fds
+    //             .iter()
+    //             .map(|(fd_str, fd_spec)| {
+    //                 // FIXME: Parse when deserializing, rather than here.
+    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
+    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 });
+
+    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
+    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 })
+    //             })
+    //             .collect::<Vec<_>>()
+    //     })
+    //     .collect::<Vec<_>>();
+
+    let local = tokio::task::LocalSet::new();
+    let result = local.run_until(run(input)).await;
 
     res::print(&result);
     println!("");

@@ -194,7 +194,6 @@ async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) ->
 //------------------------------------------------------------------------------
 
 struct Body {
-    // Our Body type is !Send and !Sync:
     data: Option<Bytes>,
 }
 
@@ -221,22 +220,17 @@ impl HttpBody for Body {
 async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
 
-    // Using a !Send request counter is fine on 1 thread...
-    let counter = Rc::new(std::cell::Cell::new(0));
-
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
     loop {
         let (stream, _) = listener.accept().await?;
 
-        // For each connection, clone the counter to use in our service...
-        let cnt = counter.clone();
-
+        let running_procs = running_procs.clone();
         let service = hyper::service::service_fn(move |_| {
-            let prev = cnt.get();
-            cnt.set(prev + 1);
-            let value = cnt.get();
-            async move { Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("Request #{}\n", value)))) }
+            let running_procs = running_procs.clone();
+            async move {
+                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("{}\n", running_procs.len())))) 
+            }
         });
 
         tokio::task::spawn_local(async move {

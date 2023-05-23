@@ -18,6 +18,8 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::cell::RefCell;
 
+use hyper::body::{Body as HttpBody, Bytes, Frame};
+
 //------------------------------------------------------------------------------
 
 // FIXME: Elsewhere.
@@ -190,12 +192,90 @@ async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) ->
 
 //------------------------------------------------------------------------------
 
-async fn run(input: spec::Input) -> res::Res {
-    let mut result = res::Res::new();
+struct Body {
+    // Our Body type is !Send and !Sync:
+    data: Option<Bytes>,
+}
 
+impl From<String> for Body {
+    fn from(a: String) -> Self {
+        Body {
+            data: Some(a.into()),
+        }
+    }
+}
+
+impl HttpBody for Body {
+    type Data = Bytes;
+    type Error = hyper::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        std::task::Poll::Ready(self.get_mut().data.take().map(|d| Ok(Frame::data(d))))
+    }
+}
+
+async fn run_http() -> Result<(), Box<dyn std::error::Error>> {
+    let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
+
+    // Using a !Send request counter is fine on 1 thread...
+    let counter = Rc::new(std::cell::Cell::new(0));
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    println!("Listening on http://{}", addr);
+    loop {
+        let (stream, _) = listener.accept().await?;
+
+        // For each connection, clone the counter to use in our service...
+        let cnt = counter.clone();
+
+        let service = hyper::service::service_fn(move |_| {
+            let prev = cnt.get();
+            cnt.set(prev + 1);
+            let value = cnt.get();
+            async move { Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("Request #{}\n", value)))) }
+        });
+
+        tokio::task::spawn_local(async move {
+            if let Err(err) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(stream, service)
+                .await
+            {
+                println!("Error serving connection: {:?}", err);
+            }
+        });
+    }
+}
+
+async fn start_procs(input: spec::Input) -> SharedRunningProcs {
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
+
+    // // Build the objects presenting each of the file descriptors in each proc.
+    // let mut fds = input
+    //     .procs
+    //     .iter()
+    //     .map(|spec| {
+    //         spec.fds
+    //             .iter()
+    //             .map(|(fd_str, fd_spec)| {
+    //                 // FIXME: Parse when deserializing, rather than here.
+    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
+    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 });
+
+    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
+    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
+    //                     std::process::exit(exitcode::OSERR);
+    //                 })
+    //             })
+    //             .collect::<Vec<_>>()
+    //     })
+    //     .collect::<Vec<_>>();
 
     let running_procs = SharedRunningProcs::new();
     for (proc_id, spec) in input.procs.into_iter() {
@@ -269,6 +349,12 @@ async fn run(input: spec::Input) -> res::Res {
     //     }
     // }
 
+    running_procs
+}
+
+async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
+    let mut result = res::Res::new();
+
     // // Clean up procs that might have completed already.
     // procs.wait_any();
     // // Now we wait for the procs to run.
@@ -330,6 +416,11 @@ async fn run(input: spec::Input) -> res::Res {
     result
 }
 
+async fn run(input: spec::Input) -> res::Res {
+    let running_procs = start_procs(input).await;
+    collect_results(running_procs).await
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let json_path = match std::env::args().skip(1).next() {
@@ -344,38 +435,22 @@ async fn main() {
     eprintln!("input: {:?}", input);
     eprintln!("");
 
-    // // Build the objects presenting each of the file descriptors in each proc.
-    // let mut fds = input
-    //     .procs
-    //     .iter()
-    //     .map(|spec| {
-    //         spec.fds
-    //             .iter()
-    //             .map(|(fd_str, fd_spec)| {
-    //                 // FIXME: Parse when deserializing, rather than here.
-    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
-    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 });
-
-    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
-    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 })
-    //             })
-    //             .collect::<Vec<_>>()
-    //     })
-    //     .collect::<Vec<_>>();
-
     let local = tokio::task::LocalSet::new();
-    let result = local.run_until(run(input)).await;
+    local.run_until(async move {
+        let _run_task = tokio::task::spawn_local(async {
+            let result = run(input).await;
+            res::print(&result);
+            println!("");
+        });
+        run_http().await.unwrap();  // FIXME
+    }).await;
 
-    res::print(&result);
-    println!("");
+    // res::print(&result);
+    // println!("");
 
-    std::process::exit(if result.errors.len() > 0 {
-        1
-    } else {
-        exitcode::OK
-    });
+    // std::process::exit(if result.errors.len() > 0 {
+    //     1
+    // } else {
+    //     exitcode::OK
+    // });
 }

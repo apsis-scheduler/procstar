@@ -73,6 +73,7 @@ impl std::fmt::Debug for RunningProc {
     }
 }
 
+#[derive(Clone)]
 struct SharedRunningProcs {
     procs: Rc<RefCell<BTreeMap<ProcId, Rc<RefCell<RunningProc>>>>>,
 }
@@ -217,7 +218,7 @@ impl HttpBody for Body {
     }
 }
 
-async fn run_http() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
 
     // Using a !Send request counter is fine on 1 thread...
@@ -249,7 +250,9 @@ async fn run_http() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn start_procs(input: spec::Input) -> SharedRunningProcs {
+//------------------------------------------------------------------------------
+
+async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) {
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
@@ -277,7 +280,6 @@ async fn start_procs(input: spec::Input) -> SharedRunningProcs {
     //     })
     //     .collect::<Vec<_>>();
 
-    let running_procs = SharedRunningProcs::new();
     for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
@@ -348,8 +350,6 @@ async fn start_procs(input: spec::Input) -> SharedRunningProcs {
     //         };
     //     }
     // }
-
-    running_procs
 }
 
 async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
@@ -416,8 +416,8 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
     result
 }
 
-async fn run(input: spec::Input) -> res::Res {
-    let running_procs = start_procs(input).await;
+async fn run(input: spec::Input, running_procs: SharedRunningProcs) -> res::Res {
+    start_procs(input, &running_procs).await;
     collect_results(running_procs).await
 }
 
@@ -435,14 +435,18 @@ async fn main() {
     eprintln!("input: {:?}", input);
     eprintln!("");
 
+    let running_procs = SharedRunningProcs::new();
+    let result_future = run(input, running_procs.clone());
+    let http_future = run_http(running_procs);
+
     let local = tokio::task::LocalSet::new();
     local.run_until(async move {
-        let _run_task = tokio::task::spawn_local(async {
-            let result = run(input).await;
+        let _run_task = tokio::task::spawn_local(async move {
+            let result = result_future.await;
             res::print(&result);
             println!("");
         });
-        run_http().await.unwrap();  // FIXME
+        http_future.await.unwrap();  // FIXME
     }).await;
 
     // res::print(&result);

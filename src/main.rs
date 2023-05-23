@@ -213,8 +213,7 @@ async fn run(input: spec::Input) -> res::Res {
                 // Child process.
                 let error_writer = error_pipe.in_child().unwrap();
 
-                let mut ok = true;
-
+                let /* mut */ ok = true;
                 // for fd in &mut *proc_fds {
                 //     fd.set_up_in_child().unwrap_or_else(|err| {
                 //         error_writer.try_write(format!(

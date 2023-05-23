@@ -198,7 +198,6 @@ async fn run(input: spec::Input) -> res::Res {
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
 
     let running_procs = SharedRunningProcs::new();
-    // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
     for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 

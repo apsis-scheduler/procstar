@@ -85,14 +85,14 @@ impl SharedRunningProcs {
         }
     }
 
-    pub async fn insert(&self, proc_id: ProcId, proc: RunningProc) {
+    pub fn insert(&self, proc_id: ProcId, proc: RunningProc) {
         self.procs.borrow_mut().insert(
             proc_id,
             Rc::new(RefCell::new(proc)),
         );
     }
 
-    pub async fn pop(&self) -> Option<(ProcId, RunningProc)> {
+    pub fn pop(&self) -> Option<(ProcId, RunningProc)> {
         if let Some((proc_id, proc)) = self.procs.borrow_mut().pop_first() {
             let proc = Rc::<RefCell<RunningProc>>::try_unwrap(proc.into()).unwrap().into_inner();
             Some((proc_id, proc))
@@ -101,7 +101,7 @@ impl SharedRunningProcs {
         }
     }
 
-    pub async fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.procs.borrow().len()
     }
 }
@@ -330,7 +330,7 @@ async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) {
                         pid: child_pid,
                         errors_task,
                         wait_task,
-                    }).await;
+                    });
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -381,7 +381,7 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
     // procs.wait_all();
 
     // Collect proc results by removing and waiting each running proc.
-    while let Some((proc_id, proc)) = running_procs.pop().await {
+    while let Some((proc_id, proc)) = running_procs.pop() {
         let errors = proc.errors_task.await.unwrap(); // FIXME
         let (_, status, rusage) = proc.wait_task.await.unwrap();
 
@@ -411,7 +411,7 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
         result.procs.insert(proc_id.clone(), proc_res);
     }
     // Nothing should be left running.
-    assert!(running_procs.len().await == 0);
+    assert!(running_procs.len() == 0);
 
     result
 }

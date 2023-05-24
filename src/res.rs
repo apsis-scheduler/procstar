@@ -172,7 +172,6 @@ impl ProcRes {
 #[derive(Default, Serialize)]
 pub struct Res {
     pub procs: BTreeMap<ProcId, ProcRes>,
-    pub errors: Vec<String>,
 }
 
 impl Res {

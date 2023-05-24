@@ -72,6 +72,21 @@ impl RunningProc {
             wait_info: None,
         }
     }
+
+    fn to_result(&self) -> res::ProcRes {
+        let (status, rusage) = if let Some((_, status, rusage)) = self.wait_info {
+            (Some(res::Status::new(status)), Some(res::ResourceUsage::new(&rusage)))
+        } else {
+            (None, None)
+        };
+        res::ProcRes {
+            pid: self.pid,
+            errors: self.errors.clone(),
+            status,
+            rusage,
+            fds: BTreeMap::new(),  // FIXME
+        }
+    }
 }
 
 impl std::fmt::Debug for RunningProc {
@@ -121,6 +136,13 @@ impl SharedRunningProcs {
 
     pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {
         self.procs.borrow_mut().pop_first()
+    }
+
+    pub fn to_result(&self) -> res::Res {
+        let procs = self.procs.borrow().iter().map(
+            |(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result())
+        ).collect::<BTreeMap<_, _>>();
+        res::Res { procs }
     }
 }
 
@@ -273,7 +295,10 @@ async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::
         let service = hyper::service::service_fn(move |_req: Request<Incoming> | {
             let running_procs = running_procs.clone();
             async move {
-                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("{}\n", running_procs.len()))))
+                // let body = format!("{}\n", running_procs.len());
+                let res = running_procs.to_result();
+                let body = serde_json::to_string(&res).unwrap();
+                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(body)))
             }
         });
 

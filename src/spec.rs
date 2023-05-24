@@ -1,69 +1,13 @@
-use crate::err::SpecError;
 use crate::sys::fd_t;
 use libc::c_int;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
-use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
-
-//------------------------------------------------------------------------------
-// Serde helpers
-//------------------------------------------------------------------------------
-
-/// Deserializer that accepts either a single map or a sequence of items.  In
-/// the former case, the map is wrapped into a single-element sequence.
-
-fn one_or_many<'de, T, D>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    // The `PhantomData` is to keep the compiler from complaining about T being
-    // an unused generic type parameter.  We need T in order to know the Value
-    // type for the Visitor impl.
-    struct OneOrMany<T>(std::marker::PhantomData<fn() -> T>);
-
-    impl<'de, T> serde::de::Visitor<'de> for OneOrMany<T>
-    where
-        T: Deserialize<'de>,
-    {
-        type Value = Vec<T>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a map or seq of maps")
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> std::result::Result<Vec<T>, S::Error>
-        where
-            S: serde::de::SeqAccess<'de>,
-        {
-            let mut res = Vec::new();
-            while let Some(e) = seq.next_element()? {
-                res.push(e);
-            }
-            Ok(res)
-        }
-
-        fn visit_map<M>(self, map: M) -> std::result::Result<Vec<T>, M::Error>
-        where
-            M: serde::de::MapAccess<'de>,
-        {
-            // `MapAccessDeserializer` is a wrapper that turns a `MapAccess`
-            // into a `Deserializer`, allowing it to be used as the input to T's
-            // `Deserialize` implementation. T then deserializes itself using
-            // the entries from the map visitor.
-            let res = Deserialize::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
-            Ok(vec![res])
-        }
-    }
-
-    deserializer.deserialize_any(OneOrMany(std::marker::PhantomData))
-}
 
 //------------------------------------------------------------------------------
 // Spec error
@@ -75,8 +19,8 @@ pub enum Error {
     Json(serde_json::error::Error),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::Io(ref err) => err.fmt(f),
             Error::Json(ref err) => err.fmt(f),
@@ -289,11 +233,20 @@ pub struct Proc {
 // Input spec
 //------------------------------------------------------------------------------
 
+pub type ProcId = String;
+
 #[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
-    #[serde(deserialize_with = "one_or_many")]
-    pub procs: Vec<Proc>,
+    pub procs: BTreeMap<ProcId, Proc>,
+}
+
+impl Input {
+    pub fn new() -> Self {
+        Self {
+            procs: BTreeMap::new(),
+        }
+    }
 }
 
 pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
@@ -308,43 +261,3 @@ pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     Ok(spec)
 }
 
-//------------------------------------------------------------------------------
-
-/// Checks that no two specs have the same ID, and assigns in place an unused ID
-/// to each spec that doesn't already have one.
-pub fn assign_ids(input: &mut Input) -> std::result::Result<(), SpecError> {
-    // Collecting existing IDs, and also duplicates.
-    let mut ids = HashSet::<String>::new();
-    let mut dups = HashSet::<String>::new();
-    for proc in &mut input.procs {
-        if let Some(id) = proc.id.clone() {
-            if let Some(existing_id) = ids.replace(id) {
-                dups.insert(existing_id);
-            }
-        }
-    }
-
-    // Assign an unused ID, generated from consecutive integers, to any spec
-    // that doesn't already have an ID.
-    let mut next: u64 = 0;
-    for proc in &mut input.procs {
-        if proc.id.is_none() {
-            let id = loop {
-                let id: String = next.to_string();
-                next += 1;
-                if ! ids.contains(&id) {
-                    break id;
-                }
-            };
-
-            ids.insert(id.clone());
-            proc.id = Some(id);
-        }
-    }
-
-    if dups.len() == 0 {
-        Ok(())
-    } else {
-        Err(SpecError::DupId(dups.into_iter().collect::<Vec<_>>()))
-    }
-}

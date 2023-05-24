@@ -12,7 +12,15 @@ use procstar::err_pipe::ErrorPipe;
 use procstar::res;
 use procstar::sig;
 use procstar::spec;
+use procstar::spec::ProcId;
 use procstar::sys;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+use std::cell::RefCell;
+use sys::WaitInfo;
+
+use hyper::Request;
+use hyper::body::{Bytes, Frame, Incoming, Body as HttpBody};
 
 //------------------------------------------------------------------------------
 
@@ -50,13 +58,92 @@ fn wait(pid: pid_t, block: bool) -> Option<sys::WaitInfo> {
 
 //------------------------------------------------------------------------------
 
-type ErrorsFuture = tokio::task::JoinHandle<Vec<String>>;
-type WaitFuture = tokio::task::JoinHandle<sys::WaitInfo>;
-
 struct RunningProc {
     pub pid: pid_t,
-    pub errors_task: ErrorsFuture,
-    pub wait_task: WaitFuture,
+    pub errors: Vec<String>,
+    pub wait_info: Option<WaitInfo>,
+}
+
+impl RunningProc {
+    fn new(pid: pid_t) -> Self {
+        Self {
+            pid,
+            errors: Vec::new(),
+            wait_info: None,
+        }
+    }
+
+    fn to_result(&self) -> res::ProcRes {
+        let (status, rusage) = if let Some((_, status, rusage)) = self.wait_info {
+            (Some(res::Status::new(status)), Some(res::ResourceUsage::new(&rusage)))
+        } else {
+            (None, None)
+        };
+        res::ProcRes {
+            pid: self.pid,
+            errors: self.errors.clone(),
+            status,
+            rusage,
+            fds: BTreeMap::new(),  // FIXME
+        }
+    }
+}
+
+impl std::fmt::Debug for RunningProc {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.debug_struct("RunningProc")
+            .field("pid", &self.pid)
+            .finish()
+    }
+}
+
+//------------------------------------------------------------------------------
+
+type SharedRunningProc = Rc<RefCell<RunningProc>>;
+type RunningProcs = BTreeMap<ProcId, SharedRunningProc>;
+
+#[derive(Clone)]
+struct SharedRunningProcs {
+    procs: Rc<RefCell<RunningProcs>>,
+}
+
+impl SharedRunningProcs {
+    pub fn new() -> SharedRunningProcs {
+        SharedRunningProcs {
+            procs: Rc::new(RefCell::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn insert(&self, proc_id: ProcId, proc: SharedRunningProc) {
+        self.procs.borrow_mut().insert(proc_id, proc);
+    }
+
+    pub fn len(&self) -> usize {
+        self.procs.borrow().len()
+    }
+
+    pub fn get(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
+        self.procs.borrow().get(&proc_id).cloned()
+    }
+
+    pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
+        self.procs.borrow().first_key_value().map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
+    }
+
+    pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
+        self.procs.borrow_mut().remove(&proc_id)
+    }
+
+    pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {
+        self.procs.borrow_mut().pop_first()
+    }
+
+    pub fn to_result(&self) -> res::Res {
+        let procs = self.procs.borrow().iter().map(
+            |(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result())
+        ).collect::<BTreeMap<_, _>>();
+        res::Res { procs }
+    }
 }
 
 // /// A proc we're running, or that has terminated.
@@ -131,39 +218,108 @@ struct RunningProc {
 //     }
 // }
 
-async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) -> sys::WaitInfo {
+async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: sig::SignalReceiver) {
+    let pid = proc.borrow().pid;
+
     loop {
         // Wait until the process receives SIGCHLD.  
         sigchld_receiver.signal().await;
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
+            let mut proc = proc.borrow_mut();
+            assert!(proc.wait_info.is_none());
             // Process terminated.
-            return wait_info;
+            proc.wait_info = Some(wait_info);
+            break;
         }
+    }
+}
+
+async fn handle_proc(
+    proc: SharedRunningProc,
+    sigchld_receiver: sig::SignalReceiver,
+    error_pipe: ErrorPipe,
+) {
+    // FIXME: Error pipe should append directly to errors, so that they are
+    // available earlier.
+    let error_task = {
+        let proc = Rc::clone(&proc);
+        tokio::task::spawn_local(async move {
+            let mut errors = error_pipe.in_parent().await;
+            proc.borrow_mut().errors.append(&mut errors);
+        })
+    };
+
+    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
+
+    _ = error_task.await;
+    _ = wait_task.await;
+}
+
+//------------------------------------------------------------------------------
+
+struct Body {
+    data: Option<Bytes>,
+}
+
+impl From<String> for Body {
+    fn from(a: String) -> Self {
+        Body {
+            data: Some(a.into()),
+        }
+    }
+}
+
+impl HttpBody for Body {
+    type Data = Bytes;
+    type Error = hyper::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        std::task::Poll::Ready(self.get_mut().data.take().map(|d| Ok(Frame::data(d))))
+    }
+}
+
+async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
+    let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    eprintln!("Listening on http://{}", addr);
+    loop {
+        let (stream, _) = listener.accept().await?;
+
+        let running_procs = running_procs.clone();
+        let service = hyper::service::service_fn(move |_req: Request<Incoming> | {
+            let running_procs = running_procs.clone();
+            async move {
+                // let body = format!("{}\n", running_procs.len());
+                let res = running_procs.to_result();
+                let body = serde_json::to_string(&res).unwrap();
+                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(body)))
+            }
+        });
+
+        tokio::task::spawn_local(async move {
+            if let Err(err) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(stream, service)
+                .await
+            {
+                println!("Error serving connection: {:?}", err);
+            }
+        });
     }
 }
 
 //------------------------------------------------------------------------------
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let json_path = match std::env::args().skip(1).next() {
-        Some(p) => p,
-        None => panic!("no file given"), // FIXME
-    };
-
-    let mut input = spec::load_file(&json_path).unwrap_or_else(|err| {
-        eprintln!("failed to load {}: {}", json_path, err);
-        std::process::exit(exitcode::OSFILE);
-    });
-    eprintln!("input: {:?}", input);
-    eprintln!("");
-
-    spec::assign_ids(&mut input).unwrap_or_else(|err| {
-        eprintln!("failed to parse {}: {}", json_path, err);
-        std::process::exit(exitcode::OSFILE);
-    });
+async fn start_procs(input: spec::Input, running_procs: SharedRunningProcs) -> Vec<tokio::task::JoinHandle<()>> {
+    let (sigchld_watcher, sigchld_receiver) =
+        sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
+    let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
+    let mut tasks = Vec::new();
 
     // // Build the objects presenting each of the file descriptors in each proc.
     // let mut fds = input
@@ -188,15 +344,7 @@ async fn main() {
     //     })
     //     .collect::<Vec<_>>();
 
-    let mut result = res::Res::new();
-
-    let (sigchld_watcher, sigchld_receiver) =
-        sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
-    let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
-
-    let mut running_procs = Vec::<RunningProc>::new();
-    // for (spec, proc_fds) in input.procs.into_iter().zip(fds.iter_mut()) {
-    for spec in input.procs.into_iter() {
+    for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
@@ -210,8 +358,7 @@ async fn main() {
                 // Child process.
                 let error_writer = error_pipe.in_child().unwrap();
 
-                let mut ok = true;
-
+                let /* mut */ ok = true;
                 // for fd in &mut *proc_fds {
                 //     fd.set_up_in_child().unwrap_or_else(|err| {
                 //         error_writer.try_write(format!(
@@ -236,16 +383,13 @@ async fn main() {
             Ok(child_pid) => {
                 // Parent process.
 
-                // Start a task to receive errors from the child.
-                let errors_task = tokio::spawn(error_pipe.in_parent());
-                // Start a task to wait for the child to complete.
-                let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
+                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid)));
+
+                // Start a task to handle this child.
+                tasks.push(tokio::task::spawn_local(handle_proc(Rc::clone(&proc), sigchld_receiver.clone(), error_pipe)));
+
                 // Construct the record of this running proc.
-                running_procs.push(RunningProc {
-                    pid: child_pid,
-                    errors_task,
-                    wait_task,
-                });
+                running_procs.insert(proc_id, proc);
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -265,6 +409,12 @@ async fn main() {
     //         };
     //     }
     // }
+
+    tasks
+}
+
+async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
+    let mut result = res::Res::new();
 
     // // Clean up procs that might have completed already.
     // procs.wait_any();
@@ -288,17 +438,12 @@ async fn main() {
     // }
     // std::mem::drop(select);
 
-    // Wait for all remaining procs to terminate and clean them up.
-    // procs.wait_all();
-
-    // Collect proc results.
-    // for (proc, fds) in running_procs.into_iter().zip(fds.into_iter()) {
-    for proc in running_procs.into_iter() {
-        let errors = proc.errors_task.await.unwrap(); // FIXME
-        let (_, status, rusage) = proc.wait_task.await.unwrap();
-
+    // Collect proc results by removing and waiting each running proc.
+    while let Some((proc_id, proc)) = running_procs.pop() {
+        let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
-        let proc_res = res::ProcRes::new(errors, proc.pid, status, rusage);
+        let (_, status, rusage) = proc.wait_info.unwrap();
+        let proc_res = res::ProcRes::new(proc.errors, proc.pid, status, rusage);
 
         // // Build fd res's into it.
         // for mut fd in fds {
@@ -320,15 +465,67 @@ async fn main() {
         //     };
         // }
 
-        result.procs.push(proc_res);
+        result.procs.insert(proc_id.clone(), proc_res);
+    }
+    // Nothing should be left running.
+    assert!(running_procs.len() == 0);
+
+    result
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    // FIXME: Proper CLUI.
+    let mut args = std::env::args().skip(1);
+    let mut input = spec::Input::new();
+    let mut serve = false;
+    loop {
+        match args.next() {
+            Some(s) if s == "-s" => {
+                serve = true;
+            },
+            Some(p) => {
+                input = spec::load_file(&p).unwrap_or_else(|err| {
+                    eprintln!("failed to load {}: {}", p, err);
+                    std::process::exit(exitcode::OSFILE);
+                });
+            },
+            None => {
+                break;
+            },
+        }
     }
 
-    res::print(&result);
-    println!("");
+    let running_procs = SharedRunningProcs::new();
+    let start_fut = start_procs(input, running_procs.clone());
 
-    std::process::exit(if result.errors.len() > 0 {
-        1
+    // let run_future = run(input, running_procs.clone());
+
+    let local = tokio::task::LocalSet::new();
+    if serve {
+        let http_fut = run_http(running_procs);
+        local.run_until(async move {
+            // Start specs from the command line.  Discard the tasks.
+            _ = tokio::task::spawn_local(start_fut);
+            // Run the service.
+            http_fut.await.unwrap()
+        }).await;
     } else {
-        exitcode::OK
-    });
+        local.run_until(async move {
+            // Start specs from the command line.
+            let tasks = start_fut.await;
+            // Wait for tasks to complete.
+            for task in tasks {
+                _ = task.await.unwrap();
+            }
+            // Collect results.
+            let result = collect_results(running_procs).await;
+            // Print them.
+            res::print(&result);
+            println!("");
+        }).await;
+        let ok = true;  // FIXME: Determine if something went wrong.
+        std::process::exit(if ok { exitcode::OK } else { 1 });
+    }
 }
+

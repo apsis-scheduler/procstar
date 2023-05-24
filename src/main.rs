@@ -202,7 +202,6 @@ async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: sig::Signa
     loop {
         // Wait until the process receives SIGCHLD.  
         sigchld_receiver.signal().await;
-        println!("signal; wait {}", pid);
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
@@ -266,7 +265,7 @@ async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("Listening on http://{}", addr);
+    eprintln!("Listening on http://{}", addr);
     loop {
         let (stream, _) = listener.accept().await?;
 
@@ -471,9 +470,6 @@ async fn main() {
         eprintln!("failed to load {}: {}", json_path, err);
         std::process::exit(exitcode::OSFILE);
     });
-    eprintln!("input: {:?}", input);
-    eprintln!("");
-
     let running_procs = SharedRunningProcs::new();
     let result_future = run(input, running_procs.clone());
     let http_future = run_http(running_procs);

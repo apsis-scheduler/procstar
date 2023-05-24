@@ -241,6 +241,14 @@ pub struct Input {
     pub procs: BTreeMap<ProcId, Proc>,
 }
 
+impl Input {
+    pub fn new() -> Self {
+        Self {
+            procs: BTreeMap::new(),
+        }
+    }
+}
+
 pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     // Open the file in read-only mode with buffer.
     let file = File::open(path)?;

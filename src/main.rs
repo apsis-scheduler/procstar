@@ -315,7 +315,7 @@ async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::
 
 //------------------------------------------------------------------------------
 
-async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) -> Vec<tokio::task::JoinHandle<()>> {
+async fn start_procs(input: spec::Input, running_procs: SharedRunningProcs) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
@@ -473,48 +473,59 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
     result
 }
 
-async fn run(input: spec::Input, running_procs: SharedRunningProcs) -> res::Res {
-    let tasks = start_procs(input, &running_procs).await;
-
-    // Wait for all tasks to complete.
-    for task in tasks {
-        task.await.unwrap();
-    }
-
-    collect_results(running_procs).await
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let json_path = match std::env::args().skip(1).next() {
-        Some(p) => p,
-        None => panic!("no file given"), // FIXME
-    };
+    // FIXME: Proper CLUI.
+    let mut args = std::env::args().skip(1);
+    let mut input = spec::Input::new();
+    let mut serve = false;
+    loop {
+        match args.next() {
+            Some(s) if s == "-s" => {
+                serve = true;
+            },
+            Some(p) => {
+                input = spec::load_file(&p).unwrap_or_else(|err| {
+                    eprintln!("failed to load {}: {}", p, err);
+                    std::process::exit(exitcode::OSFILE);
+                });
+            },
+            None => {
+                break;
+            },
+        }
+    }
 
-    let input = spec::load_file(&json_path).unwrap_or_else(|err| {
-        eprintln!("failed to load {}: {}", json_path, err);
-        std::process::exit(exitcode::OSFILE);
-    });
     let running_procs = SharedRunningProcs::new();
-    let result_future = run(input, running_procs.clone());
-    let http_future = run_http(running_procs);
+    let start_fut = start_procs(input, running_procs.clone());
+
+    // let run_future = run(input, running_procs.clone());
 
     let local = tokio::task::LocalSet::new();
-    local.run_until(async move {
-        let _run_task = tokio::task::spawn_local(async move {
-            let result = result_future.await;
+    if serve {
+        let http_fut = run_http(running_procs);
+        local.run_until(async move {
+            // Start specs from the command line.  Discard the tasks.
+            _ = tokio::task::spawn_local(start_fut);
+            // Run the service.
+            http_fut.await.unwrap()
+        }).await;
+    } else {
+        local.run_until(async move {
+            // Start specs from the command line.
+            let tasks = start_fut.await;
+            // Wait for tasks to complete.
+            for task in tasks {
+                _ = task.await.unwrap();
+            }
+            // Collect results.
+            let result = collect_results(running_procs).await;
+            // Print them.
             res::print(&result);
             println!("");
-        });
-        http_future.await.unwrap();  // FIXME
-    }).await;
-
-    // res::print(&result);
-    // println!("");
-
-    // std::process::exit(if result.errors.len() > 0 {
-    //     1
-    // } else {
-    //     exitcode::OK
-    // });
+        }).await;
+        let ok = true;  // FIXME: Determine if something went wrong.
+        std::process::exit(if ok { exitcode::OK } else { 1 });
+    }
 }
+

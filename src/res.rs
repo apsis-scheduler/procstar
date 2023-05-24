@@ -130,6 +130,32 @@ impl FdRes {
 
 //------------------------------------------------------------------------------
 
+#[derive(Debug, Serialize)]
+pub struct Status {
+    /// The raw process exit status returned by `wait()`.  This combines exit
+    /// code and signum.
+    pub status: c_int,
+    /// Process exit code, if terminated with exit.
+    pub exit_code: Option<i32>,
+    /// Signal number, if terminated by signal.
+    pub signum: Option<i32>,
+    /// True if the process was terminated by a signal and produced a core dump.
+    pub core_dump: bool,
+}
+
+impl Status {
+    pub fn new(status: c_int) -> Self {
+        let (exit_code, signum, core_dump)= {
+            if libc::WIFEXITED(status) {
+                (Some(libc::WEXITSTATUS(status)), None, false)
+            } else {
+                (None, Some(libc::WTERMSIG(status)), libc::WCOREDUMP(status))
+            }
+        };
+        Self { status, exit_code, signum, core_dump }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ProcRes {
     /// Errors starting the process.
@@ -137,14 +163,7 @@ pub struct ProcRes {
     /// The pid with which the process ran.
     pub pid: pid_t,
 
-    /// Pid status, which combines exit code and signum.
-    pub status: c_int,
-    /// Exit code (low 8 bits), if terminated with exit.
-    pub exit_code: Option<i32>,
-    /// Signal number, if terminated by signal.
-    pub signum: Option<i32>,
-    /// Whether the process produced a core dump, if terminated by signal.
-    pub core_dump: bool,
+    pub status: Option<Status>,
 
     /// Fd results.
     /// FIXME: Associative map from fd instead?
@@ -161,18 +180,10 @@ fn time_to_sec(time: libc::timeval) -> f64 {
 
 impl ProcRes {
     pub fn new(errors: Vec<String>, pid: pid_t, status: c_int, rusage: rusage) -> ProcRes {
-        let (exit_code, signum, core_dump)= {
-            if libc::WIFEXITED(status) {
-                (Some(libc::WEXITSTATUS(status)), None, false)
-            } else {
-                (None, Some(libc::WTERMSIG(status)), libc::WCOREDUMP(status))
-            }
-        };
         ProcRes {
             errors,
             pid,
-            status,
-            exit_code, signum, core_dump,
+            status: Some(Status::new(status)),
             fds: BTreeMap::new(),
             rusage,
         }

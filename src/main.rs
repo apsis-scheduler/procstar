@@ -17,8 +17,10 @@ use procstar::sys;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::cell::RefCell;
+use sys::WaitInfo;
 
-use hyper::body::{Body as HttpBody, Bytes, Frame};
+use hyper::Request;
+use hyper::body::{Bytes, Frame, Incoming, Body as HttpBody};
 
 //------------------------------------------------------------------------------
 
@@ -56,13 +58,20 @@ fn wait(pid: pid_t, block: bool) -> Option<sys::WaitInfo> {
 
 //------------------------------------------------------------------------------
 
-type ErrorsFuture = tokio::task::JoinHandle<Vec<String>>;
-type WaitFuture = tokio::task::JoinHandle<sys::WaitInfo>;
-
 struct RunningProc {
     pub pid: pid_t,
-    pub errors_task: ErrorsFuture,
-    pub wait_task: WaitFuture,
+    pub errors: Vec<String>,
+    pub wait_info: Option<WaitInfo>,
+}
+
+impl RunningProc {
+    fn new(pid: pid_t) -> Self {
+        Self {
+            pid,
+            errors: Vec::new(),
+            wait_info: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for RunningProc {
@@ -73,9 +82,14 @@ impl std::fmt::Debug for RunningProc {
     }
 }
 
+//------------------------------------------------------------------------------
+
+type SharedRunningProc = Rc<RefCell<RunningProc>>;
+type RunningProcs = BTreeMap<ProcId, SharedRunningProc>;
+
 #[derive(Clone)]
 struct SharedRunningProcs {
-    procs: Rc<RefCell<BTreeMap<ProcId, Rc<RefCell<RunningProc>>>>>,
+    procs: Rc<RefCell<RunningProcs>>,
 }
 
 impl SharedRunningProcs {
@@ -85,24 +99,28 @@ impl SharedRunningProcs {
         }
     }
 
-    pub fn insert(&self, proc_id: ProcId, proc: RunningProc) {
-        self.procs.borrow_mut().insert(
-            proc_id,
-            Rc::new(RefCell::new(proc)),
-        );
-    }
-
-    pub fn pop(&self) -> Option<(ProcId, RunningProc)> {
-        if let Some((proc_id, proc)) = self.procs.borrow_mut().pop_first() {
-            let proc = Rc::<RefCell<RunningProc>>::try_unwrap(proc.into()).unwrap().into_inner();
-            Some((proc_id, proc))
-        } else {
-            None
-        }
+    pub fn insert(&self, proc_id: ProcId, proc: SharedRunningProc) {
+        self.procs.borrow_mut().insert(proc_id, proc);
     }
 
     pub fn len(&self) -> usize {
         self.procs.borrow().len()
+    }
+
+    pub fn get(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
+        self.procs.borrow().get(&proc_id).cloned()
+    }
+
+    pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
+        self.procs.borrow().first_key_value().map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
+    }
+
+    pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
+        self.procs.borrow_mut().remove(&proc_id)
+    }
+
+    pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {
+        self.procs.borrow_mut().pop_first()
     }
 }
 
@@ -178,17 +196,44 @@ impl SharedRunningProcs {
 //     }
 // }
 
-async fn wait_for_proc(pid: pid_t, mut sigchld_receiver: sig::SignalReceiver) -> sys::WaitInfo {
+async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: sig::SignalReceiver) {
+    let pid = proc.borrow().pid;
+
     loop {
         // Wait until the process receives SIGCHLD.  
         sigchld_receiver.signal().await;
+        println!("signal; wait {}", pid);
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
+            let mut proc = proc.borrow_mut();
+            assert!(proc.wait_info.is_none());
             // Process terminated.
-            return wait_info;
+            proc.wait_info = Some(wait_info);
+            break;
         }
     }
+}
+
+async fn handle_proc(
+    proc: SharedRunningProc,
+    sigchld_receiver: sig::SignalReceiver,
+    error_pipe: ErrorPipe,
+) {
+    // FIXME: Error pipe should append directly to errors, so that they are
+    // available earlier.
+    let error_task = {
+        let proc = Rc::clone(&proc);
+        tokio::task::spawn_local(async move {
+            let mut errors = error_pipe.in_parent().await;
+            proc.borrow_mut().errors.append(&mut errors);
+        })
+    };
+
+    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
+
+    _ = error_task.await;
+    _ = wait_task.await;
 }
 
 //------------------------------------------------------------------------------
@@ -226,10 +271,10 @@ async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::
         let (stream, _) = listener.accept().await?;
 
         let running_procs = running_procs.clone();
-        let service = hyper::service::service_fn(move |_| {
+        let service = hyper::service::service_fn(move |_req: Request<Incoming> | {
             let running_procs = running_procs.clone();
             async move {
-                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("{}\n", running_procs.len())))) 
+                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(format!("{}\n", running_procs.len()))))
             }
         });
 
@@ -246,10 +291,11 @@ async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::
 
 //------------------------------------------------------------------------------
 
-async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) {
+async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
+    let mut tasks = Vec::new();
 
     // // Build the objects presenting each of the file descriptors in each proc.
     // let mut fds = input
@@ -313,18 +359,13 @@ async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) {
             Ok(child_pid) => {
                 // Parent process.
 
-                // Start a task to receive errors from the child.
-                let errors_task = tokio::spawn(error_pipe.in_parent());
-                // Start a task to wait for the child to complete.
-                let wait_task = tokio::spawn(wait_for_proc(child_pid, sigchld_receiver.clone()));
+                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid)));
+
+                // Start a task to handle this child.
+                tasks.push(tokio::task::spawn_local(handle_proc(Rc::clone(&proc), sigchld_receiver.clone(), error_pipe)));
+
                 // Construct the record of this running proc.
-                running_procs.insert(
-                    proc_id,
-                    RunningProc {
-                        pid: child_pid,
-                        errors_task,
-                        wait_task,
-                    });
+                running_procs.insert(proc_id, proc);
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -344,6 +385,8 @@ async fn start_procs(input: spec::Input, running_procs: &SharedRunningProcs) {
     //         };
     //     }
     // }
+
+    tasks
 }
 
 async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
@@ -371,16 +414,12 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
     // }
     // std::mem::drop(select);
 
-    // Wait for all remaining procs to terminate and clean them up.
-    // procs.wait_all();
-
     // Collect proc results by removing and waiting each running proc.
     while let Some((proc_id, proc)) = running_procs.pop() {
-        let errors = proc.errors_task.await.unwrap(); // FIXME
-        let (_, status, rusage) = proc.wait_task.await.unwrap();
-
+        let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
-        let proc_res = res::ProcRes::new(errors, proc.pid, status, rusage);
+        let (_, status, rusage) = proc.wait_info.unwrap();
+        let proc_res = res::ProcRes::new(proc.errors, proc.pid, status, rusage);
 
         // // Build fd res's into it.
         // for mut fd in fds {
@@ -411,7 +450,13 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
 }
 
 async fn run(input: spec::Input, running_procs: SharedRunningProcs) -> res::Res {
-    start_procs(input, &running_procs).await;
+    let tasks = start_procs(input, &running_procs).await;
+
+    // Wait for all tasks to complete.
+    for task in tasks {
+        task.await.unwrap();
+    }
+
     collect_results(running_procs).await
 }
 

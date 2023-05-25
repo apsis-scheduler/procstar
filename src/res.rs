@@ -1,5 +1,4 @@
 /// Named "Res" to avoid confusion with the `Result` types.
-
 use base64::Engine;
 use libc::{c_int, pid_t, rusage};
 use serde::Serialize;

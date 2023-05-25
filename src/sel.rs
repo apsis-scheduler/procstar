@@ -1,3 +1,5 @@
+// FIXME: Get rid of this module.
+
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::vec::Vec;

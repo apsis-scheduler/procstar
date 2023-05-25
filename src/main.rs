@@ -8,6 +8,8 @@ extern crate maplit;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+mod argv;
+
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 // use procstar::fd::parse_fd;
@@ -187,34 +189,23 @@ async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // FIXME: Proper CLUI.
-    let mut args = std::env::args().skip(1);
-    let mut input = spec::Input::new();
-    let mut serve = false;
-    loop {
-        match args.next() {
-            Some(s) if s == "-s" => {
-                serve = true;
-            }
-            Some(p) => {
-                input = spec::load_file(&p).unwrap_or_else(|err| {
-                    eprintln!("failed to load {}: {}", p, err);
-                    std::process::exit(exitcode::OSFILE);
-                });
-            }
-            None => {
-                break;
-            }
-        }
-    }
+    let args = argv::parse();
 
     let running_procs = SharedRunningProcs::new();
+    let input = if let Some(p) = args.input {
+        spec::load_file(&p).unwrap_or_else(|err| {
+            eprintln!("failed to load {}: {}", p, err);
+            std::process::exit(exitcode::OSFILE);
+        })
+    } else {
+        spec::Input::new()
+    };
     let start_fut = start_procs(input, running_procs.clone());
 
     // let run_future = run(input, running_procs.clone());
 
     let local = tokio::task::LocalSet::new();
-    if serve {
+    if args.serve {
         let http_fut = run_http(running_procs);
         local
             .run_until(async move {

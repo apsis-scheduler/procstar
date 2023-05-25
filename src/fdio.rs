@@ -1,5 +1,4 @@
 /// Slightly higher-level file descriptor IO operations.
-
 use std::string::String;
 
 use crate::err::{Error, Result};

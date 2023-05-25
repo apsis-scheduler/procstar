@@ -12,6 +12,7 @@ path = "src/lib.rs"
 assert_cmd = "2"
 base64 = "0.21"
 bytes = "1"
+clap = { version = "4.3", features = ["derive"] }
 exitcode = "1"
 futures = "0.3"
 hyper = { version = "1.0.0-rc.3", features = ["http1", "server"] }

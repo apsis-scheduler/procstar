@@ -6,6 +6,7 @@ pub mod err;
 pub mod err_pipe;
 pub mod fd;
 pub mod fdio;
+pub mod http;
 pub mod procs;
 pub mod res;
 pub mod sel;

@@ -1,7 +1,3 @@
-#[allow(unused_imports)] // FIXME: ??
-#[macro_use]
-extern crate maplit;
-
 pub mod environ;
 pub mod err;
 pub mod err_pipe;

@@ -1,10 +1,5 @@
 extern crate exitcode;
 
-// Used for tests.
-#[allow(unused_imports)]
-#[macro_use]
-extern crate maplit;
-
 mod argv;
 
 // use procstar::fd::parse_fd;

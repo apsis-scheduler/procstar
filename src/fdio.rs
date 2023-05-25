@@ -1,5 +1,4 @@
 /// Slightly higher-level file descriptor IO operations.
-
 use crate::err::{Error, Result};
 use crate::sys;
 use crate::sys::fd_t;
@@ -8,12 +7,12 @@ use std::string::String;
 //------------------------------------------------------------------------------
 
 /// Reads up to `max_len` bytes from `fd`, appending to `buf`.
-pub fn read_into_vec(fd: fd_t, buf: &mut Vec<u8>, max_len: usize)-> Result<usize> {
+pub fn read_into_vec(fd: fd_t, buf: &mut Vec<u8>, max_len: usize) -> Result<usize> {
     let pos = buf.len();
     buf.resize(pos + max_len, 0);
 
     // FIXME: Handle EAGAIN.
-    let nread = sys::read(fd, &mut buf[pos .. pos + max_len])?;
+    let nread = sys::read(fd, &mut buf[pos..pos + max_len])?;
     buf.truncate(pos + nread);
     match nread {
         0 => Err(Error::Eof),
@@ -62,4 +61,3 @@ pub fn write_str(fd: fd_t, s: &str) -> Result<()> {
 pub fn write_usize(fd: fd_t, val: usize) -> Result<()> {
     write(fd, &val.to_ne_bytes())
 }
-

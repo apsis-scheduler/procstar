@@ -1,11 +1,10 @@
+use crate::spec::{CaptureFormat, ProcId};
 /// Named "Res" to avoid confusion with the `Result` types.
-
 use base64::Engine;
-use crate::spec::{ProcId, CaptureFormat};
 use libc::{c_int, pid_t, rusage};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use serde::Serialize;
 
 //------------------------------------------------------------------------------
 
@@ -48,7 +47,7 @@ impl ResourceUsage {
         Self {
             utime: time_to_sec(r.ru_utime),
             stime: time_to_sec(r.ru_stime),
-            maxrss: (r.ru_maxrss as u64) * 1024,  // convert KiB to bytes
+            maxrss: (r.ru_maxrss as u64) * 1024, // convert KiB to bytes
             minflt: r.ru_minflt as u64,
             majflt: r.ru_majflt as u64,
             nswap: r.ru_nswap as u64,
@@ -63,26 +62,18 @@ impl ResourceUsage {
 //------------------------------------------------------------------------------
 
 #[derive(Serialize)]
-#[serde(rename_all="lowercase")]
+#[serde(rename_all = "lowercase")]
 #[serde(untagged)]
 pub enum FdRes {
     Error,
 
-    None {
-    },
+    None {},
 
-    File {
-        path: PathBuf,
-    },
+    File { path: PathBuf },
 
-    CaptureUtf8 {
-        text: String,
-    },
+    CaptureUtf8 { text: String },
 
-    CaptureBase64 {
-        data: String,
-        encoding: String,
-    },
+    CaptureBase64 { data: String, encoding: String },
 }
 
 impl FdRes {
@@ -91,20 +82,16 @@ impl FdRes {
             CaptureFormat::Text => {
                 // FIXME: Handle errors.
                 let text = String::from_utf8_lossy(&buffer).to_string();
-                FdRes::CaptureUtf8 {
-                    text
-                }
-            },
+                FdRes::CaptureUtf8 { text }
+            }
             CaptureFormat::Base64 => {
                 // FIXME: Handle errors.
-                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(
-                    &buffer, 
-                );
+                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&buffer);
                 FdRes::CaptureBase64 {
                     data,
-                    encoding: "base64".to_string()
+                    encoding: "base64".to_string(),
                 }
-            },
+            }
         }
     }
 }
@@ -126,14 +113,19 @@ pub struct Status {
 
 impl Status {
     pub fn new(status: c_int) -> Self {
-        let (exit_code, signum, core_dump)= {
+        let (exit_code, signum, core_dump) = {
             if libc::WIFEXITED(status) {
                 (Some(libc::WEXITSTATUS(status)), None, false)
             } else {
                 (None, Some(libc::WTERMSIG(status)), libc::WCOREDUMP(status))
             }
         };
-        Self { status, exit_code, signum, core_dump }
+        Self {
+            status,
+            exit_code,
+            signum,
+            core_dump,
+        }
     }
 }
 
@@ -176,7 +168,9 @@ pub struct Res {
 
 impl Res {
     pub fn new() -> Res {
-        Res { ..Default::default() }
+        Res {
+            ..Default::default()
+        }
     }
 }
 
@@ -185,4 +179,3 @@ impl Res {
 pub fn print(result: &Res) {
     serde_json::to_writer(std::io::stdout(), result).unwrap();
 }
-

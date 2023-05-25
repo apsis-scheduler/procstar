@@ -8,18 +8,21 @@ extern crate maplit;
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 // use procstar::fd::parse_fd;
+use procstar::http::run_http;
+use procstar::procs::{run_proc, RunningProc, SharedRunningProcs};
 use procstar::res;
 use procstar::sig;
 use procstar::spec;
 use procstar::sys;
-use procstar::procs::{RunningProc, SharedRunningProcs, run_proc};
-use procstar::http::run_http;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 //------------------------------------------------------------------------------
 
-async fn start_procs(input: spec::Input, running_procs: SharedRunningProcs) -> Vec<tokio::task::JoinHandle<()>> {
+async fn start_procs(
+    input: spec::Input,
+    running_procs: SharedRunningProcs,
+) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         sig::SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
@@ -90,7 +93,11 @@ async fn start_procs(input: spec::Input, running_procs: SharedRunningProcs) -> V
                 let proc = Rc::new(RefCell::new(RunningProc::new(child_pid)));
 
                 // Start a task to handle this child.
-                tasks.push(tokio::task::spawn_local(run_proc(Rc::clone(&proc), sigchld_receiver.clone(), error_pipe)));
+                tasks.push(tokio::task::spawn_local(run_proc(
+                    Rc::clone(&proc),
+                    sigchld_receiver.clone(),
+                    error_pipe,
+                )));
 
                 // Construct the record of this running proc.
                 running_procs.insert(proc_id, proc);
@@ -187,16 +194,16 @@ async fn main() {
         match args.next() {
             Some(s) if s == "-s" => {
                 serve = true;
-            },
+            }
             Some(p) => {
                 input = spec::load_file(&p).unwrap_or_else(|err| {
                     eprintln!("failed to load {}: {}", p, err);
                     std::process::exit(exitcode::OSFILE);
                 });
-            },
+            }
             None => {
                 break;
-            },
+            }
         }
     }
 
@@ -208,28 +215,31 @@ async fn main() {
     let local = tokio::task::LocalSet::new();
     if serve {
         let http_fut = run_http(running_procs);
-        local.run_until(async move {
-            // Start specs from the command line.  Discard the tasks.
-            _ = tokio::task::spawn_local(start_fut);
-            // Run the service.
-            http_fut.await.unwrap()
-        }).await;
+        local
+            .run_until(async move {
+                // Start specs from the command line.  Discard the tasks.
+                _ = tokio::task::spawn_local(start_fut);
+                // Run the service.
+                http_fut.await.unwrap()
+            })
+            .await;
     } else {
-        local.run_until(async move {
-            // Start specs from the command line.
-            let tasks = start_fut.await;
-            // Wait for tasks to complete.
-            for task in tasks {
-                _ = task.await.unwrap();
-            }
-            // Collect results.
-            let result = collect_results(running_procs).await;
-            // Print them.
-            res::print(&result);
-            println!("");
-        }).await;
-        let ok = true;  // FIXME: Determine if something went wrong.
+        local
+            .run_until(async move {
+                // Start specs from the command line.
+                let tasks = start_fut.await;
+                // Wait for tasks to complete.
+                for task in tasks {
+                    _ = task.await.unwrap();
+                }
+                // Collect results.
+                let result = collect_results(running_procs).await;
+                // Print them.
+                res::print(&result);
+                println!("");
+            })
+            .await;
+        let ok = true; // FIXME: Determine if something went wrong.
         std::process::exit(if ok { exitcode::OK } else { 1 });
     }
 }
-

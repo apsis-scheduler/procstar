@@ -1,4 +1,4 @@
-use crate::sys::{FdSet, fd_t, select};
+use crate::sys::{fd_t, select, FdSet};
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::vec::Vec;
@@ -32,7 +32,7 @@ impl<'a> Select<'a> {
     }
 
     pub fn any(&self) -> bool {
-        ! self.read_fds.is_empty()
+        !self.read_fds.is_empty()
     }
 
     pub fn insert_reader(&mut self, read: &'a mut dyn Read) {
@@ -49,27 +49,28 @@ impl<'a> Select<'a> {
     /// Blocks until a file descriptor is ready, and processes any ready file
     /// descriptors.
     pub fn select(&mut self, timeout: Option<f64>) -> io::Result<()> {
-        let mut read_set  = FdSet::from_fds(self.read_fds.iter().copied());
+        let mut read_set = FdSet::from_fds(self.read_fds.iter().copied());
         let mut write_set = FdSet::new();
         let mut error_set = FdSet::new();
         select(&mut read_set, &mut write_set, &mut error_set, timeout)?;
 
         // Process read-ready fds.  Collect those that are done, collect them to
         // avoid inalidating the iter, then remove them.
-        self.readers.iter_mut().filter_map(
-            |(fd, reader)| {
+        self.readers
+            .iter_mut()
+            .filter_map(|(fd, reader)| {
                 if read_set.is_set(*fd) && reader.read() {
                     Some(*fd)
-                }
-                else {
+                } else {
                     None
                 }
-            }
-        ).collect::<Vec<_>>().into_iter().for_each(
-            |fd| { self.remove_reader(fd); }
-        );
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .for_each(|fd| {
+                self.remove_reader(fd);
+            });
 
         Ok(())
     }
 }
-

@@ -1,12 +1,12 @@
-use libc::pid_t;
-use std::collections::BTreeMap;
 use crate::err_pipe::ErrorPipe;
-use crate::sys::{wait4, WaitInfo};
 use crate::res;
 use crate::sig::SignalReceiver;
 use crate::spec::ProcId;
-use std::rc::Rc;
+use crate::sys::{wait4, WaitInfo};
+use libc::pid_t;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
 
 //------------------------------------------------------------------------------
 
@@ -27,7 +27,10 @@ impl RunningProc {
 
     pub fn to_result(&self) -> res::ProcRes {
         let (status, rusage) = if let Some((_, status, rusage)) = self.wait_info {
-            (Some(res::Status::new(status)), Some(res::ResourceUsage::new(&rusage)))
+            (
+                Some(res::Status::new(status)),
+                Some(res::ResourceUsage::new(&rusage)),
+            )
         } else {
             (None, None)
         };
@@ -36,7 +39,7 @@ impl RunningProc {
             errors: self.errors.clone(),
             status,
             rusage,
-            fds: BTreeMap::new(),  // FIXME
+            fds: BTreeMap::new(), // FIXME
         }
     }
 }
@@ -79,7 +82,10 @@ impl SharedRunningProcs {
     }
 
     pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
-        self.procs.borrow().first_key_value().map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
+        self.procs
+            .borrow()
+            .first_key_value()
+            .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
     }
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
@@ -91,9 +97,12 @@ impl SharedRunningProcs {
     }
 
     pub fn to_result(&self) -> res::Res {
-        let procs = self.procs.borrow().iter().map(
-            |(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result())
-        ).collect::<BTreeMap<_, _>>();
+        let procs = self
+            .procs
+            .borrow()
+            .iter()
+            .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
+            .collect::<BTreeMap<_, _>>();
         res::Res { procs }
     }
 }
@@ -170,7 +179,7 @@ impl SharedRunningProcs {
 //     }
 // }
 
-/// 
+///
 fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
     loop {
         match wait4(pid, block) {
@@ -178,7 +187,7 @@ fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
                 let (wait_pid, _, _) = ti;
                 assert!(wait_pid == pid);
                 return Some(ti);
-            },
+            }
             Ok(None) => {
                 if block {
                     panic!("wait4 empty result");
@@ -205,7 +214,7 @@ async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: SignalRece
     let pid = proc.borrow().pid;
 
     loop {
-        // Wait until the process receives SIGCHLD.  
+        // Wait until the process receives SIGCHLD.
         sigchld_receiver.signal().await;
 
         // Check if this pid has terminated, with a nonblocking wait.
@@ -239,4 +248,3 @@ pub async fn run_proc(
     _ = error_task.await;
     _ = wait_task.await;
 }
-

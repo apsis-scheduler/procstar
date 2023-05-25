@@ -1,4 +1,4 @@
-use hyper::body::{Bytes, Frame, Incoming, Body as HttpBody};
+use hyper::body::{Body as HttpBody, Bytes, Frame, Incoming};
 use hyper::Request;
 
 use crate::procs::SharedRunningProcs;
@@ -39,7 +39,7 @@ pub async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn s
         let (stream, _) = listener.accept().await?;
 
         let running_procs = running_procs.clone();
-        let service = hyper::service::service_fn(move |_req: Request<Incoming> | {
+        let service = hyper::service::service_fn(move |_req: Request<Incoming>| {
             let running_procs = running_procs.clone();
             async move {
                 // let body = format!("{}\n", running_procs.len());
@@ -59,4 +59,3 @@ pub async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn s
         });
     }
 }
-

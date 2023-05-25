@@ -260,4 +260,3 @@ pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     // Return the spec.
     Ok(spec)
 }
-

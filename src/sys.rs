@@ -258,6 +258,39 @@ pub fn wait4(pid: pid_t, block: bool) -> io::Result<Option<WaitInfo>> {
     }
 }
 
+/// Polls or blocks for completion of a process by pid.
+pub fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
+    loop {
+        match wait4(pid, block) {
+            Ok(Some(ti)) => {
+                let (wait_pid, _, _) = ti;
+                assert!(wait_pid == pid);
+                return Some(ti);
+            }
+            Ok(None) => {
+                if block {
+                    panic!("wait4 empty result");
+                } else {
+                    return None;
+                }
+            }
+            Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
+                // wait4 interrupted, possibly by SIGCHLD.
+                if block {
+                    // Keep going.
+                    continue;
+                } else {
+                    // Return, as the caller might want to do something.
+                    return None;
+                }
+            }
+            Err(err) => panic!("wait4 failed: {}", err),
+        };
+    }
+}
+
+//------------------------------------------------------------------------------
+
 pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
     match unsafe { libc::write(fd, data.as_ptr() as *const libc::c_void, data.len()) } {
         -1 => Err(io::Error::last_os_error()),

@@ -2,7 +2,6 @@ extern crate libc;
 
 use libc::{c_int, sigset_t};
 use std::io;
-
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::watch::error::SendError;
 use tokio::sync::watch::{channel, Receiver, Sender};

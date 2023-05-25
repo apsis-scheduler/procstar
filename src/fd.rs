@@ -1,3 +1,10 @@
+use libc;
+use std::io;
+use std::io::Read;
+use std::io::Seek;
+use std::os::unix::io::FromRawFd;
+use std::path::PathBuf;
+
 use crate::err::{Error, Result};
 use crate::fdio;
 use crate::res::FdRes;
@@ -5,12 +12,6 @@ use crate::sel;
 use crate::spec;
 use crate::sys;
 use crate::sys::fd_t;
-use libc;
-use std::io;
-use std::io::Read;
-use std::io::Seek;
-use std::os::unix::io::FromRawFd;
-use std::path::PathBuf;
 
 //------------------------------------------------------------------------------
 

@@ -1,4 +1,3 @@
-use crate::sys::fd_t;
 use libc::c_int;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -8,6 +7,8 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
+
+use crate::sys::fd_t;
 
 //------------------------------------------------------------------------------
 // Spec error

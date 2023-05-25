@@ -1,8 +1,10 @@
 /// Slightly higher-level file descriptor IO operations.
+
+use std::string::String;
+
 use crate::err::{Error, Result};
 use crate::sys;
 use crate::sys::fd_t;
-use std::string::String;
 
 //------------------------------------------------------------------------------
 

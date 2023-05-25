@@ -1,7 +1,8 @@
-use crate::sys::{fd_t, select, FdSet};
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::vec::Vec;
+
+use crate::sys::{fd_t, select, FdSet};
 
 //------------------------------------------------------------------------------
 

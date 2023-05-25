@@ -5,6 +5,9 @@ extern crate exitcode;
 #[macro_use]
 extern crate maplit;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use procstar::environ;
 use procstar::err_pipe::ErrorPipe;
 // use procstar::fd::parse_fd;
@@ -14,8 +17,6 @@ use procstar::res;
 use procstar::sig;
 use procstar::spec;
 use procstar::sys;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 //------------------------------------------------------------------------------
 

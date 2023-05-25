@@ -1,10 +1,12 @@
-use crate::spec::{CaptureFormat, ProcId};
 /// Named "Res" to avoid confusion with the `Result` types.
+
 use base64::Engine;
 use libc::{c_int, pid_t, rusage};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+
+use crate::spec::{CaptureFormat, ProcId};
 
 //------------------------------------------------------------------------------
 

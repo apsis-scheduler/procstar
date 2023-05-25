@@ -1,5 +1,6 @@
-use crate::spec;
 use std::collections::BTreeMap;
+
+use crate::spec;
 
 //------------------------------------------------------------------------------
 

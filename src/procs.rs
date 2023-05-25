@@ -1,12 +1,13 @@
+use libc::pid_t;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
 use crate::err_pipe::ErrorPipe;
 use crate::res;
 use crate::sig::SignalReceiver;
 use crate::spec::ProcId;
 use crate::sys::{wait4, WaitInfo};
-use libc::pid_t;
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::rc::Rc;
 
 //------------------------------------------------------------------------------
 
@@ -68,6 +69,8 @@ impl SharedRunningProcs {
             procs: Rc::new(RefCell::new(BTreeMap::new())),
         }
     }
+
+    // FIXME: Some of these methods are unused.
 
     pub fn insert(&self, proc_id: ProcId, proc: SharedRunningProc) {
         self.procs.borrow_mut().insert(proc_id, proc);

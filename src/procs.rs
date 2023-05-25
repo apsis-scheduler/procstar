@@ -7,7 +7,7 @@ use crate::err_pipe::ErrorPipe;
 use crate::res;
 use crate::sig::SignalReceiver;
 use crate::spec::ProcId;
-use crate::sys::{wait4, WaitInfo};
+use crate::sys::{wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
@@ -107,109 +107,6 @@ impl SharedRunningProcs {
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
             .collect::<BTreeMap<_, _>>();
         res::Res { procs }
-    }
-}
-
-// /// A proc we're running, or that has terminated.
-// struct Proc {
-//     pub pid: pid_t,
-
-//     pub errors_future: ErrorsFuture,
-
-//     /// None while the proc is running; the result of wait4() once the proc has
-//     /// terminated and been cleaned up.
-//     pub wait_info: Option<sys::WaitInfo>,
-// }
-
-// struct Procs {
-//     procs: Vec<Proc>,
-//     num_running: usize,
-// }
-
-// impl Procs {
-//     pub fn new() -> Self {
-//         Self {
-//             procs: Vec::new(),
-//             num_running: 0,
-//         }
-//     }
-
-//     pub fn push(&mut self, pid: pid_t, errors_future: ErrorsFuture, proc_task: ProcTask) {
-//         self.procs.push(Proc {
-//             pid,
-//             errors_future,
-//             proc_task,
-//             wait_info: None,
-//         });
-//         self.num_running += 1;
-//     }
-
-//     fn wait(&mut self, block: bool) {
-//         while self.num_running > 0 {
-//             if let Some(wait_info) = wait(-1, block) {
-//                 let pid = wait_info.0;
-//                 let mut pid_found = false;
-//                 for proc in &mut self.procs {
-//                     if proc.pid == pid {
-//                         assert!(proc.wait_info.replace(wait_info).is_none());
-//                         self.num_running -= 1;
-//                         pid_found = true;
-//                         break;
-//                     }
-//                 }
-//                 assert!(pid_found, "wait returned unexpected pid: {}", pid);
-//             } else {
-//                 assert!(!block, "blocking wait returned no pid");
-//                 break;
-//             }
-//         }
-//     }
-
-//     /// Waits any procs that terminated and are zombies, and stores their wait
-//     /// info.
-//     pub fn wait_any(&mut self) {
-//         self.wait(false);
-//     }
-
-//     /// Blocks and waits for all remaining procs to terminate, and stores their
-//     /// wait info.
-//     pub fn wait_all(&mut self) {
-//         self.wait(true);
-//     }
-
-//     pub fn into_iter(self) -> std::vec::IntoIter<Proc> {
-//         self.procs.into_iter()
-//     }
-// }
-
-///
-fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
-    loop {
-        match wait4(pid, block) {
-            Ok(Some(ti)) => {
-                let (wait_pid, _, _) = ti;
-                assert!(wait_pid == pid);
-                return Some(ti);
-            }
-            Ok(None) => {
-                if block {
-                    panic!("wait4 empty result");
-                } else {
-                    return None;
-                }
-            }
-            Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
-                // wait4 interrupted, possibly by SIGCHLD.
-                if block {
-                    // Keep going.
-                    continue;
-                } else {
-                    // Return, as the caller might want to do something.
-                    return None;
-                }
-            }
-            Err(err) => panic!("wait4 failed: {}", err),
-        };
     }
 }
 

@@ -14,7 +14,7 @@ type Req = Request<Incoming>;
 type Rsp = Response<Full<Bytes>>;
 
 struct RspError(StatusCode, Option<String>);
-type RspResult = Result<Rsp, RspError>;
+type RspResult = Result<serde_json::Value, RspError>;
 
 fn make_json_response<T>(status: StatusCode, obj: T) -> Rsp
 where
@@ -31,41 +31,20 @@ where
         .unwrap()
 }
 
-fn make_error_response(req: &Req, status: StatusCode, msg: Option<&str>) -> Rsp {
-    let body = json!({
-        "error": {
-            "status": status.to_string(),
-            "method": req.method().to_string(),
-            "url": req.uri().to_string(),
-            "message": msg,
-        }
-    })
-    .to_string();
-    Response::builder()
-        .status(status)
-        .body(Full::<Bytes>::from(body))
-        .unwrap()
-}
-
 /// Handles `GET /procs`.
 async fn procs_get(procs: SharedRunningProcs) -> RspResult {
-    Ok(make_json_response(
-        StatusCode::OK,
-        json!({
-            "procs": procs.to_result(),
-        }),
-    ))
+    Ok(json!({
+        "procs": procs.to_result(),
+    }))
 }
 
 /// Handles `GET /procs/:id`.
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     match procs.get(proc_id) {
-        Some(proc) => Ok(make_json_response(
-            StatusCode::OK,
+        Some(proc) => Ok(
             json!({
                 "proc": proc.borrow().to_result()
-            }),
-        )),
+            })),
         None => Err(RspError(StatusCode::NOT_FOUND, None)),
     }
 }
@@ -99,30 +78,41 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
             let router = router.clone();
 
             async move {
-                let m = router.at(req.uri().path());
+                let rsp = match router.at(req.uri().path()) {
+                    Ok(m) => {
+                        let param = |p| m.params.get(p).unwrap();
+                        match (m.value, req.method()) {
+                            // Match route numbers obtained from the matchit
+                            // router, and methods.
+                            (0, &Method::GET) => procs_get(procs).await,
+                            (1, &Method::GET) => procs_id_get(procs, param("id")).await,
 
-                // Dispatch on the route number and HTTP method.
-                match (m.map(|m| (m.value, m.params)), req.method()) {
-                    (Ok((0, _)), &Method::GET) => procs_get(procs).await,
-                    (Ok((1, p)), &Method::GET) => procs_id_get(procs, p.get("id").unwrap()).await,
+                            // Route number (i.e. path match) but no method match.
+                            (_, _) => Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)),
+                        }
+                    },
+                    // No path match.
+                    Err(_) => Err(RspError(StatusCode::NOT_FOUND, None)),
+                };
 
-                    (Ok(_), _) => Ok(make_error_response(
-                        &req,
-                        StatusCode::METHOD_NOT_ALLOWED,
-                        None,
-                    )),
-
-                    (_, _) => Ok(make_error_response(&req, StatusCode::NOT_FOUND, None)),
-                }
-                // If we got a RspError, convert this to a nice JSON response
-                // with corresponding HTTP status.
-                .or_else::<hyper::Error, _>(|err| {
-                    let RspError(status, msg) = err;
-                    Ok(make_error_response(
-                        &req,
-                        status,
-                        msg.as_ref().map(|s| s.as_str()),
-                    ))
+                Ok::<Rsp, hyper::Error>(match rsp {
+                    Ok(d) =>
+                        // Wrap the successful response.
+                        make_json_response(StatusCode::OK, json!({
+                            "data": d,
+                        })),
+                    Err(e) => {
+                        // Wrap the error response.
+                        let RspError(status, msg) = e;
+                        make_json_response(status, json!({
+                            "error": {
+                                "status": json!([status.as_u16(), status.canonical_reason()]),
+                                "method": req.method().to_string(),
+                                "url": req.uri().to_string(),
+                                "message": msg,
+                            }
+                        }))
+                    },
                 })
             }
         });

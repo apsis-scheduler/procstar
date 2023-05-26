@@ -12,7 +12,12 @@ GET /procs
 ```
 
 ```
-GET /procs/{id}
+GET /procs/:id
+
+200
+{
+  "proc": { ... },
+}
 ```
 
 ```

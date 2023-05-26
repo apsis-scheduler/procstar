@@ -1,7 +1,7 @@
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::HeaderValue;
-use hyper::{Request, Response, StatusCode, Method};
+use hyper::{Method, Request, Response, StatusCode};
 
 use crate::procs::SharedRunningProcs;
 
@@ -11,12 +11,16 @@ type Req = Request<Incoming>;
 type Rsp = Response<Full<Bytes>>;
 
 fn make_json_response<T>(status: StatusCode, obj: T) -> Rsp
-    where T: serde::Serialize
+where
+    T: serde::Serialize,
 {
     let body = serde_json::to_string(&obj).unwrap();
     let mut rsp = hyper::Response::new(Full::<Bytes>::from(body));
     *rsp.status_mut() = status;
-    rsp.headers_mut().insert(hyper::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    rsp.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     rsp
 }
 
@@ -26,9 +30,9 @@ async fn procs_get(procs: SharedRunningProcs, _req: Req) -> Result<Rsp, hyper::E
 
 fn error(req: Req) -> Result<Rsp, hyper::Error> {
     Ok(Response::builder()
-       .status(StatusCode::NOT_FOUND)
-       .body(Full::<Bytes>::from(req.uri().to_string()))
-       .unwrap())
+        .status(StatusCode::NOT_FOUND)
+        .body(Full::<Bytes>::from(req.uri().to_string()))
+        .unwrap())
 }
 
 //------------------------------------------------------------------------------

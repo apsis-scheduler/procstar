@@ -1,6 +1,6 @@
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
-use hyper::{Request, Response, StatusCode};
+use hyper::{Request, Response, StatusCode, Method};
 
 use crate::procs::SharedRunningProcs;
 
@@ -16,6 +16,13 @@ async fn procs_get(procs: SharedRunningProcs, _req: Req) -> Result<Rsp, hyper::E
     Ok::<_, hyper::Error>(hyper::Response::new(Full::<Bytes>::from(body)))
 }
 
+fn error(req: Req) -> Result<Rsp, hyper::Error> {
+    Ok(Response::builder()
+       .status(StatusCode::NOT_FOUND)
+       .body(Full::<Bytes>::from(req.uri().to_string()))
+       .unwrap())
+}
+
 //------------------------------------------------------------------------------
 
 /// Runs the HTTP service.
@@ -29,7 +36,13 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
         let procs = procs.clone();
 
         let service = hyper::service::service_fn(move |req: Req| {
-            procs_get(procs.clone(), req)
+            let procs = procs.clone();
+            async move {
+                match (req.uri().path(), req.method()) {
+                    ("/procs", &Method::GET) => procs_get(procs, req).await,
+                    _ => error(req),
+                }
+            }
         });
 
         tokio::task::spawn_local(async move {

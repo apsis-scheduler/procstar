@@ -1,7 +1,6 @@
 use http_body_util::Full;
-use hyper::body::{Body, Bytes, Frame, Incoming};
+use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
-use std::convert::Infallible;
 
 use crate::procs::SharedRunningProcs;
 

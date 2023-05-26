@@ -1,33 +1,11 @@
-use hyper::body::{Body as HttpBody, Bytes, Frame, Incoming};
-use hyper::Request;
+use http_body_util::Full;
+use hyper::body::{Body, Bytes, Frame, Incoming};
+use hyper::{Request, Response, StatusCode};
+use std::convert::Infallible;
 
 use crate::procs::SharedRunningProcs;
 
 //------------------------------------------------------------------------------
-
-struct Body {
-    data: Option<Bytes>,
-}
-
-impl From<String> for Body {
-    fn from(a: String) -> Self {
-        Body {
-            data: Some(a.into()),
-        }
-    }
-}
-
-impl HttpBody for Body {
-    type Data = Bytes;
-    type Error = hyper::Error;
-
-    fn poll_frame(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        std::task::Poll::Ready(self.get_mut().data.take().map(|d| Ok(Frame::data(d))))
-    }
-}
 
 /// Runs the HTTP service.
 pub async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
@@ -45,7 +23,7 @@ pub async fn run_http(running_procs: SharedRunningProcs) -> Result<(), Box<dyn s
                 // let body = format!("{}\n", running_procs.len());
                 let res = running_procs.to_result();
                 let body = serde_json::to_string(&res).unwrap();
-                Ok::<_, hyper::Error>(hyper::Response::new(Body::from(body)))
+                Ok::<_, hyper::Error>(hyper::Response::new(Full::<Bytes>::from(body)))
             }
         });
 

@@ -95,6 +95,8 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
                     Err(_) => Err(RspError(StatusCode::NOT_FOUND, None)),
                 };
 
+                // FIXME: https://jsonapi.org/format
+
                 Ok::<Rsp, hyper::Error>(match rsp {
                     Ok(d) =>
                         // Wrap the successful response.

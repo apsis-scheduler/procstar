@@ -160,20 +160,7 @@ impl ProcRes {
     }
 }
 
-//------------------------------------------------------------------------------
-
-#[derive(Default, Serialize)]
-pub struct Res {
-    pub procs: BTreeMap<ProcId, ProcRes>,
-}
-
-impl Res {
-    pub fn new() -> Res {
-        Res {
-            ..Default::default()
-        }
-    }
-}
+pub type Res = BTreeMap<ProcId, ProcRes>;
 
 //------------------------------------------------------------------------------
 

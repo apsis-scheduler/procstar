@@ -2,7 +2,8 @@ use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
-use matchit::{Router, Params};
+use matchit::Router;
+use serde_json::json;
 use std::rc::Rc;
 
 use crate::procs::SharedRunningProcs;
@@ -28,7 +29,7 @@ where
 }
 
 fn make_error_response(req: &Req, status: StatusCode, msg: Option<&str>) -> Rsp {
-    let body = serde_json::json!({
+    let body = json!({
         "error": {
             "status": status.to_string(),
             "method": req.method().to_string(),
@@ -43,13 +44,17 @@ fn make_error_response(req: &Req, status: StatusCode, msg: Option<&str>) -> Rsp 
 }
 
 async fn procs_get(procs: SharedRunningProcs) -> RspResult {
-    Ok(make_json_response(StatusCode::OK, procs.to_result()))
+    Ok(make_json_response(StatusCode::OK, json!({
+        "procs": procs.to_result(),
+    })))
 }
 
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     match procs.get(proc_id) {
         Some(proc) =>
-            Ok(make_json_response(StatusCode::OK, procs.to_result())),
+            Ok(make_json_response(StatusCode::OK, json!({
+                "proc": proc.borrow().to_result()
+            }))),
         None =>
             Err(RspError(StatusCode::NOT_FOUND, None)),
     }

@@ -81,8 +81,8 @@ impl SharedRunningProcs {
         self.procs.borrow().len()
     }
 
-    pub fn get(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
-        self.procs.borrow().get(&proc_id).cloned()
+    pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
+        self.procs.borrow().get(proc_id).cloned()
     }
 
     pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {

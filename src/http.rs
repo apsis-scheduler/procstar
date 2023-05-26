@@ -23,7 +23,10 @@ where
     let body = serde_json::to_string(&obj).unwrap();
     Response::builder()
         .status(status)
-        .header(hyper::header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )
         .body(Full::<Bytes>::from(body))
         .unwrap()
 }
@@ -36,27 +39,34 @@ fn make_error_response(req: &Req, status: StatusCode, msg: Option<&str>) -> Rsp 
             "url": req.uri().to_string(),
             "message": msg,
         }
-    }).to_string();
+    })
+    .to_string();
     Response::builder()
         .status(status)
         .body(Full::<Bytes>::from(body))
         .unwrap()
 }
 
+/// Handles `GET /procs`.
 async fn procs_get(procs: SharedRunningProcs) -> RspResult {
-    Ok(make_json_response(StatusCode::OK, json!({
-        "procs": procs.to_result(),
-    })))
+    Ok(make_json_response(
+        StatusCode::OK,
+        json!({
+            "procs": procs.to_result(),
+        }),
+    ))
 }
 
+/// Handles `GET /procs/:id`.
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     match procs.get(proc_id) {
-        Some(proc) =>
-            Ok(make_json_response(StatusCode::OK, json!({
+        Some(proc) => Ok(make_json_response(
+            StatusCode::OK,
+            json!({
                 "proc": proc.borrow().to_result()
-            }))),
-        None =>
-            Err(RspError(StatusCode::NOT_FOUND, None)),
+            }),
+        )),
+        None => Err(RspError(StatusCode::NOT_FOUND, None)),
     }
 }
 
@@ -69,7 +79,7 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
     let listener = tokio::net::TcpListener::bind(addr).await?;
     eprintln!("Listening on http://{}", addr);
 
-    // We match the URI path to (internal) route numbers, and dispatch later on
+    // We match the URI path to (internal) route numbers, and dispatch below on
     // these.  It's a bit cumbersome to maintain, but quite efficient, and gives
     // us lots of flexibility in structuring the route handlers.
     let router = Rc::new({
@@ -96,17 +106,23 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
                     (Ok((0, _)), &Method::GET) => procs_get(procs).await,
                     (Ok((1, p)), &Method::GET) => procs_id_get(procs, p.get("id").unwrap()).await,
 
-                    (Ok(_), _) =>
-                        Ok(make_error_response(&req, StatusCode::METHOD_NOT_ALLOWED, None)),
+                    (Ok(_), _) => Ok(make_error_response(
+                        &req,
+                        StatusCode::METHOD_NOT_ALLOWED,
+                        None,
+                    )),
 
-                    (_, _) =>
-                        Ok(make_error_response(&req, StatusCode::NOT_FOUND, None)),
+                    (_, _) => Ok(make_error_response(&req, StatusCode::NOT_FOUND, None)),
                 }
                 // If we got a RspError, convert this to a nice JSON response
                 // with corresponding HTTP status.
                 .or_else::<hyper::Error, _>(|err| {
                     let RspError(status, msg) = err;
-                    Ok(make_error_response(&req, status, msg.as_ref().map(|s| s.as_str())))
+                    Ok(make_error_response(
+                        &req,
+                        status,
+                        msg.as_ref().map(|s| s.as_str()),
+                    ))
                 })
             }
         });

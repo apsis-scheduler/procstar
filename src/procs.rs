@@ -101,8 +101,7 @@ impl SharedRunningProcs {
     }
 
     pub fn to_result(&self) -> res::Res {
-        self
-            .procs
+        self.procs
             .borrow()
             .iter()
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))

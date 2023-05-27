@@ -91,6 +91,7 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
                             (_, _) => Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)),
                         }
                     },
+
                     // No path match.
                     Err(_) => Err(RspError(StatusCode::NOT_FOUND, None)),
                 };
@@ -107,12 +108,12 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
                         // Wrap the error response.
                         let RspError(status, msg) = e;
                         make_json_response(status, json!({
-                            "error": {
-                                "status": json!([status.as_u16(), status.canonical_reason()]),
-                                "method": req.method().to_string(),
-                                "url": req.uri().to_string(),
-                                "message": msg,
-                            }
+                            "errors": json!([
+                                {
+                                    "status": status.to_string(),
+                                    "detail": msg,
+                                },
+                            ]),
                         }))
                     },
                 })

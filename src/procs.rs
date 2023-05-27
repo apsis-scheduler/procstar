@@ -81,8 +81,8 @@ impl SharedRunningProcs {
         self.procs.borrow().len()
     }
 
-    pub fn get(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
-        self.procs.borrow().get(&proc_id).cloned()
+    pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
+        self.procs.borrow().get(proc_id).cloned()
     }
 
     pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
@@ -101,13 +101,11 @@ impl SharedRunningProcs {
     }
 
     pub fn to_result(&self) -> res::Res {
-        let procs = self
-            .procs
+        self.procs
             .borrow()
             .iter()
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
-            .collect::<BTreeMap<_, _>>();
-        res::Res { procs }
+            .collect::<BTreeMap<_, _>>()
     }
 }
 
@@ -309,7 +307,7 @@ pub async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
         //     };
         // }
 
-        result.procs.insert(proc_id.clone(), proc_res);
+        result.insert(proc_id.clone(), proc_res);
     }
     // Nothing should be left running.
     assert!(running_procs.len() == 0);

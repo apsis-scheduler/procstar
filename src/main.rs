@@ -23,29 +23,29 @@ async fn main() {
     } else {
         spec::Input::new()
     };
-    let start_fut = start_procs(input, running_procs.clone());
-
-    // let run_future = run(input, running_procs.clone());
 
     let local = tokio::task::LocalSet::new();
     if args.serve {
-        let http_fut = run_http(running_procs);
+        // Service mode.
         local
             .run_until(async move {
-                // Start specs from the command line.  Discard the tasks.
-                _ = tokio::task::spawn_local(start_fut);
-                // Run the service.
-                http_fut.await.unwrap()
+                // Start specs from the command line.  Discard the tasks.  We
+                // intentionally don't start the HTTP service until the input
+                // processes have started, to avoid races where these procs
+                // don't appear in HTTP results.
+                start_procs(input, running_procs.clone()).await;
+                // Run the HTTP service.
+                run_http(running_procs).await.unwrap()
             })
             .await;
     } else {
         local
             .run_until(async move {
                 // Start specs from the command line.
-                let tasks = start_fut.await;
+                let tasks = start_procs(input, running_procs.clone()).await;
                 // Wait for tasks to complete.
                 for task in tasks {
-                    _ = task.await.unwrap();
+                    _ = task.await.unwrap(); // FIXME
                 }
                 // Collect results.
                 let result = collect_results(running_procs).await;

@@ -1,4 +1,3 @@
-use libc::c_int;
 use std::cell::RefCell;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
@@ -69,12 +68,8 @@ pub enum FdHandler {
     UnmanagedFile {
         /// Proc-visible fd.
         fd: RawFd,
-        /// Path to the file.
-        path: PathBuf,
-        /// Flags when opening.
-        oflags: c_int,
-        /// Mode when opening,
-        mode: c_int,
+        /// Fd open to the file.
+        file_fd: RawFd,
     },
 
     /// Attaches the file descriptor to a pipe; reads data from the pipe and
@@ -106,19 +101,19 @@ impl SharedFdHandler {
 
             spec::Fd::Close => FdHandler::Close { fd },
 
-            spec::Fd::Null { flags } => FdHandler::UnmanagedFile {
-                fd,
-                path: PathBuf::from(PATH_DEV_NULL),
-                oflags: get_oflags(&flags, fd),
-                mode: 0,
-            },
+            spec::Fd::Null { flags } => {
+                let path = PathBuf::from(PATH_DEV_NULL);
+                let oflags = get_oflags(&flags, fd);
+                let file_fd = sys::open(&path, oflags, 0)?;
+                FdHandler::UnmanagedFile { fd, file_fd }
+            }
 
-            spec::Fd::File { path, flags, mode } => FdHandler::UnmanagedFile {
-                fd,
-                path: PathBuf::from(path),
-                oflags: get_oflags(&flags, fd),
-                mode,
-            },
+            spec::Fd::File { path, flags, mode } => {
+                let path = PathBuf::from(path);
+                let oflags = get_oflags(&flags, fd);
+                let file_fd = sys::open(&path, oflags, mode)?;
+                FdHandler::UnmanagedFile { fd, file_fd }
+            }
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
@@ -171,7 +166,10 @@ impl SharedFdHandler {
 
             FdHandler::Close { .. } => None,
 
-            FdHandler::UnmanagedFile { .. } => None,
+            FdHandler::UnmanagedFile { file_fd, .. } => {
+                sys::close(file_fd).unwrap();
+                None
+            }
 
             FdHandler::CaptureMemory { write_fd, .. } => {
                 // In the parent, we only read.
@@ -193,8 +191,7 @@ impl SharedFdHandler {
                 Ok(())
             }
 
-            FdHandler::UnmanagedFile { fd, path, oflags, mode } => {
-                let file_fd = sys::open(&path, oflags, mode)?;
+            FdHandler::UnmanagedFile { fd, file_fd } => {
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;

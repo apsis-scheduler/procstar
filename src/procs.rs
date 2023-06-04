@@ -226,7 +226,10 @@ pub async fn start_procs(
                     std::process::exit(exitcode::OSERR);
                 });
 
-                let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap(); // FIXME: unwrap
+                let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap_or_else(|err| {
+                    eprintln!("failed to set up fd {}: {}", fd_num, err);
+                    std::process::exit(exitcode::OSERR);
+                });
 
                 (fd_num, handler)
             })

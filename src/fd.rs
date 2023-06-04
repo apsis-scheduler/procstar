@@ -1,3 +1,4 @@
+use libc::c_int;
 use std::cell::RefCell;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
@@ -94,6 +95,19 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
 const PATH_DEV_NULL: &str = "/dev/null";
 
+/// Opens a file as an unmanaged file fd handler.
+fn open_unmanaged_file(
+    fd: RawFd,
+    path: &str,
+    flags: spec::OpenFlag,
+    mode: c_int,
+) -> Result<FdHandler> {
+    let path = PathBuf::from(path);
+    let oflags = get_oflags(&flags, fd);
+    let file_fd = sys::open(&path, oflags, mode)?;
+    Ok(FdHandler::UnmanagedFile { fd, file_fd })
+}
+
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
         let fd = match spec {
@@ -101,26 +115,19 @@ impl SharedFdHandler {
 
             spec::Fd::Close => FdHandler::Close { fd },
 
-            spec::Fd::Null { flags } => {
-                let path = PathBuf::from(PATH_DEV_NULL);
-                let oflags = get_oflags(&flags, fd);
-                let file_fd = sys::open(&path, oflags, 0)?;
-                FdHandler::UnmanagedFile { fd, file_fd }
-            }
+            spec::Fd::Null { flags } => open_unmanaged_file(fd, PATH_DEV_NULL, flags, 0)?,
 
-            spec::Fd::File { path, flags, mode } => {
-                let path = PathBuf::from(path);
-                let oflags = get_oflags(&flags, fd);
-                let file_fd = sys::open(&path, oflags, mode)?;
-                FdHandler::UnmanagedFile { fd, file_fd }
-            }
+            spec::Fd::File { path, flags, mode } => open_unmanaged_file(fd, &path, flags, mode)?,
 
             spec::Fd::Dup { .. } => {
                 // TODO
                 panic!("not implemented");
             }
 
-            spec::Fd::Capture { mode: spec::CaptureMode::TempFile, .. } => {
+            spec::Fd::Capture {
+                mode: spec::CaptureMode::TempFile,
+                ..
+            } => {
                 // TODO
                 panic!("not implemented");
             }

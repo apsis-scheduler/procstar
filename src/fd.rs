@@ -34,6 +34,8 @@ pub fn get_fd_name(fd: RawFd) -> String {
 
 #[derive(Debug)]
 pub enum FdHandler {
+    Inherit,
+
     Close {
         /// Proc-visible fd.
         fd: RawFd,
@@ -64,6 +66,8 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
         let fd = match spec {
+            spec::Fd::Inherit => FdHandler::Inherit,
+
             spec::Fd::Close => FdHandler::Close { fd },
 
             spec::Fd::Capture {
@@ -113,6 +117,8 @@ impl SharedFdHandler {
 
     pub fn in_parent(&self) -> Result<Option<JoinHandle<Result<()>>>> {
         Ok(match *self.0.borrow() {
+            FdHandler::Inherit => None,
+
             FdHandler::Close { .. } => None,
 
             FdHandler::CaptureMemory { write_fd, .. } => {
@@ -128,6 +134,8 @@ impl SharedFdHandler {
 
     pub fn in_child(self) -> Result<()> {
         match Rc::try_unwrap(self.0).unwrap().into_inner() {
+            FdHandler::Inherit => Ok(()),
+
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
                 Ok(())
@@ -150,7 +158,9 @@ impl SharedFdHandler {
 
     pub fn get_result(&self) -> Result<FdRes> {
         Ok(match &*self.0.borrow() {
-            FdHandler::Close { .. } => FdRes::None {},
+            FdHandler::Inherit => FdRes::None,
+
+            FdHandler::Close { .. } => FdRes::None,
 
             FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
         })

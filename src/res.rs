@@ -68,7 +68,7 @@ impl ResourceUsage {
 pub enum FdRes {
     Error,
 
-    None {},
+    None,
 
     File { path: PathBuf },
 

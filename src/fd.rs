@@ -115,6 +115,16 @@ impl SharedFdHandler {
                 FdHandler::UnmanagedFile { fd, file_fd }
             }
 
+            spec::Fd::Dup { .. } => {
+                // TODO
+                panic!("not implemented");
+            }
+
+            spec::Fd::Capture { mode: spec::CaptureMode::TempFile, .. } => {
+                // TODO
+                panic!("not implemented");
+            }
+
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
                 format,
@@ -128,8 +138,6 @@ impl SharedFdHandler {
                     buf: Vec::new(),
                 }
             }
-
-            _ => panic!("missing"),
         };
         Ok(SharedFdHandler(Rc::new(RefCell::new(fd))))
     }

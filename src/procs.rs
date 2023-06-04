@@ -44,19 +44,23 @@ impl RunningProc {
             (None, None)
         };
 
-        let fds = self.fd_handlers.iter().map(|(fd_num, fd_handler)| {
-            let result = match fd_handler.get_result() {
-                Ok(fd_result) => fd_result,
-                Err(_err) => {
-                    // result
-                    //     .errors
-                    //     .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
-                    // FIXME: Put the error in here.
-                    res::FdRes::Error {}
-                }
-            };
-            (fd::get_fd_name(*fd_num), result)
-        }).collect::<BTreeMap<_, _>>();
+        let fds = self
+            .fd_handlers
+            .iter()
+            .map(|(fd_num, fd_handler)| {
+                let result = match fd_handler.get_result() {
+                    Ok(fd_result) => fd_result,
+                    Err(_err) => {
+                        // result
+                        //     .errors
+                        //     .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
+                        // FIXME: Put the error in here.
+                        res::FdRes::Error {}
+                    }
+                };
+                (fd::get_fd_name(*fd_num), result)
+            })
+            .collect::<BTreeMap<_, _>>();
 
         res::ProcRes {
             pid: self.pid,
@@ -212,17 +216,21 @@ pub async fn start_procs(
             std::process::exit(exitcode::OSFILE);
         });
 
-        let fd_handlers: FdHandlers = spec.fds.into_iter().map(|(fd_str, fd_spec)| {
-            // FIXME: Parse, or at least check, when deserializing.
-            let fd_num = fd::parse_fd(&fd_str).unwrap_or_else(|err| {
-                eprintln!("failed to parse fd {}: {}", fd_str, err);
-                std::process::exit(exitcode::OSERR);
-            });
+        let fd_handlers: FdHandlers = spec
+            .fds
+            .into_iter()
+            .map(|(fd_str, fd_spec)| {
+                // FIXME: Parse, or at least check, when deserializing.
+                let fd_num = fd::parse_fd(&fd_str).unwrap_or_else(|err| {
+                    eprintln!("failed to parse fd {}: {}", fd_str, err);
+                    std::process::exit(exitcode::OSERR);
+                });
 
-            let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap();  // FIXME: unwrap
+                let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap(); // FIXME: unwrap
 
-            (fd_num, handler)
-        }).collect::<BTreeMap<_, _>>();
+                (fd_num, handler)
+            })
+            .collect::<BTreeMap<_, _>>();
 
         // Fork the child process.
         match fork() {
@@ -254,8 +262,9 @@ pub async fn start_procs(
             Ok(child_pid) => {
                 // Parent process.
                 // FIXME: What do we do with these tasks?  We should await them later.
-                let _fd_handler_tasks = fd_handlers.iter().filter_map(
-                    |(ref fd, ref fd_handler)| {
+                let _fd_handler_tasks = fd_handlers
+                    .iter()
+                    .filter_map(|(ref fd, ref fd_handler)| {
                         match fd_handler.in_parent() {
                             Ok(task) => Some(task),
                             Err(err) => {
@@ -263,10 +272,10 @@ pub async fn start_procs(
                                 let err = format!("failed to set up fd {}: {}", fd, err);
                                 eprintln!("{}", err);
                                 None
-                            },
+                            }
                         }
-                    }
-                ).collect::<Vec<_>>();
+                    })
+                    .collect::<Vec<_>>();
 
                 let proc = Rc::new(RefCell::new(RunningProc::new(child_pid, fd_handlers)));
 

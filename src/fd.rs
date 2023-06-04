@@ -55,7 +55,6 @@ pub enum FdHandler {
         /// Captured output.
         buf: Vec<u8>,
     },
-
 }
 
 pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
@@ -65,11 +64,12 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
         let fd = match spec {
-            spec::Fd::Close => {
-                FdHandler::Close { fd }
-            },
+            spec::Fd::Close => FdHandler::Close { fd },
 
-            spec::Fd::Capture { mode: spec::CaptureMode::Memory, format } => {
+            spec::Fd::Capture {
+                mode: spec::CaptureMode::Memory,
+                format,
+            } => {
                 let (read_fd, write_fd) = sys::pipe()?;
                 FdHandler::CaptureMemory {
                     fd,
@@ -78,7 +78,7 @@ impl SharedFdHandler {
                     format,
                     buf: Vec::new(),
                 }
-            },
+            }
 
             _ => panic!("missing"),
         };
@@ -96,29 +96,32 @@ impl SharedFdHandler {
                 // Start a task to drain the pipe into the buffer.
                 let rc = Rc::clone(&self.0);
                 Some(tokio::task::spawn_local(async move {
-                    let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
-                        PipeRead::from_raw_fd_checked(read_fd)?
-                    } else {
-                        panic!();
-                    };
+                    let mut read_pipe =
+                        if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
+                            PipeRead::from_raw_fd_checked(read_fd)?
+                        } else {
+                            panic!();
+                        };
 
-                    let mut read_buf = [0 as u8; 65536];  // FIXME: What's the right size?
+                    let mut read_buf = [0 as u8; 65536]; // FIXME: What's the right size?
                     loop {
                         // TODO: Limit max len.
                         let len = read_pipe.read(&mut read_buf).await?;
                         if len == 0 {
                             break;
                         } else {
-                            if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
-                                buf.extend_from_slice(&read_buf[.. len]);
+                            if let &mut FdHandler::CaptureMemory { ref mut buf, .. } =
+                                &mut *rc.borrow_mut()
+                            {
+                                buf.extend_from_slice(&read_buf[..len]);
                             } else {
                                 panic!();
                             };
                         }
-                    };
+                    }
                     Ok(())
                 }))
-            },
+            }
         })
     }
 
@@ -127,15 +130,20 @@ impl SharedFdHandler {
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
                 Ok(())
-            },
+            }
 
-            FdHandler::CaptureMemory { fd, read_fd, write_fd, .. }=> {
+            FdHandler::CaptureMemory {
+                fd,
+                read_fd,
+                write_fd,
+                ..
+            } => {
                 // In the child, don't read from the pipe.
                 sys::close(read_fd)?;
                 // Attach the write pipe to the target fd.
                 sys::dup2(write_fd, fd)?;
                 Ok(())
-            },
+            }
         }
     }
 
@@ -143,8 +151,7 @@ impl SharedFdHandler {
         Ok(match &*self.0.borrow() {
             FdHandler::Close { .. } => FdRes::None {},
 
-            FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf)
+            FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
         })
     }
-
 }

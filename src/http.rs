@@ -41,10 +41,9 @@ async fn procs_get(procs: SharedRunningProcs) -> RspResult {
 /// Handles `GET /procs/:id`.
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     match procs.get(proc_id) {
-        Some(proc) => Ok(
-            json!({
-                "proc": proc.borrow().to_result()
-            })),
+        Some(proc) => Ok(json!({
+            "proc": proc.borrow().to_result()
+        })),
         None => Err(RspError(StatusCode::NOT_FOUND, None)),
     }
 }
@@ -90,7 +89,7 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
                             // Route number (i.e. path match) but no method match.
                             (_, _) => Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)),
                         }
-                    },
+                    }
 
                     // No path match.
                     Err(_) => Err(RspError(StatusCode::NOT_FOUND, None)),
@@ -100,22 +99,30 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
 
                 Ok::<Rsp, hyper::Error>(match rsp {
                     Ok(d) =>
-                        // Wrap the successful response.
-                        make_json_response(StatusCode::OK, json!({
-                            "data": d,
-                        })),
+                    // Wrap the successful response.
+                    {
+                        make_json_response(
+                            StatusCode::OK,
+                            json!({
+                                "data": d,
+                            }),
+                        )
+                    }
                     Err(e) => {
                         // Wrap the error response.
                         let RspError(status, msg) = e;
-                        make_json_response(status, json!({
-                            "errors": json!([
-                                {
-                                    "status": status.to_string(),
-                                    "detail": msg,
-                                },
-                            ]),
-                        }))
-                    },
+                        make_json_response(
+                            status,
+                            json!({
+                                "errors": json!([
+                                    {
+                                        "status": status.to_string(),
+                                        "detail": msg,
+                                    },
+                                ]),
+                            }),
+                        )
+                    }
                 })
             }
         });

@@ -85,6 +85,32 @@ impl SharedFdHandler {
         Ok(SharedFdHandler(Rc::new(RefCell::new(fd))))
     }
 
+    /// Reads from the pipe read fd, appending data to `buf`, until EOF.
+    async fn run_capture_memory(rc: Rc<RefCell<FdHandler>>) -> Result<()> {
+        let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
+            PipeRead::from_raw_fd_checked(read_fd)?
+        } else {
+            panic!();
+        };
+
+        let mut read_buf = [0 as u8; 65536]; // FIXME: What's the right size?
+        loop {
+            // Don't hold a ref to the handler object across await, so `buf` is
+            // accessible elsewhere.
+            let len = read_pipe.read(&mut read_buf).await?;
+            if len == 0 {
+                break;
+            } else {
+                if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+                    buf.extend_from_slice(&read_buf[..len]);
+                } else {
+                    panic!();
+                };
+            }
+        }
+        Ok(())
+    }
+
     pub fn in_parent(&self) -> Result<Option<JoinHandle<Result<()>>>> {
         Ok(match *self.0.borrow() {
             FdHandler::Close { .. } => None,
@@ -92,35 +118,10 @@ impl SharedFdHandler {
             FdHandler::CaptureMemory { write_fd, .. } => {
                 // In the parent, we only read.
                 sys::close(write_fd)?;
-
                 // Start a task to drain the pipe into the buffer.
-                let rc = Rc::clone(&self.0);
-                Some(tokio::task::spawn_local(async move {
-                    let mut read_pipe =
-                        if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
-                            PipeRead::from_raw_fd_checked(read_fd)?
-                        } else {
-                            panic!();
-                        };
-
-                    let mut read_buf = [0 as u8; 65536]; // FIXME: What's the right size?
-                    loop {
-                        // TODO: Limit max len.
-                        let len = read_pipe.read(&mut read_buf).await?;
-                        if len == 0 {
-                            break;
-                        } else {
-                            if let &mut FdHandler::CaptureMemory { ref mut buf, .. } =
-                                &mut *rc.borrow_mut()
-                            {
-                                buf.extend_from_slice(&read_buf[..len]);
-                            } else {
-                                panic!();
-                            };
-                        }
-                    }
-                    Ok(())
-                }))
+                Some(tokio::task::spawn_local(Self::run_capture_memory(
+                    Rc::clone(&self.0),
+                )))
             }
         })
     }

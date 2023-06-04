@@ -73,6 +73,8 @@ pub enum FdHandler {
         path: PathBuf,
         /// Flags when opening.
         oflags: c_int,
+        /// Mode when opening,
+        mode: c_int,
     },
 
     /// Attaches the file descriptor to a pipe; reads data from the pipe and
@@ -108,6 +110,14 @@ impl SharedFdHandler {
                 fd,
                 path: PathBuf::from(PATH_DEV_NULL),
                 oflags: get_oflags(&flags, fd),
+                mode: 0,
+            },
+
+            spec::Fd::File { path, flags, mode } => FdHandler::UnmanagedFile {
+                fd,
+                path: PathBuf::from(path),
+                oflags: get_oflags(&flags, fd),
+                mode,
             },
 
             spec::Fd::Capture {
@@ -183,8 +193,8 @@ impl SharedFdHandler {
                 Ok(())
             }
 
-            FdHandler::UnmanagedFile { fd, path, oflags } => {
-                let file_fd = sys::open(&path, oflags, 0)?;
+            FdHandler::UnmanagedFile { fd, path, oflags, mode } => {
+                let file_fd = sys::open(&path, oflags, mode)?;
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;

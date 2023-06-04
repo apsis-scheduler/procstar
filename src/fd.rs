@@ -6,84 +6,145 @@ use tokio::task::JoinHandle;
 use tokio_pipe::PipeRead;
 
 use crate::err::Result;
+use crate::res::FdRes;
 use crate::spec;
 use crate::sys;
-use crate::sys::fd_t;
 
 //------------------------------------------------------------------------------
 
-pub trait Fd where Self: Sized {
-    /// Called after fork() in parent process.
-    fn in_parent(self) -> Result<Option<JoinHandle<()>>> {
-        Ok(None)
-    }
-
-    /// Called after fork() in child process.
-    fn in_child(&mut self) -> Result<Result<()>> {
-        Ok(Ok(()))
+pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, std::num::ParseIntError> {
+    match fd {
+        "stdin" => Ok(0),
+        "stdout" => Ok(1),
+        "stderr" => Ok(2),
+        _ => fd.parse::<RawFd>(),
     }
 }
 
-type SharedFd = Rc<RefCell<dyn Fd>>;
+pub fn get_fd_name(fd: RawFd) -> String {
+    match fd {
+        0 => "stdin".to_string(),
+        1 => "stdout".to_string(),
+        2 => "stderr".to_string(),
+        _ => fd.to_string(),
+    }
+}
 
 //------------------------------------------------------------------------------
 
-pub struct MemoryCapture {
-    /// Proc-visible fd.
-    fd: RawFd,
+#[derive(Debug)]
+pub enum FdHandler {
+    Close {
+        /// Proc-visible fd.
+        fd: RawFd,
+    },
 
-    /// Read end of the pipe.
-    read_fd: RawFd,
+    CaptureMemory {
+        /// Proc-visible fd.
+        fd: RawFd,
 
-    /// Write end of the pipe.
-    write_fd: RawFd,
+        /// Read end of the pipe.
+        read_fd: RawFd,
 
-    /// Format for output.
-    format: spec::CaptureFormat,
+        /// Write end of the pipe.
+        write_fd: RawFd,
 
-    /// Captured output.
-    buf: Vec<u8>,
+        /// Format for output.
+        format: spec::CaptureFormat,
+
+        /// Captured output.
+        buf: Vec<u8>,
+    },
+
 }
 
-impl MemoryCapture {
-    pub fn new(fd: fd_t, format: spec::CaptureFormat) -> Result<Self> {
-        let (read_fd, write_fd) = sys::pipe()?;
-        Ok(Self {
-            fd,
-            read_fd,
-            write_fd,
-            format,
-            buf: Vec::new(),
+pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
+
+//------------------------------------------------------------------------------
+
+impl SharedFdHandler {
+    pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
+        let fd = match spec {
+            spec::Fd::Close => {
+                FdHandler::Close { fd }
+            },
+
+            spec::Fd::Capture { mode: spec::CaptureMode::Memory, format } => {
+                let (read_fd, write_fd) = sys::pipe()?;
+                FdHandler::CaptureMemory {
+                    fd,
+                    read_fd,
+                    write_fd,
+                    format,
+                    buf: Vec::new(),
+                }
+            },
+
+            _ => panic!("missing"),
+        };
+        Ok(SharedFdHandler(Rc::new(RefCell::new(fd))))
+    }
+
+    pub fn in_parent(&self) -> Result<Option<JoinHandle<Result<()>>>> {
+        Ok(match *self.0.borrow() {
+            FdHandler::Close { .. } => None,
+
+            FdHandler::CaptureMemory { write_fd, .. } => {
+                // In the parent, we only read.
+                sys::close(write_fd)?;
+
+                // Start a task to drain the pipe into the buffer.
+                let rc = Rc::clone(&self.0);
+                Some(tokio::task::spawn_local(async move {
+                    let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
+                        PipeRead::from_raw_fd_checked(read_fd)?
+                    } else {
+                        panic!();
+                    };
+
+                    let mut read_buf = [0 as u8; 65536];  // FIXME: What's the right size?
+                    loop {
+                        // TODO: Limit max len.
+                        let len = read_pipe.read(&mut read_buf).await?;
+                        if len == 0 {
+                            break;
+                        } else {
+                            if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+                                buf.extend_from_slice(&read_buf[.. len]);
+                            } else {
+                                panic!();
+                            };
+                        }
+                    };
+                    Ok(())
+                }))
+            },
         })
     }
 
-    async fn run(mut self) {
-        // TODO: Limit max len.
-        // FIXME: Handle errors instead of unwrap().
-        let mut read_pipe = PipeRead::from_raw_fd_checked(self.read_fd).unwrap();
-        read_pipe.read_to_end(&mut self.buf).await.unwrap();
+    pub fn in_child(self) -> Result<()> {
+        match Rc::try_unwrap(self.0).unwrap().into_inner() {
+            FdHandler::Close { fd } => {
+                sys::close(fd)?;
+                Ok(())
+            },
+
+            FdHandler::CaptureMemory { fd, read_fd, write_fd, .. }=> {
+                // In the child, don't read from the pipe.
+                sys::close(read_fd)?;
+                // Attach the write pipe to the target fd.
+                sys::dup2(write_fd, fd)?;
+                Ok(())
+            },
+        }
     }
+
+    pub fn get_result(&self) -> Result<FdRes> {
+        Ok(match &*self.0.borrow() {
+            FdHandler::Close { .. } => FdRes::None {},
+
+            FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf)
+        })
+    }
+
 }
-
-impl Fd for MemoryCapture {
-    fn in_parent(self) -> Result<Option<JoinHandle<()>>> {
-        // Close the write end of the pipe.  Only the child writes.
-        sys::close(self.write_fd)?;
-        Ok(Some(tokio::task::spawn_local(self.run())))
-    }
-
-    /// Called in parent process after wait().
-    // fn in_parent(self) -> io::Result<Option<FdRes>> {
-
-    //     let mut buf = Vec::new();
-    //     std::mem::swap(&mut buf, &mut self.buf);
-    //     Ok(Some(FdRes::from_bytes(self.format, buf)))
-    // }
-
-    fn in_child(&mut self) -> Result<()> {
-        sys::close(self.read_fd)?;
-        sys::dup2(self.write_fd, self.fd)?;
-        Ok(())
-    }
-}
-

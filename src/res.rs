@@ -78,7 +78,7 @@ pub enum FdRes {
 }
 
 impl FdRes {
-    pub fn from_bytes(format: CaptureFormat, buffer: Vec<u8>) -> FdRes {
+    pub fn from_bytes(format: CaptureFormat, buffer: &Vec<u8>) -> FdRes {
         match format {
             CaptureFormat::Text => {
                 // FIXME: Handle errors.
@@ -87,7 +87,7 @@ impl FdRes {
             }
             CaptureFormat::Base64 => {
                 // FIXME: Handle errors.
-                let data = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&buffer);
+                let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
                 FdRes::CaptureBase64 {
                     data,
                     encoding: "base64".to_string(),

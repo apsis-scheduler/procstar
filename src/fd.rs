@@ -1,5 +1,7 @@
+use libc::c_int;
 use std::cell::RefCell;
 use std::os::fd::RawFd;
+use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
@@ -32,28 +34,58 @@ pub fn get_fd_name(fd: RawFd) -> String {
 
 //------------------------------------------------------------------------------
 
+// FIXME: Generalize: split out R/W/RW from file creation flags.
+fn get_oflags(flags: &spec::OpenFlag, fd: RawFd) -> libc::c_int {
+    use spec::OpenFlag::*;
+    match flags {
+        Default => match fd {
+            0 => libc::O_RDONLY,
+            1 | 2 => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+            _ => libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
+        },
+        Read => libc::O_RDONLY,
+        Write => libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        Create => libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        Replace => libc::O_WRONLY | libc::O_TRUNC,
+        Append => libc::O_WRONLY | libc::O_APPEND,
+        CreateAppend => libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
+        ReadWrite => libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
+    }
+}
+
+//------------------------------------------------------------------------------
+
 #[derive(Debug)]
 pub enum FdHandler {
     Inherit,
 
+    /// Closes the file descriptor.
     Close {
         /// Proc-visible fd.
         fd: RawFd,
     },
 
+    /// Dup's the file descriptor to an open file.  That file is not managed.
+    UnmanagedFile {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Path to the file.
+        path: PathBuf,
+        /// Flags when opening.
+        oflags: c_int,
+    },
+
+    /// Attaches the file descriptor to a pipe; reads data from the pipe and
+    /// buffers in memory.
     CaptureMemory {
         /// Proc-visible fd.
         fd: RawFd,
-
         /// Read end of the pipe.
         read_fd: RawFd,
-
         /// Write end of the pipe.
         write_fd: RawFd,
-
         /// Format for output.
         format: spec::CaptureFormat,
-
         /// Captured output.
         buf: Vec<u8>,
     },
@@ -63,12 +95,20 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
 //------------------------------------------------------------------------------
 
+const PATH_DEV_NULL: &str = "/dev/null";
+
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
         let fd = match spec {
             spec::Fd::Inherit => FdHandler::Inherit,
 
             spec::Fd::Close => FdHandler::Close { fd },
+
+            spec::Fd::Null { flags } => FdHandler::UnmanagedFile {
+                fd,
+                path: PathBuf::from(PATH_DEV_NULL),
+                oflags: get_oflags(&flags, fd),
+            },
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
@@ -121,6 +161,8 @@ impl SharedFdHandler {
 
             FdHandler::Close { .. } => None,
 
+            FdHandler::UnmanagedFile { .. } => None,
+
             FdHandler::CaptureMemory { write_fd, .. } => {
                 // In the parent, we only read.
                 sys::close(write_fd)?;
@@ -141,6 +183,15 @@ impl SharedFdHandler {
                 Ok(())
             }
 
+            FdHandler::UnmanagedFile { fd, path, oflags } => {
+                let file_fd = sys::open(&path, oflags, 0)?;
+                if file_fd != fd {
+                    sys::dup2(file_fd, fd)?;
+                    sys::close(file_fd)?;
+                }
+                Ok(())
+            }
+
             FdHandler::CaptureMemory {
                 fd,
                 read_fd,
@@ -157,10 +208,13 @@ impl SharedFdHandler {
     }
 
     pub fn get_result(&self) -> Result<FdRes> {
+        // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit => FdRes::None,
 
             FdHandler::Close { .. } => FdRes::None,
+
+            FdHandler::UnmanagedFile { .. } => FdRes::None,
 
             FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
         })

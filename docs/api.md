@@ -79,6 +79,9 @@ The result of one process is an object with the following keys:
     }
     ```
 
+    With query param `fds`, includes the bodies out outputs captured from file
+    descriptors.
+
 - `GET /procs/:id`
 
     Returns the current result of the process whose process ID is `:id`.  The
@@ -89,4 +92,49 @@ The result of one process is an object with the following keys:
       "proc": { ... },
     }
     ```
+
+- `GET /procs/:id/fds/:fd`
+
+    Returns results of a specific file descriptor, in JSON format.
+
+- `GET /procs/:id/fds/:fd/out`
+
+    The response body contains the raw output captured from this file
+    descriptor.
+
+    With `Accept-encoding: gz` or `Accept-encoding: br`, the response body is
+    compressed correspondingly.
+
+- `DELETE /procs/:id`
+
+    Cleans up the specified process, if it has completed.
+
+    `409 Conflict`: The process has not completed.
+
+- `PUT /procs/:id/signals/:signal`
+
+    Sends a signal to the process.
+
+    `409 Conflict`: The process has already completed.
+
+- `POST /procs/:id`
+
+    Creates and starts a new process.
+
+    `201 Created`
+    `400 Bad Request`: A process with the given ID already exists.
+
+    ```json
+    {
+      "proc": { ... },
+    }
+    ```
+
+- `POST /procs`
+
+    `201 Created`
+
+    Creates and starts a new process.  A process ID is chosen automatically.
+    The response `Location` header contains the URL of the new process, from
+    which the process ID can be extracted.
 

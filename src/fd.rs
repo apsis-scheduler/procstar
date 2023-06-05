@@ -1,6 +1,8 @@
 use libc::c_int;
 use std::cell::RefCell;
-use std::os::fd::RawFd;
+use std::fs;
+use std::io::{Read, Seek};
+use std::os::fd::{RawFd, FromRawFd, IntoRawFd};
 use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
@@ -65,12 +67,29 @@ pub enum FdHandler {
         fd: RawFd,
     },
 
+    /// Dup's the file descriptor from another.
+    Dup {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Fd to be dup'ed.
+        dup_fd: RawFd,
+    },
+
     /// Dup's the file descriptor to an open file.  That file is not managed.
     UnmanagedFile {
         /// Proc-visible fd.
         fd: RawFd,
         /// Fd open to the file.
         file_fd: RawFd,
+    },
+
+    UnlinkedFile {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Fd open to the file.
+        file_fd: RawFd,
+        /// Format for output.
+        format: spec::CaptureFormat,
     },
 
     /// Attaches the file descriptor to a pipe; reads data from the pipe and
@@ -94,6 +113,7 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 //------------------------------------------------------------------------------
 
 const PATH_DEV_NULL: &str = "/dev/null";
+const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 
 /// Opens a file as an unmanaged file fd handler.
 fn open_unmanaged_file(
@@ -108,29 +128,52 @@ fn open_unmanaged_file(
     Ok(FdHandler::UnmanagedFile { fd, file_fd })
 }
 
+/// Creates and opens an unlinked temporary file as a fd handler.
+fn open_unlinked_temp_file(fd: RawFd, format: spec::CaptureFormat) -> Result<FdHandler> {
+    // Open a temp file.
+    let (tmp_path, tmp_fd) = sys::mkstemp(PATH_TMP_TEMPLATE)?;
+    // Unlink it.
+    std::fs::remove_file(tmp_path)?;
+    // Since it's unlinked, we don't have to deal with it later.
+    Ok(FdHandler::UnlinkedFile {
+        fd,
+        file_fd: tmp_fd,
+        format,
+    })
+}
+
+/// Reads the contents of a file from the beginning, from its open fd.
+fn read_file_from_start(fd: RawFd) -> Result<Vec<u8>> {
+    // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    // Seek to front.
+    file.rewind()?;
+    // Read the contents.
+    let mut buf = Vec::<u8>::new();
+    file.read_to_end(&mut buf)?;
+    // Take back ownership of the fd.
+    assert!(file.into_raw_fd() == fd);
+    Ok(buf)
+}
+
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
-        let fd = match spec {
+        let fd_handler = match spec {
             spec::Fd::Inherit => FdHandler::Inherit,
 
             spec::Fd::Close => FdHandler::Close { fd },
 
             spec::Fd::Null { flags } => open_unmanaged_file(fd, PATH_DEV_NULL, flags, 0)?,
 
-            spec::Fd::File { path, flags, mode } => open_unmanaged_file(fd, &path, flags, mode)?,
+            spec::Fd::Dup { fd: dup_fd } => FdHandler::Dup { fd, dup_fd },
 
-            spec::Fd::Dup { .. } => {
-                // TODO
-                panic!("not implemented");
-            }
+            spec::Fd::File { path, flags, mode } => open_unmanaged_file(fd, &path, flags, mode)?,
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::TempFile,
+                format,
                 ..
-            } => {
-                // TODO
-                panic!("not implemented");
-            }
+            } => open_unlinked_temp_file(fd, format)?,
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
@@ -146,7 +189,7 @@ impl SharedFdHandler {
                 }
             }
         };
-        Ok(SharedFdHandler(Rc::new(RefCell::new(fd))))
+        Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
     }
 
     /// Reads from the pipe read fd, appending data to `buf`, until EOF.
@@ -181,10 +224,14 @@ impl SharedFdHandler {
 
             FdHandler::Close { .. } => None,
 
+            FdHandler::Dup { .. } => None,
+
             FdHandler::UnmanagedFile { file_fd, .. } => {
                 sys::close(file_fd).unwrap();
                 None
             }
+
+            FdHandler::UnlinkedFile { .. } => None,
 
             FdHandler::CaptureMemory { write_fd, .. } => {
                 // In the parent, we only read.
@@ -206,7 +253,15 @@ impl SharedFdHandler {
                 Ok(())
             }
 
-            FdHandler::UnmanagedFile { fd, file_fd } => {
+            FdHandler::Dup { fd, dup_fd } => {
+                if dup_fd != fd {
+                    sys::dup2(dup_fd, fd)?;
+                }
+                Ok(())
+            }
+
+            FdHandler::UnmanagedFile { fd, file_fd }
+            | FdHandler::UnlinkedFile { fd, file_fd, .. } => {
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;
@@ -232,11 +287,14 @@ impl SharedFdHandler {
     pub fn get_result(&self) -> Result<FdRes> {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
-            FdHandler::Inherit => FdRes::None,
+            FdHandler::Inherit
+            | FdHandler::Close { .. }
+            | FdHandler::Dup { .. }
+            | FdHandler::UnmanagedFile { .. } => FdRes::None,
 
-            FdHandler::Close { .. } => FdRes::None,
-
-            FdHandler::UnmanagedFile { .. } => FdRes::None,
+            FdHandler::UnlinkedFile { file_fd, format, .. } => {
+                FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
+            },
 
             FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
         })

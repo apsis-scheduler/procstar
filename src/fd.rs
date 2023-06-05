@@ -113,6 +113,7 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 //------------------------------------------------------------------------------
 
 const PATH_DEV_NULL: &str = "/dev/null";
+// FIXME: Correct tmpdir.
 const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 
 /// Opens a file as an unmanaged file fd handler.

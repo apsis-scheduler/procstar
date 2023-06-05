@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::string::String;
 use std::vec::Vec;
 
@@ -189,7 +189,7 @@ pub enum Fd {
 
     /// Open this fd to a file.
     File {
-        path: PathBuf,
+        path: String,
         #[serde(default)]
         flags: OpenFlag,
         #[serde(default = "get_default_mode")]

@@ -1,30 +1,31 @@
-use libc;
-use std::io;
-use std::io::Read;
-use std::io::Seek;
-use std::os::unix::io::FromRawFd;
+use libc::c_int;
+use std::cell::RefCell;
+use std::fs;
+use std::io::{Read, Seek};
+use std::os::fd::{RawFd, FromRawFd, IntoRawFd};
 use std::path::PathBuf;
+use std::rc::Rc;
+use tokio::io::AsyncReadExt;
+use tokio::task::JoinHandle;
+use tokio_pipe::PipeRead;
 
-use crate::err::{Error, Result};
-use crate::fdio;
+use crate::err::Result;
 use crate::res::FdRes;
-use crate::sel;
 use crate::spec;
 use crate::sys;
-use crate::sys::fd_t;
 
 //------------------------------------------------------------------------------
 
-pub fn parse_fd(fd: &str) -> std::result::Result<fd_t, std::num::ParseIntError> {
+pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, std::num::ParseIntError> {
     match fd {
         "stdin" => Ok(0),
         "stdout" => Ok(1),
         "stderr" => Ok(2),
-        _ => fd.parse::<fd_t>(),
+        _ => fd.parse::<RawFd>(),
     }
 }
 
-pub fn get_fd_name(fd: fd_t) -> String {
+pub fn get_fd_name(fd: RawFd) -> String {
     match fd {
         0 => "stdin".to_string(),
         1 => "stdout".to_string(),
@@ -33,8 +34,10 @@ pub fn get_fd_name(fd: fd_t) -> String {
     }
 }
 
+//------------------------------------------------------------------------------
+
 // FIXME: Generalize: split out R/W/RW from file creation flags.
-fn get_oflags(flags: &spec::OpenFlag, fd: fd_t) -> libc::c_int {
+fn get_oflags(flags: &spec::OpenFlag, fd: RawFd) -> libc::c_int {
     use spec::OpenFlag::*;
     match flags {
         Default => match fd {
@@ -52,266 +55,248 @@ fn get_oflags(flags: &spec::OpenFlag, fd: fd_t) -> libc::c_int {
     }
 }
 
-pub trait Fd {
-    fn get_fd(&self) -> fd_t;
+//------------------------------------------------------------------------------
 
-    /// Called after fork(), in parent process.
-    fn set_up_in_parent(&mut self) -> io::Result<Option<&mut dyn sel::Read>> {
-        Ok(None)
-    }
+#[derive(Debug)]
+pub enum FdHandler {
+    Inherit,
 
-    /// Called after fork(), in child process.
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+    /// Closes the file descriptor.
+    Close {
+        /// Proc-visible fd.
+        fd: RawFd,
+    },
 
-    /// Called in parent process after wait().
-    // FIXME: Return something that becomes JSON null in result.
-    fn clean_up_in_parent(&mut self) -> io::Result<Option<FdRes>> {
-        Ok(None)
-    }
+    /// Dup's the file descriptor from another.
+    Dup {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Fd to be dup'ed.
+        dup_fd: RawFd,
+    },
+
+    /// Dup's the file descriptor to an open file.  That file is not managed.
+    UnmanagedFile {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Fd open to the file.
+        file_fd: RawFd,
+    },
+
+    UnlinkedFile {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Fd open to the file.
+        file_fd: RawFd,
+        /// Format for output.
+        format: spec::CaptureFormat,
+    },
+
+    /// Attaches the file descriptor to a pipe; reads data from the pipe and
+    /// buffers in memory.
+    CaptureMemory {
+        /// Proc-visible fd.
+        fd: RawFd,
+        /// Read end of the pipe.
+        read_fd: RawFd,
+        /// Write end of the pipe.
+        write_fd: RawFd,
+        /// Format for output.
+        format: spec::CaptureFormat,
+        /// Captured output.
+        buf: Vec<u8>,
+    },
 }
+
+pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
 //------------------------------------------------------------------------------
 
-struct Inherit {
-    fd: fd_t,
+const PATH_DEV_NULL: &str = "/dev/null";
+const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
+
+/// Opens a file as an unmanaged file fd handler.
+fn open_unmanaged_file(
+    fd: RawFd,
+    path: &str,
+    flags: spec::OpenFlag,
+    mode: c_int,
+) -> Result<FdHandler> {
+    let path = PathBuf::from(path);
+    let oflags = get_oflags(&flags, fd);
+    let file_fd = sys::open(&path, oflags, mode)?;
+    Ok(FdHandler::UnmanagedFile { fd, file_fd })
 }
 
-impl Fd for Inherit {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
+/// Creates and opens an unlinked temporary file as a fd handler.
+fn open_unlinked_temp_file(fd: RawFd, format: spec::CaptureFormat) -> Result<FdHandler> {
+    // Open a temp file.
+    let (tmp_path, tmp_fd) = sys::mkstemp(PATH_TMP_TEMPLATE)?;
+    // Unlink it.
+    std::fs::remove_file(tmp_path)?;
+    // Since it's unlinked, we don't have to deal with it later.
+    Ok(FdHandler::UnlinkedFile {
+        fd,
+        file_fd: tmp_fd,
+        format,
+    })
 }
 
-impl Inherit {
-    fn new(fd: fd_t) -> Inherit {
-        Inherit { fd }
-    }
+/// Reads the contents of a file from the beginning, from its open fd.
+fn read_file_from_start(fd: RawFd) -> Result<Vec<u8>> {
+    // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    // Seek to front.
+    file.rewind()?;
+    // Read the contents.
+    let mut buf = Vec::<u8>::new();
+    file.read_to_end(&mut buf)?;
+    // Take back ownership of the fd.
+    assert!(file.into_raw_fd() == fd);
+    Ok(buf)
 }
 
-//------------------------------------------------------------------------------
+impl SharedFdHandler {
+    pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
+        let fd_handler = match spec {
+            spec::Fd::Inherit => FdHandler::Inherit,
 
-struct Close {
-    fd: fd_t,
-}
+            spec::Fd::Close => FdHandler::Close { fd },
 
-impl Close {
-    fn new(fd: fd_t) -> Close {
-        Close { fd }
-    }
-}
+            spec::Fd::Null { flags } => open_unmanaged_file(fd, PATH_DEV_NULL, flags, 0)?,
 
-impl Fd for Close {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
+            spec::Fd::Dup { fd: dup_fd } => FdHandler::Dup { fd, dup_fd },
 
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        sys::close(self.fd)?;
-        Ok(())
-    }
-}
+            spec::Fd::File { path, flags, mode } => open_unmanaged_file(fd, &path, flags, mode)?,
 
-//------------------------------------------------------------------------------
+            spec::Fd::Capture {
+                mode: spec::CaptureMode::TempFile,
+                format,
+                ..
+            } => open_unlinked_temp_file(fd, format)?,
 
-struct File {
-    fd: fd_t,
-    path: PathBuf,
-    oflags: libc::c_int,
-    mode: libc::c_int,
-}
-
-impl File {
-    fn new(fd: fd_t, path: PathBuf, flags: spec::OpenFlag, mode: libc::c_int) -> File {
-        File {
-            fd,
-            path,
-            oflags: get_oflags(&flags, fd),
-            mode,
-        }
-    }
-}
-
-impl Fd for File {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
-
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        let file_fd = sys::open(&self.path, self.oflags, self.mode)?;
-        sys::dup2(file_fd, self.fd)?;
-        sys::close(file_fd)?;
-        Ok(())
-    }
-
-    fn clean_up_in_parent(&mut self) -> io::Result<Option<FdRes>> {
-        Ok(Some(FdRes::File {
-            path: self.path.clone(),
-        }))
-    }
-}
-
-//------------------------------------------------------------------------------
-
-struct Dup {
-    fd: fd_t,
-    /// File descriptor that will be duplicated.
-    dup_fd: fd_t,
-}
-
-impl Dup {
-    fn new(fd: fd_t, dup_fd: fd_t) -> Dup {
-        Dup { fd, dup_fd }
-    }
-}
-
-impl Fd for Dup {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
-
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        sys::dup2(self.dup_fd, self.fd)?;
-        Ok(())
-    }
-
-    // FIXME: Insert path into result.
-}
-
-//------------------------------------------------------------------------------
-
-struct TempFileCapture {
-    fd: fd_t,
-    tmp_fd: fd_t,
-    format: spec::CaptureFormat,
-}
-
-// FIXME: Template.
-const TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
-
-impl TempFileCapture {
-    fn new(fd: fd_t, format: spec::CaptureFormat) -> Result<TempFileCapture> {
-        let (tmp_path, tmp_fd) = sys::mkstemp(TMP_TEMPLATE)?;
-        std::fs::remove_file(tmp_path)?;
-        Ok(TempFileCapture { fd, tmp_fd, format })
-    }
-}
-
-impl Fd for TempFileCapture {
-    fn get_fd(&self) -> fd_t {
-        self.fd
-    }
-
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        sys::dup2(self.tmp_fd, self.fd)?;
-        sys::close(self.tmp_fd)?;
-        self.tmp_fd = -1;
-        Ok(())
-    }
-
-    fn clean_up_in_parent(&mut self) -> io::Result<Option<FdRes>> {
-        let mut file = unsafe {
-            let file = std::fs::File::from_raw_fd(self.tmp_fd);
-            self.tmp_fd = -1;
-            file
+            spec::Fd::Capture {
+                mode: spec::CaptureMode::Memory,
+                format,
+            } => {
+                let (read_fd, write_fd) = sys::pipe()?;
+                FdHandler::CaptureMemory {
+                    fd,
+                    read_fd,
+                    write_fd,
+                    format,
+                    buf: Vec::new(),
+                }
+            }
         };
-        file.seek(std::io::SeekFrom::Start(0))?;
-        let mut reader = std::io::BufReader::new(file);
-
-        let mut bytes: Vec<u8> = Vec::new();
-        let _size = reader.read_to_end(&mut bytes)?;
-
-        Ok(Some(FdRes::from_bytes(self.format, bytes)))
+        Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
     }
-}
 
-//------------------------------------------------------------------------------
+    /// Reads from the pipe read fd, appending data to `buf`, until EOF.
+    async fn run_capture_memory(rc: Rc<RefCell<FdHandler>>) -> Result<()> {
+        let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
+            PipeRead::from_raw_fd_checked(read_fd)?
+        } else {
+            panic!();
+        };
 
-pub struct MemoryCapture {
-    /// Proc-visible fd.
-    fd: fd_t,
+        let mut read_buf = [0 as u8; 65536]; // FIXME: What's the right size?
+        loop {
+            // Don't hold a ref to the handler object across await, so `buf` is
+            // accessible elsewhere.
+            let len = read_pipe.read(&mut read_buf).await?;
+            if len == 0 {
+                break;
+            } else {
+                if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+                    buf.extend_from_slice(&read_buf[..len]);
+                } else {
+                    panic!();
+                };
+            }
+        }
+        Ok(())
+    }
 
-    /// Read end of the pipe.
-    read_fd: fd_t,
+    pub fn in_parent(&self) -> Result<Option<JoinHandle<Result<()>>>> {
+        Ok(match *self.0.borrow() {
+            FdHandler::Inherit => None,
 
-    /// Write end of the pipe.
-    write_fd: fd_t,
+            FdHandler::Close { .. } => None,
 
-    /// Format for output.
-    format: spec::CaptureFormat,
+            FdHandler::Dup { .. } => None,
 
-    /// Captured output.
-    buf: Vec<u8>,
-}
+            FdHandler::UnmanagedFile { file_fd, .. } => {
+                sys::close(file_fd).unwrap();
+                None
+            }
 
-impl MemoryCapture {
-    fn new(fd: fd_t, format: spec::CaptureFormat) -> Result<MemoryCapture> {
-        let (read_fd, write_fd) = sys::pipe()?;
-        Ok(MemoryCapture {
-            fd,
-            read_fd,
-            write_fd,
-            format,
-            buf: Vec::new(),
+            FdHandler::UnlinkedFile { .. } => None,
+
+            FdHandler::CaptureMemory { write_fd, .. } => {
+                // In the parent, we only read.
+                sys::close(write_fd)?;
+                // Start a task to drain the pipe into the buffer.
+                Some(tokio::task::spawn_local(Self::run_capture_memory(
+                    Rc::clone(&self.0),
+                )))
+            }
         })
     }
-}
 
-impl sel::Read for MemoryCapture {
-    fn get_fd(&self) -> fd_t {
-        self.read_fd
-    }
+    pub fn in_child(self) -> Result<()> {
+        match Rc::try_unwrap(self.0).unwrap().into_inner() {
+            FdHandler::Inherit => Ok(()),
 
-    fn read(&mut self) -> bool {
-        const SIZE: usize = 1024;
-        match fdio::read_into_vec(self.read_fd, &mut self.buf, SIZE) {
-            Ok(_) => false,
-            Err(Error::Eof) => true,
-            Err(err) => panic!("error: {}", err),
+            FdHandler::Close { fd } => {
+                sys::close(fd)?;
+                Ok(())
+            }
+
+            FdHandler::Dup { fd, dup_fd } => {
+                if dup_fd != fd {
+                    sys::dup2(dup_fd, fd)?;
+                }
+                Ok(())
+            }
+
+            FdHandler::UnmanagedFile { fd, file_fd }
+            | FdHandler::UnlinkedFile { fd, file_fd, .. } => {
+                if file_fd != fd {
+                    sys::dup2(file_fd, fd)?;
+                    sys::close(file_fd)?;
+                }
+                Ok(())
+            }
+
+            FdHandler::CaptureMemory {
+                fd,
+                read_fd,
+                write_fd,
+                ..
+            } => {
+                // In the child, don't read from the pipe.
+                sys::close(read_fd)?;
+                // Attach the write pipe to the target fd.
+                sys::dup2(write_fd, fd)?;
+                Ok(())
+            }
         }
     }
-}
 
-impl Fd for MemoryCapture {
-    fn get_fd(&self) -> fd_t {
-        self.fd
+    pub fn get_result(&self) -> Result<FdRes> {
+        // FIXME: Should we provide more information here?
+        Ok(match &*self.0.borrow() {
+            FdHandler::Inherit
+            | FdHandler::Close { .. }
+            | FdHandler::Dup { .. }
+            | FdHandler::UnmanagedFile { .. } => FdRes::None,
+
+            FdHandler::UnlinkedFile { file_fd, format, .. } => {
+                FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
+            },
+
+            FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
+        })
     }
-
-    fn set_up_in_child(&mut self) -> io::Result<()> {
-        sys::close(self.read_fd)?;
-        sys::dup2(self.write_fd, self.fd)?;
-        Ok(())
-    }
-
-    fn set_up_in_parent(&mut self) -> io::Result<Option<&mut dyn sel::Read>> {
-        // Close the write end of the pipe.  Only the child writes.
-        sys::close(self.write_fd)?;
-        Ok(Some(self))
-    }
-
-    /// Called in parent process after wait().
-    fn clean_up_in_parent(&mut self) -> io::Result<Option<FdRes>> {
-        let mut buf = Vec::new();
-        std::mem::swap(&mut buf, &mut self.buf);
-        Ok(Some(FdRes::from_bytes(self.format, buf)))
-    }
-}
-
-//------------------------------------------------------------------------------
-
-pub fn create_fd(fd: fd_t, fd_spec: &spec::Fd) -> Result<Box<dyn Fd>> {
-    Ok(match fd_spec {
-        spec::Fd::Inherit => Box::new(Inherit::new(fd)),
-        spec::Fd::Close => Box::new(Close::new(fd)),
-        spec::Fd::Null { flags } => Box::new(File::new(fd, PathBuf::from("/dev/null"), *flags, 0)),
-        spec::Fd::File { path, flags, mode } => {
-            Box::new(File::new(fd, path.to_path_buf(), *flags, *mode))
-        }
-        spec::Fd::Dup { fd: other_fd } => Box::new(Dup::new(fd, *other_fd)),
-        spec::Fd::Capture { mode, format } => match mode {
-            spec::CaptureMode::TempFile => Box::new(TempFileCapture::new(fd, *format)?),
-            spec::CaptureMode::Memory => Box::new(MemoryCapture::new(fd, *format)?),
-        },
-    })
 }

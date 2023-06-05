@@ -1,10 +1,13 @@
 use libc::pid_t;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::os::fd::RawFd;
 use std::rc::Rc;
 
 use crate::environ;
 use crate::err_pipe::ErrorPipe;
+use crate::fd;
+use crate::fd::SharedFdHandler;
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher};
 use crate::spec::{Input, ProcId};
@@ -12,18 +15,22 @@ use crate::sys::{execve, fork, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
+type FdHandlers = BTreeMap<RawFd, SharedFdHandler>;
+
 pub struct RunningProc {
     pub pid: pid_t,
     pub errors: Vec<String>,
     pub wait_info: Option<WaitInfo>,
+    pub fd_handlers: FdHandlers,
 }
 
 impl RunningProc {
-    pub fn new(pid: pid_t) -> Self {
+    pub fn new(pid: pid_t, fd_handlers: FdHandlers) -> Self {
         Self {
             pid,
             errors: Vec::new(),
             wait_info: None,
+            fd_handlers,
         }
     }
 
@@ -36,12 +43,31 @@ impl RunningProc {
         } else {
             (None, None)
         };
+
+        let fds = self
+            .fd_handlers
+            .iter()
+            .map(|(fd_num, fd_handler)| {
+                let result = match fd_handler.get_result() {
+                    Ok(fd_result) => fd_result,
+                    Err(_err) => {
+                        // result
+                        //     .errors
+                        //     .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
+                        // FIXME: Put the error in here.
+                        res::FdRes::Error {}
+                    }
+                };
+                (fd::get_fd_name(*fd_num), result)
+            })
+            .collect::<BTreeMap<_, _>>();
+
         res::ProcRes {
             pid: self.pid,
             errors: self.errors.clone(),
             status,
             rusage,
-            fds: BTreeMap::new(), // FIXME
+            fds,
         }
     }
 }
@@ -190,25 +216,43 @@ pub async fn start_procs(
             std::process::exit(exitcode::OSFILE);
         });
 
+        let fd_handlers: FdHandlers = spec
+            .fds
+            .into_iter()
+            .map(|(fd_str, fd_spec)| {
+                // FIXME: Parse, or at least check, when deserializing.
+                let fd_num = fd::parse_fd(&fd_str).unwrap_or_else(|err| {
+                    eprintln!("failed to parse fd {}: {}", fd_str, err);
+                    std::process::exit(exitcode::OSERR);
+                });
+
+                let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap_or_else(|err| {
+                    eprintln!("failed to set up fd {}: {}", fd_num, err);
+                    std::process::exit(exitcode::OSERR);
+                });
+
+                (fd_num, handler)
+            })
+            .collect::<BTreeMap<_, _>>();
+
         // Fork the child process.
         match fork() {
             Ok(0) => {
-                // Child process.
+                // In the child process.
+
+                // Set up to write errors, if any, back to the parent.
                 let error_writer = error_pipe.in_child().unwrap();
+                // True if we should finally exec.
+                let mut ok_to_exec = true;
 
-                let /* mut */ ok = true;
-                // for fd in &mut *proc_fds {
-                //     fd.set_up_in_child().unwrap_or_else(|err| {
-                //         error_writer.try_write(format!(
-                //             "failed to set up fd {}: {}",
-                //             fd.get_fd(),
-                //             err
-                //         ));
-                //         ok = false;
-                //     });
-                // }
+                for (fd, fd_handler) in fd_handlers.into_iter() {
+                    fd_handler.in_child().unwrap_or_else(|err| {
+                        error_writer.try_write(format!("failed to set up fd {}: {}", fd, err));
+                        ok_to_exec = false;
+                    });
+                }
 
-                if ok {
+                if ok_to_exec {
                     let exe = &spec.argv[0];
                     // execve() only returns with an error; on success, the program is
                     // replaced.
@@ -220,8 +264,23 @@ pub async fn start_procs(
 
             Ok(child_pid) => {
                 // Parent process.
+                // FIXME: What do we do with these tasks?  We should await them later.
+                let _fd_handler_tasks = fd_handlers
+                    .iter()
+                    .filter_map(|(ref fd, ref fd_handler)| {
+                        match fd_handler.in_parent() {
+                            Ok(task) => Some(task),
+                            Err(err) => {
+                                // FIXME: Push this error.
+                                let err = format!("failed to set up fd {}: {}", fd, err);
+                                eprintln!("{}", err);
+                                None
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid)));
+                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid, fd_handlers)));
 
                 // Start a task to handle this child.
                 tasks.push(tokio::task::spawn_local(run_proc(
@@ -284,30 +343,7 @@ pub async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
     while let Some((proc_id, proc)) = running_procs.pop() {
         let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
-        let (_, status, rusage) = proc.wait_info.unwrap();
-        let proc_res = res::ProcRes::new(proc.errors, proc.pid, status, rusage);
-
-        // // Build fd res's into it.
-        // for mut fd in fds {
-        //     match fd.clean_up_in_parent() {
-        //         Ok(Some(fd_result)) => {
-        //             proc_res
-        //                 .fds
-        //                 .insert(procstar::fd::get_fd_name(fd.get_fd()), fd_result);
-        //         }
-        //         Ok(None) => {}
-        //         Err(err) => {
-        //             proc_res
-        //                 .fds
-        //                 .insert(procstar::fd::get_fd_name(fd.get_fd()), res::FdRes::Error {});
-        //             result
-        //                 .errors
-        //                 .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
-        //         }
-        //     };
-        // }
-
-        result.insert(proc_id.clone(), proc_res);
+        result.insert(proc_id.clone(), proc.to_result());
     }
     // Nothing should be left running.
     assert!(running_procs.len() == 0);

@@ -7,7 +7,7 @@ use std::str;
 fn echo_hello() -> Result<(), Box<dyn std::error::Error>> {
     let output = 
         Command::cargo_bin("procstar")?
-        .arg("tests/int/echo.json")
+        .arg("tests/int/specs/echo.json")
         .output()?;
 
     let mut lines = str::from_utf8(&output.stdout)?.lines(); 

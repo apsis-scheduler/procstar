@@ -1,0 +1,10 @@
+{
+  "procs": {
+    "test0": {
+      "argv": [
+          "/bin/echo",
+          "Hello, world."
+      ]
+    }
+  }
+}

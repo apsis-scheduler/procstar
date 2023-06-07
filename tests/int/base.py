@@ -8,6 +8,7 @@ import tempfile
 #-------------------------------------------------------------------------------
 
 PROCSTAR_EXE = Path(__file__).parents[2] / "target/debug/procstar"
+SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 
@@ -58,5 +59,11 @@ def run1(spec):
         return proc
     else:
         raise Errors(proc["errors"])
+
+
+def run_spec(name):
+    with open((SPECS_DIR / name).with_suffix(".json")) as file:
+        spec = json.load(file)
+    return run1(spec)
 
 

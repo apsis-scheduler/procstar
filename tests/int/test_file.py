@@ -1,6 +1,11 @@
-from   base import run1, SCRIPTS_DIR
+from   base import run1, SCRIPTS_DIR, run_spec
 
 #-------------------------------------------------------------------------------
+
+def test_echo_hello():
+    res = run_spec("echo-hello")
+    assert res["status"]
+
 
 def test_stdout_stderr(tmp_path):
     stdout_path = tmp_path / "stdout"

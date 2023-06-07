@@ -9,7 +9,12 @@ pub struct Args {
     #[arg(short, long)]
     pub serve: bool,
 
+    /// process specification file
     pub input: Option<String>,
+
+    /// write output to a file
+    #[arg(short, long)]
+    pub output: Option<String>,
 }
 
 pub fn parse() -> Args {

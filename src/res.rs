@@ -3,7 +3,7 @@ use base64::Engine;
 use libc::{c_int, pid_t, rusage};
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::spec::{CaptureFormat, ProcId};
 
@@ -164,6 +164,14 @@ pub type Res = BTreeMap<ProcId, ProcRes>;
 
 //------------------------------------------------------------------------------
 
-pub fn print(result: &Res) {
+pub fn print(result: &Res) -> std::io::Result<()> {
     serde_json::to_writer(std::io::stdout(), result).unwrap();
+    Ok(())
 }
+
+pub fn dump_file<P: AsRef<Path>>(result: &Res, path: P) -> std::io::Result<()> {
+    let file = std::fs::File::create(path)?;
+    serde_json::to_writer(file, result)?;
+    Ok(())
+}
+

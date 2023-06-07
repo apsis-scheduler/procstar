@@ -45,13 +45,23 @@ async fn main() {
                 let tasks = start_procs(input, running_procs.clone()).await;
                 // Wait for tasks to complete.
                 for task in tasks {
-                    _ = task.await.unwrap(); // FIXME
+                    _ = task.await.unwrap(); // FIXME: unwrap
                 }
                 // Collect results.
                 let result = collect_results(running_procs).await;
                 // Print them.
-                res::print(&result);
-                println!("");
+                if let Some(path) = args.output {
+                    res::dump_file(&result, &path).unwrap_or_else(|err| {
+                        eprintln!("failed to write output {}: {}", path, err);
+                        std::process::exit(exitcode::OSFILE);
+                    });
+                } else {
+                    res::print(&result).unwrap_or_else(|err| {
+                        eprintln!("failed to print output: {}", err);
+                        std::process::exit(exitcode::OSFILE);
+                    });
+                    println!("");
+                }
             })
             .await;
         let ok = true; // FIXME: Determine if something went wrong.

@@ -174,4 +174,3 @@ pub fn dump_file<P: AsRef<Path>>(result: &Res, path: P) -> std::io::Result<()> {
     serde_json::to_writer(file, result)?;
     Ok(())
 }
-

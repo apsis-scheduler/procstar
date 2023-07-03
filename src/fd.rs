@@ -2,7 +2,7 @@ use libc::c_int;
 use std::cell::RefCell;
 use std::fs;
 use std::io::{Read, Seek};
-use std::os::fd::{RawFd, FromRawFd, IntoRawFd};
+use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
@@ -293,9 +293,9 @@ impl SharedFdHandler {
             | FdHandler::Dup { .. }
             | FdHandler::UnmanagedFile { .. } => FdRes::None,
 
-            FdHandler::UnlinkedFile { file_fd, format, .. } => {
-                FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
-            },
+            FdHandler::UnlinkedFile {
+                file_fd, format, ..
+            } => FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?),
 
             FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
         })
@@ -318,4 +318,3 @@ pub fn make_fd_handler(fd_str: String, spec: spec::Fd) -> (RawFd, SharedFdHandle
 
     (fd_num, handler)
 }
-

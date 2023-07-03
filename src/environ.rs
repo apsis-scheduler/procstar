@@ -81,7 +81,7 @@ mod tests {
             spec::Env {
                 vars: BTreeMap::from([
                     ("FOO".to_string(), "42".to_string()),
-                    ("BAR".to_string(),"somewhere with drinks".to_string()),
+                    ("BAR".to_string(), "somewhere with drinks".to_string()),
                 ]),
                 ..Default::default()
             },

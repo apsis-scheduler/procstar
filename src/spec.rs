@@ -255,7 +255,7 @@ pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
-    // Read the JSON contents of the file as an instance of `Proc`.
+    // Read the JSON contents of the file.
     let spec = serde_json::from_reader(reader)?;
 
     // Return the spec.

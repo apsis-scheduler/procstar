@@ -193,8 +193,8 @@ pub async fn start_procs(
             std::process::exit(exitcode::OSFILE);
         });
 
-        let fd_handlers =
-            spec.fds
+        let fd_handlers = spec
+            .fds
             .into_iter()
             .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str, fd_spec))
             .collect::<Vec<_>>();

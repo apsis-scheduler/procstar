@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+
+import argparse
+import os
+import time
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--allocate", metavar="BYTES", type=int, default=None,
+    help="allocate BYTES of memory")
+parser.add_argument(
+    "--work", metavar="SEC", type=float, default=None,
+    help="burn a CPU for SEC")
+parser.add_argument(
+    "--print", metavar="NxM", default=None,
+    help="print N lines of M bytes")
+parser.add_argument(
+    "--sleep", metavar="SEC", type=float, default=None,
+    help="sleep for SEC")
+parser.add_argument(
+    "--exit-code", metavar="CODE", type=int, default=0,
+    help="exit with CODE")
+args = parser.parse_args()
+
+
+if args.allocate is not None:
+    data = b"x" * args.allocate
+
+if args.work is not None:
+    t0 = time.monotonic()
+    while time.monotonic() < t0 + args.work:
+        pass
+
+if args.print is not None:
+    n, m = args.print.split("x")
+    n = int(n)
+    line = b"x" * int(m) + b"\n"
+    for _ in range(n):
+        os.write(1, line)
+        time.sleep(0.001)
+
+if args.sleep is not None:
+    time.sleep(args.sleep)
+
+raise SystemExit(args.exit_code)
+

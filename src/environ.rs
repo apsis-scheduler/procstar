@@ -79,10 +79,10 @@ mod tests {
         assert_json(
             r#" {"vars": {"FOO": "42", "BAR": "somewhere with drinks"}} "#,
             spec::Env {
-                vars: btreemap! {
-                    "FOO".to_string() => "42".to_string(),
-                    "BAR".to_string() => "somewhere with drinks".to_string(),
-                },
+                vars: BTreeMap::from([
+                    ("FOO".to_string(), "42".to_string()),
+                    ("BAR".to_string(),"somewhere with drinks".to_string()),
+                ]),
                 ..Default::default()
             },
         );

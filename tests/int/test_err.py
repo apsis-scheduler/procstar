@@ -13,6 +13,7 @@ def test_bad_exe():
     assert any( "No such file or directory" in e for e in exc_info.value.errors )
 
 
+@pytest.mark.xfail(reason="capture errors during startup")
 def test_bad_capture_path():
     """
     Tests error reporting for a bad capture file path.

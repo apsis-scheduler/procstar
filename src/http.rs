@@ -1,12 +1,12 @@
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
-use matchit::Router;
 use serde_json::json;
 use std::rc::Rc;
 
-use crate::procs::SharedRunningProcs;
+use crate::procs::{start_procs, SharedRunningProcs};
+use crate::spec::Input;
 
 //------------------------------------------------------------------------------
 
@@ -31,6 +31,32 @@ where
         .unwrap()
 }
 
+fn make_response(rsp: RspResult) -> Rsp {
+    match rsp {
+        Ok(data) => make_json_response(
+            StatusCode::OK,
+            json!({
+                "data": data,
+            }),
+        ),
+
+        Err(err) => {
+            let RspError(status, msg) = err;
+            make_json_response(
+                status,
+                json!({
+                    "errors": json!([
+                        {
+                            "status": status.to_string(),
+                            "detail": msg,
+                        },
+                    ]),
+                }),
+            )
+        }
+    }
+}
+
 /// Handles `GET /procs`.
 async fn procs_get(procs: SharedRunningProcs) -> RspResult {
     Ok(json!({
@@ -48,6 +74,76 @@ async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     }
 }
 
+/// Handles `POST /procs`.
+async fn procs_post(procs: SharedRunningProcs, input: Input) -> RspResult {
+    // FIXME: Check duplicate proc IDs.
+    start_procs(input, procs.clone()).await;
+    Ok(json!({
+        // FIXME
+    }))
+}
+
+//------------------------------------------------------------------------------
+
+struct Router {
+    router: matchit::Router<i32>,
+}
+
+impl Router {
+    fn new() -> Router {
+        let mut router = matchit::Router::new();
+        router.insert("/procs", 0).unwrap();
+        router.insert("/procs/:id", 1).unwrap();
+        Router { router }
+    }
+
+    async fn get_body_json(body: Incoming) -> Result<Option<Input>, String> {
+        let bytes = body
+            .collect()
+            .await
+            .map_err(|err| format!("reading body: {}", err))?
+            .to_bytes();
+        if bytes.len() == 0 {
+            Ok(None)
+        } else {
+            let jso = serde_json::from_slice::<Input>(&bytes)
+                .map_err(|err| format!("parsing body: {}", err))?;
+            Ok(Some(jso))
+        }
+    }
+
+    async fn dispatch(&self, req: Req, procs: SharedRunningProcs) -> RspResult {
+        let (req_parts, body) = req.into_parts();
+        let body = Router::get_body_json(body)
+            .await
+            .map_err(|err| RspError(StatusCode::BAD_REQUEST, Some(err)))?;
+        let rsp = match self.router.at(req_parts.uri.path()) {
+            Ok(m) => {
+                let param = |p| m.params.get(p).unwrap();
+                match (m.value, req_parts.method) {
+                    // Match route numbers obtained from the matchit
+                    // router, and methods.
+                    (0, Method::GET) => procs_get(procs).await?,
+                    (0, Method::POST) => procs_post(procs, body.unwrap()).await?, // FIXME: unwrap
+                    (1, Method::GET) => procs_id_get(procs, param("id")).await?,
+
+                    // Route number (i.e. path match) but no method match.
+                    (_, _) => {
+                        return Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None));
+                    }
+                }
+            }
+
+            // No path match.
+            Err(_) => {
+                return Err(RspError(StatusCode::NOT_FOUND, None));
+            }
+        };
+
+        Ok(rsp)
+    }
+}
+
 //------------------------------------------------------------------------------
 
 /// Runs the HTTP service.
@@ -60,12 +156,7 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
     // We match the URI path to (internal) route numbers, and dispatch below on
     // these.  It's a bit cumbersome to maintain, but quite efficient, and gives
     // us lots of flexibility in structuring the route handlers.
-    let router = Rc::new({
-        let mut router = Router::new();
-        router.insert("/procs", 0)?;
-        router.insert("/procs/:id", 1)?;
-        router
-    });
+    let router = Rc::new(Router::new());
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -75,55 +166,10 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
         let service = hyper::service::service_fn(move |req: Req| {
             let procs = procs.clone();
             let router = router.clone();
-
             async move {
-                let rsp = match router.at(req.uri().path()) {
-                    Ok(m) => {
-                        let param = |p| m.params.get(p).unwrap();
-                        match (m.value, req.method()) {
-                            // Match route numbers obtained from the matchit
-                            // router, and methods.
-                            (0, &Method::GET) => procs_get(procs).await,
-                            (1, &Method::GET) => procs_id_get(procs, param("id")).await,
-
-                            // Route number (i.e. path match) but no method match.
-                            (_, _) => Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)),
-                        }
-                    }
-
-                    // No path match.
-                    Err(_) => Err(RspError(StatusCode::NOT_FOUND, None)),
-                };
-
+                let rsp = router.dispatch(req, procs).await;
                 // FIXME: https://jsonapi.org/format
-
-                Ok::<Rsp, hyper::Error>(match rsp {
-                    Ok(d) =>
-                    // Wrap the successful response.
-                    {
-                        make_json_response(
-                            StatusCode::OK,
-                            json!({
-                                "data": d,
-                            }),
-                        )
-                    }
-                    Err(e) => {
-                        // Wrap the error response.
-                        let RspError(status, msg) = e;
-                        make_json_response(
-                            status,
-                            json!({
-                                "errors": json!([
-                                    {
-                                        "status": status.to_string(),
-                                        "detail": msg,
-                                    },
-                                ]),
-                            }),
-                        )
-                    }
-                })
+                Ok::<Rsp, hyper::Error>(make_response(rsp))
             }
         });
 

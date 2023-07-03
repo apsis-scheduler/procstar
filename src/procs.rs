@@ -185,29 +185,6 @@ pub async fn start_procs(
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
     let mut tasks = Vec::new();
 
-    // // Build the objects presenting each of the file descriptors in each proc.
-    // let mut fds = input
-    //     .procs
-    //     .iter()
-    //     .map(|spec| {
-    //         spec.fds
-    //             .iter()
-    //             .map(|(fd_str, fd_spec)| {
-    //                 // FIXME: Parse when deserializing, rather than here.
-    //                 let fd_num = parse_fd(fd_str).unwrap_or_else(|err| {
-    //                     eprintln!("failed to parse fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 });
-
-    //                 procstar::fd::create_fd(fd_num, &fd_spec).unwrap_or_else(|err| {
-    //                     eprintln!("failed to create fd {}: {}", fd_str, err);
-    //                     std::process::exit(exitcode::OSERR);
-    //                 })
-    //             })
-    //             .collect::<Vec<_>>()
-    //     })
-    //     .collect::<Vec<_>>();
-
     for (proc_id, spec) in input.procs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
@@ -216,23 +193,10 @@ pub async fn start_procs(
             std::process::exit(exitcode::OSFILE);
         });
 
-        let fd_handlers: FdHandlers = spec
-            .fds
+        let fd_handlers =
+            spec.fds
             .into_iter()
-            .map(|(fd_str, fd_spec)| {
-                // FIXME: Parse, or at least check, when deserializing.
-                let fd_num = fd::parse_fd(&fd_str).unwrap_or_else(|err| {
-                    eprintln!("failed to parse fd {}: {}", fd_str, err);
-                    std::process::exit(exitcode::OSERR);
-                });
-
-                let handler = fd::SharedFdHandler::new(fd_num, fd_spec).unwrap_or_else(|err| {
-                    eprintln!("failed to set up fd {}: {}", fd_num, err);
-                    std::process::exit(exitcode::OSERR);
-                });
-
-                (fd_num, handler)
-            })
+            .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str, fd_spec))
             .collect::<Vec<_>>();
 
         // Fork the child process.

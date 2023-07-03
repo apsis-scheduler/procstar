@@ -36,15 +36,24 @@ def _thunk_jso(o):
 
 def run(specs):
     specs = _thunk_jso(specs)
-    with tempfile.NamedTemporaryFile(mode="w+") as tmp_file:
-        json.dump({"procs": specs}, tmp_file)
-        tmp_file.flush()
-        res = subprocess.run(
-            [str(PROCSTAR_EXE), tmp_file.name],
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        spec_path = tmp_dir / "spec.json"
+        with open(spec_path, "w") as out:
+            json.dump({"procs": specs}, out)
+        output_path = tmp_dir / "out.json"
+        subprocess.run(
+            [
+                str(PROCSTAR_EXE),
+                "--output", output_path,
+                spec_path,
+            ],
             stdout=subprocess.PIPE,
             env=os.environ | {"RUST_BACKTRACE": "1"},
         )
-    return json.loads(res.stdout)
+        assert output_path.is_file()
+        with open(output_path) as file:
+            return json.load(file)
 
 
 def run1(spec):

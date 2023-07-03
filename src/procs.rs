@@ -15,7 +15,7 @@ use crate::sys::{execve, fork, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
-type FdHandlers = BTreeMap<RawFd, SharedFdHandler>;
+type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
 pub struct RunningProc {
     pub pid: pid_t,
@@ -233,7 +233,7 @@ pub async fn start_procs(
 
                 (fd_num, handler)
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect::<Vec<_>>();
 
         // Fork the child process.
         match fork() {

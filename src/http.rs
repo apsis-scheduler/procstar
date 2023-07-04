@@ -14,6 +14,13 @@ type Req = Request<Incoming>;
 type Rsp = Response<Full<Bytes>>;
 
 struct RspError(StatusCode, Option<String>);
+
+impl RspError {
+    fn bad_request(msg: &str) -> RspError {
+        RspError(StatusCode::BAD_REQUEST, Some(msg.to_string()))
+    }
+}
+
 type RspResult = Result<serde_json::Value, RspError>;
 
 fn make_json_response<T>(status: StatusCode, obj: T) -> Rsp
@@ -97,34 +104,41 @@ impl Router {
         Router { router }
     }
 
-    async fn get_body_json(body: Incoming) -> Result<Option<Input>, String> {
+    async fn get_body_json(
+        parts: &http::request::Parts,
+        body: Incoming,
+    ) -> Result<Input, RspError> {
         let bytes = body
             .collect()
             .await
-            .map_err(|err| format!("reading body: {}", err))?
+            .map_err(|err| RspError::bad_request(&format!("reading body: {}", err)))?
             .to_bytes();
-        if bytes.len() == 0 {
-            Ok(None)
+        let content_type = parts.headers.get("content-type");
+        if content_type.is_none() {
+            Err(RspError::bad_request("body not JSON"))
+        } else if content_type.unwrap() != "application/json" {
+            Err(RspError::bad_request("body not JSON"))
+        } else if bytes.len() == 0 {
+            Err(RspError::bad_request("no body"))
         } else {
-            let jso = serde_json::from_slice::<Input>(&bytes)
-                .map_err(|err| format!("parsing body: {}", err))?;
-            Ok(Some(jso))
+            Ok(serde_json::from_slice::<Input>(&bytes)
+                .map_err(|err| RspError::bad_request(&format!("parsing body: {}", err)))?)
         }
     }
 
     async fn dispatch(&self, req: Req, procs: SharedRunningProcs) -> RspResult {
-        let (req_parts, body) = req.into_parts();
-        let body = Router::get_body_json(body)
-            .await
-            .map_err(|err| RspError(StatusCode::BAD_REQUEST, Some(err)))?;
-        let rsp = match self.router.at(req_parts.uri.path()) {
+        let (parts, body) = req.into_parts();
+        let rsp = match self.router.at(parts.uri.path()) {
             Ok(m) => {
                 let param = |p| m.params.get(p).unwrap();
-                match (m.value, req_parts.method) {
+                match (m.value, parts.method.clone()) {
                     // Match route numbers obtained from the matchit
                     // router, and methods.
                     (0, Method::GET) => procs_get(procs).await?,
-                    (0, Method::POST) => procs_post(procs, body.unwrap()).await?, // FIXME: unwrap
+                    (0, Method::POST) => {
+                        let body = Router::get_body_json(&parts, body).await?;
+                        procs_post(procs, body).await?
+                    }
                     (1, Method::GET) => procs_id_get(procs, param("id")).await?,
 
                     // Route number (i.e. path match) but no method match.

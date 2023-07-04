@@ -15,6 +15,7 @@ bytes = "1"
 clap = { version = "4.3", features = ["derive"] }
 exitcode = "1"
 futures = "0.3"
+http = "0"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.3", features = ["http1", "server"] }
 libc = "0.2"

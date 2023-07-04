@@ -609,6 +609,7 @@ dependencies = [
  "clap",
  "exitcode",
  "futures",
+ "http",
  "http-body-util",
  "hyper",
  "libc",

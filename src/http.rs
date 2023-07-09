@@ -75,7 +75,9 @@ async fn procs_get(procs: SharedRunningProcs) -> RspResult {
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
     match procs.get(proc_id) {
         Some(proc) => Ok(json!({
-            "proc": proc.borrow().to_result()
+            "procs": {
+                proc_id: proc.borrow().to_result(),
+            }
         })),
         None => Err(RspError(StatusCode::NOT_FOUND, None)),
     }

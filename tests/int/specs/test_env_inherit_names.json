@@ -1,0 +1,16 @@
+{
+  "procs": {
+    "test": {
+      "argv": ["/usr/bin/printenv", "PROCSTAR_VAR1", "PROCSTAR_VAR2", "USER", "SHELL"],
+      "env": {
+        "inherit": ["USER", "TERM", "NOT_A_VAR"],
+        "vars": {
+          "PROCSTAR_VAR1": "foobar"
+        }
+      },
+      "fds": [
+        ["stdout", {"capture": {"mode": "memory"}}]
+      ]
+    }
+  }
+}

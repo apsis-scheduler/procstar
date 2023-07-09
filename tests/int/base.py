@@ -1,15 +1,33 @@
 import collections.abc
 import json
+import logging
 import os
 from   pathlib import Path
 import subprocess
 import tempfile
+
+log = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
 PROCSTAR_EXE = Path(__file__).parents[2] / "target/debug/procstar"
 SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
+
+
+class TemporaryDirectory(tempfile.TemporaryDirectory):
+
+    def __init__(self, *, prefix="procstar-test-tmp-", **kw_args):
+        super().__init__(prefix=prefix, **kw_args)
+
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc is None:
+            super().__exit__(exc_type, exc, tb)
+        else:
+            log.warning(f"not cleaning up test tmpdir: {self.name}")
+            self._finalizer.detach()
+
 
 
 class Errors(Exception):
@@ -34,13 +52,13 @@ def _thunk_jso(o):
     return o
 
 
-def run(specs):
-    specs = _thunk_jso(specs)
-    with tempfile.TemporaryDirectory() as tmp_dir:
+def run(spec):
+    spec = _thunk_jso(spec)
+    with TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
         spec_path = tmp_dir / "spec.json"
         with open(spec_path, "w") as out:
-            json.dump({"procs": specs}, out)
+            json.dump(spec, out)
         output_path = tmp_dir / "out.json"
         subprocess.run(
             [
@@ -56,14 +74,16 @@ def run(specs):
             return json.load(file)
 
 
-def run1(spec):
+def run1(spec, *, proc_id="test"):
     """
     Runs a single process and returns its results, if it ran successfully.
 
+    :param spec:
+      Spec for a single process.
     :raise Errors:
       The process had errors.
     """
-    proc = run({"test": spec})["test"]
+    proc = run({"procs": {proc_id: spec}})[proc_id]
     if len(proc["errors"]) == 0:
         return proc
     else:
@@ -71,8 +91,8 @@ def run1(spec):
 
 
 def run_spec(name):
-    with open((SPECS_DIR / name).with_suffix(".json")) as file:
+    with open(SPECS_DIR / name) as file:
         spec = json.load(file)
-    return run1(spec)
+    return run(spec)
 
 

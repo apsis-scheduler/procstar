@@ -1,6 +1,10 @@
 {
-  "argv": [
-    "/usr/bin/echo",
-    "Hello."
-  ]
+  "procs": {
+    "test": {
+      "argv": [
+        "/usr/bin/echo",
+        "Hello."
+      ]
+    }
+  }
 }

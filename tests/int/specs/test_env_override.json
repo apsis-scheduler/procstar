@@ -1,0 +1,16 @@
+{
+  "procs": {
+    "test": {
+      "argv": ["/usr/bin/printenv", "PROCSTAR_VAR1", "SHELL"],
+      "env": {
+        "vars": {
+          "PROCSTAR_VAR1": "hello",
+          "SHELL": "/usr/bin/not-a-shell"
+        }
+      },
+      "fds": [
+        ["stdout", {"capture": {"mode": "memory"}}]
+      ]
+    }
+  }
+}

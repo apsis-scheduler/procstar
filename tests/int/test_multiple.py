@@ -1,18 +1,19 @@
 from   base import run, SCRIPTS_DIR
-from   pathlib import Path
 import sys
 
 #-------------------------------------------------------------------------------
 
 def test_multiple():
     procs = run({
-        f"{i}": {
-            "argv": ["/bin/echo", f"This is process #{i}."],
-            "fds": [
-                ["stdout", {"capture": {"mode": "memory"}}],
-            ],
-        }
-        for i in range(8)
+        "procs": {
+            f"{i}": {
+                "argv": ["/bin/echo", f"This is process #{i}."],
+                "fds": [
+                    ["stdout", {"capture": {"mode": "memory"}}],
+                ],
+            }
+            for i in range(8)
+        },
     })
 
     assert len(procs) == 8
@@ -26,13 +27,15 @@ def test_subprocs1():
     Runs a bunch of scripts, each of which has a tree of subprocs.
     """
     procs = run({
-        f"{i}": {
-            "argv": [sys.executable, str(SCRIPTS_DIR / "subprocs1.py")],
-            "fds": [
-                ["stdout", {"capture": {"mode": "memory"}}],
-            ],
-        }
-        for i in range(8)
+        "procs": {
+            f"{i}": {
+                "argv": [sys.executable, str(SCRIPTS_DIR / "subprocs1.py")],
+                "fds": [
+                    ["stdout", {"capture": {"mode": "memory"}}],
+                ],
+            }
+            for i in range(8)
+        },
     })
 
     assert len(procs) == 8
@@ -50,16 +53,18 @@ def test_concurrent_print():
     Runs several scripts that produce large amounts of output, and collects it.
     """
     procs = run({
-        f"{i}": {
-            "argv": [
-                str(SCRIPTS_DIR / "general"),
-                "--print", f"{1 << i}x{(1 << (22 - i)) + 1}",
-            ],
-            "fds": [
-                ["stdout", {"capture": {"mode": "memory"}}],
-            ],
-        }
-        for i in range(8)
+        "procs": {
+            f"{i}": {
+                "argv": [
+                    str(SCRIPTS_DIR / "general"),
+                    "--print", f"{1 << i}x{(1 << (22 - i)) + 1}",
+                ],
+                "fds": [
+                    ["stdout", {"capture": {"mode": "memory"}}],
+                ],
+            }
+            for i in range(8)
+        },
     })
 
     for i, proc in procs.items():

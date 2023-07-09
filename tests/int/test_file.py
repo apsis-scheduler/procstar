@@ -3,8 +3,8 @@ from   base import run1, SCRIPTS_DIR, run_spec
 #-------------------------------------------------------------------------------
 
 def test_echo_hello():
-    res = run_spec("echo-hello")
-    assert res["status"]
+    res = run_spec("echo-hello.json")
+    assert res["test"]["status"]
 
 
 def test_stdout_stderr(tmp_path):

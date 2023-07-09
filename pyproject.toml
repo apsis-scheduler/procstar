@@ -1,2 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = "test/int"
+
+[tool.ruff]
+select = ["F", "E999"]
+

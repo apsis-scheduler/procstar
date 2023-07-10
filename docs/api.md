@@ -111,30 +111,28 @@ The result of one process is an object with the following keys:
 
     `409 Conflict`: The process has not completed.
 
-- `PUT /procs/:id/signals/:signal`
+- `POST /procs/:id/signals/:signal`
 
     Sends a signal to the process.
 
     `409 Conflict`: The process has already completed.
 
-- `POST /procs/:id`
-
-    Creates and starts a new process.
-
-    `201 Created`
-    `400 Bad Request`: A process with the given ID already exists.
+- `POST /procs`
 
     ```json
     {
-      "proc": { ... },
+      "procs": {
+        "proc-id-1": { ... },
+        "proc-id-2": { ... },
+        ...
+      },
     }
     ```
 
-- `POST /procs`
-
-    `201 Created`
+    `200 OK`
 
     Creates and starts a new process.  A process ID is chosen automatically.
     The response `Location` header contains the URL of the new process, from
     which the process ID can be extracted.
+
 

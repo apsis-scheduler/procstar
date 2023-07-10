@@ -6,6 +6,7 @@ use serde_json::json;
 use std::rc::Rc;
 
 use crate::procs::{start_procs, SharedRunningProcs, RunningProcError};
+use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
 
 //------------------------------------------------------------------------------
@@ -107,6 +108,18 @@ async fn procs_post(procs: SharedRunningProcs, input: Input) -> RspResult {
     }))
 }
 
+/// Handles POST /procs/:id/signal/:signum.
+async fn procs_signal_signum_post(procs: SharedRunningProcs, proc_id: &str, signum: &str) -> RspResult {
+    // let signum = parse_signum(signum).map_error(|e| RspError::bad_request("unkown signum"))?;
+    let signum = parse_signum(signum).ok_or_else(|| RspError::bad_request("unknwon signum"))?;
+    let proc = procs.get(proc_id).ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
+    proc.borrow().send_signal(signum).map_err(|e| RspError::bad_request(&e.to_string()))?;
+    Ok(json!({
+        // FIXME
+    }))
+}
+
+
 //------------------------------------------------------------------------------
 
 struct Router {
@@ -118,6 +131,7 @@ impl Router {
         let mut router = matchit::Router::new();
         router.insert("/procs", 0).unwrap();
         router.insert("/procs/:id", 1).unwrap();
+        router.insert("/procs/:id/signal/:signum", 2).unwrap();
         Router { router }
     }
 
@@ -158,6 +172,8 @@ impl Router {
                     }
                     (1, Method::GET) => procs_id_get(procs, param("id")).await?,
                     (1, Method::DELETE) => procs_id_delete(procs, param("id")).await?,
+
+                    (2, Method::POST) => procs_signal_signum_post(procs, param("id"), param("signum")).await?,
 
                     // Route number (i.e. path match) but no method match.
                     (_, _) => {

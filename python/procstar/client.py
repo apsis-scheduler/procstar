@@ -50,7 +50,6 @@ class AsyncClient:
                 proc_id: spec.to_jso(),
             }
         }
-        print(json.dumps(jso))
 
         async with self.__request("POST", "procs", jso=jso) as rsp:
             rsp.raise_for_status()  # FIXME
@@ -65,6 +64,11 @@ class AsyncClient:
         async with self.__request("GET", "procs", proc_id) as rsp:
             rsp.raise_for_status()  # FIXME
             return rsp.json()["data"]["procs"][proc_id]
+
+
+    async def delete_proc(self, proc_id):
+        async with self.__request("DELETE", "procs", proc_id) as rsp:
+            rsp.raise_for_status()
 
 
 

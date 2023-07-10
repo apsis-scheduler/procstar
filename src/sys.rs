@@ -61,49 +61,6 @@ where
 
 //------------------------------------------------------------------------------
 
-// FIXME: Boy does this need some docs.
-pub struct FdSet(libc::fd_set, fd_t);
-
-impl FdSet {
-    pub fn new() -> Self {
-        let mut set = MaybeUninit::uninit();
-        FdSet(
-            unsafe {
-                libc::FD_ZERO(set.as_mut_ptr());
-                set.assume_init()
-            },
-            -1,
-        )
-    }
-
-    pub fn from_fds<I: Iterator<Item = fd_t>>(fds: I) -> Self {
-        let mut set = Self::new();
-        for fd in fds {
-            set.set(fd);
-        }
-        set
-    }
-
-    pub fn set(&mut self, fd: fd_t) {
-        unsafe {
-            libc::FD_SET(fd, &mut self.0);
-        };
-        self.1 = std::cmp::max(self.1, fd);
-    }
-
-    pub fn clear(&mut self, fd: fd_t) {
-        unsafe {
-            libc::FD_CLR(fd, &mut self.0);
-        };
-    }
-
-    pub fn is_set(&mut self, fd: fd_t) -> bool {
-        unsafe { libc::FD_ISSET(fd, &mut self.0) }
-    }
-}
-
-//------------------------------------------------------------------------------
-
 pub fn close(fd: fd_t) -> io::Result<()> {
     let res = unsafe { libc::close(fd) };
     match res {
@@ -205,41 +162,6 @@ pub fn read(fd: fd_t, buf: &mut [u8]) -> io::Result<usize> {
         -1 => Err(io::Error::last_os_error()),
         n if n >= 0 => Ok(n as usize),
         ret => panic!("read returned {}", ret),
-    }
-}
-
-pub fn select(
-    readfds: &mut FdSet,
-    writefds: &mut FdSet,
-    errorfds: &mut FdSet,
-    timeout: Option<f64>,
-) -> io::Result<c_int> {
-    let nfds = std::cmp::max(readfds.1, std::cmp::max(writefds.1, errorfds.1)) + 1;
-
-    // Linux updates timeval with remaining time, while most others don't
-    // modify it.  We ignore the resulting value.
-    #[allow(unused_assignments)]
-    let mut tv = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
-    };
-    let tvp: *mut libc::timeval = match timeout {
-        Some(t) => {
-            let tv_sec = t as libc::c_long;
-            let tv_usec = ((t * 1e6) as i64 % 1000000) as libc::c_int;
-            tv = libc::timeval {
-                tv_sec,
-                tv_usec: tv_usec.into(),
-            };
-            &mut tv
-        }
-        None => std::ptr::null_mut(),
-    };
-
-    match unsafe { libc::select(nfds, &mut readfds.0, &mut writefds.0, &mut errorfds.0, tvp) } {
-        -1 => Err(io::Error::last_os_error()),
-        nfd if nfd >= 0 => Ok(nfd),
-        ret => panic!("select returned {}", ret),
     }
 }
 

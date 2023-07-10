@@ -5,7 +5,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use serde_json::json;
 use std::rc::Rc;
 
-use crate::procs::{start_procs, SharedRunningProcs, RunningProcError};
+use crate::procs::{start_procs, SharedRunningProcs};
 use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
 
@@ -94,7 +94,7 @@ async fn procs_id_delete(procs: SharedRunningProcs, proc_id: &str) -> RspResult 
                 // FIXME
             }))
         },
-        Err(RunningProcError::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
+        Err(crate::procs::Error::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
         Err(err) => Err(RspError::bad_request(&err.to_string())),
     }
 }

@@ -90,6 +90,21 @@ pub struct SharedRunningProcs {
     procs: Rc<RefCell<RunningProcs>>,
 }
 
+#[derive(Debug)]
+pub enum RunningProcError {
+    NoProcId(ProcId),
+    ProcRunning(ProcId),
+}
+
+impl std::fmt::Display for RunningProcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RunningProcError::NoProcId(proc_id) => write!(f, "proc ID not found: {}", proc_id),
+            RunningProcError::ProcRunning(proc_id) => write!(f, "proc running: {}", proc_id),
+        }
+    }
+}
+
 impl SharedRunningProcs {
     pub fn new() -> SharedRunningProcs {
         SharedRunningProcs {
@@ -120,6 +135,20 @@ impl SharedRunningProcs {
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
         self.procs.borrow_mut().remove(&proc_id)
+    }
+
+    /// Removes and returns a proc, if it is complete (has wait info).
+    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedRunningProc, RunningProcError> {
+        let mut procs = self.procs.borrow_mut();
+        if let Some(proc) = procs.get(proc_id) {
+            if proc.borrow().wait_info.is_some() {
+                Ok(procs.remove(proc_id).unwrap())
+            } else {
+                Err(RunningProcError::ProcRunning(proc_id.clone()))
+            }
+        } else {
+            Err(RunningProcError::NoProcId(proc_id.clone()))
+        }
     }
 
     pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {

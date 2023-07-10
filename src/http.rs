@@ -5,8 +5,8 @@ use hyper::{Method, Request, Response, StatusCode};
 use serde_json::json;
 use std::rc::Rc;
 
-use crate::procs::{start_procs, SharedRunningProcs};
-use crate::spec::Input;
+use crate::procs::{start_procs, SharedRunningProcs, RunningProcError};
+use crate::spec::{Input, ProcId};
 
 //------------------------------------------------------------------------------
 
@@ -73,11 +73,28 @@ async fn procs_get(procs: SharedRunningProcs) -> RspResult {
 
 /// Handles `GET /procs/:id`.
 async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
-    match procs.get(proc_id) {
-        Some(proc) => Ok(json!({
-            "proc": proc.borrow().to_result()
-        })),
-        None => Err(RspError(StatusCode::NOT_FOUND, None)),
+    if let Some(proc) = procs.get(proc_id) {
+        Ok(json!({
+            "procs": {
+                proc_id: proc.borrow().to_result(),
+            }
+        }))
+    } else {
+        Err(RspError(StatusCode::NOT_FOUND, None))
+    }
+}
+
+/// Handles `DEL /procs/:id`.
+async fn procs_id_delete(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
+    let proc_id: ProcId = proc_id.to_string();
+    match procs.remove_if_complete(&proc_id) {
+        Ok(_) => {
+            Ok(json!({
+                // FIXME
+            }))
+        },
+        Err(RunningProcError::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
+        Err(err) => Err(RspError::bad_request(&err.to_string())),
     }
 }
 
@@ -140,6 +157,7 @@ impl Router {
                         procs_post(procs, body).await?
                     }
                     (1, Method::GET) => procs_id_get(procs, param("id")).await?,
+                    (1, Method::DELETE) => procs_id_delete(procs, param("id")).await?,
 
                     // Route number (i.e. path match) but no method match.
                     (_, _) => {

@@ -306,20 +306,6 @@ pub async fn start_procs(
         }
     }
 
-    // // Finish setting up all file descriptors for all procs.
-    // for proc_fds in &mut fds {
-    //     for fd in proc_fds {
-    //         let f = fd.get_fd();
-    //         match (*fd).set_up_in_parent() {
-    //             Err(err) => result
-    //                 .errors
-    //                 .push(format!("failed to set up fd {}: {}", f, err)),
-    //             Ok(None) => (),
-    //             Ok(Some(read)) => select.insert_reader(read),
-    //         };
-    //     }
-    // }
-
     tasks
 }
 

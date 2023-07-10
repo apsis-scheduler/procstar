@@ -6,7 +6,6 @@ pub mod fdio;
 pub mod http;
 pub mod procs;
 pub mod res;
-pub mod sel;
 pub mod sig;
 pub mod spec;
 pub mod sys;

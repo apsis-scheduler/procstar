@@ -16,27 +16,27 @@ use crate::sys::{execve, fork, wait, kill, WaitInfo};
 //------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub enum RunningProcError {
+pub enum Error {
     Io(std::io::Error),
     NoProcId(ProcId),
     ProcRunning(ProcId),
     ProcNotRunning(ProcId),
 }
 
-impl std::fmt::Display for RunningProcError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            RunningProcError::Io(err) => write!(f, "error: {}", err),
-            RunningProcError::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
-            RunningProcError::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
-            RunningProcError::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
+            Error::Io(err) => write!(f, "error: {}", err),
+            Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
+            Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
+            Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
         }
     }
 }
 
-impl From<std::io::Error> for RunningProcError {
-    fn from(err: std::io::Error) -> RunningProcError {
-        RunningProcError::Io(err)
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
@@ -61,7 +61,7 @@ impl RunningProc {
         }
     }
 
-    pub fn send_signal(&self, signum: Signum) -> Result<(), RunningProcError> {
+    pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
         Ok(kill(self.pid, signum)?)
     }
 
@@ -154,16 +154,16 @@ impl SharedRunningProcs {
     }
 
     /// Removes and returns a proc, if it is complete (has wait info).
-    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedRunningProc, RunningProcError> {
+    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedRunningProc, Error> {
         let mut procs = self.procs.borrow_mut();
         if let Some(proc) = procs.get(proc_id) {
             if proc.borrow().wait_info.is_some() {
                 Ok(procs.remove(proc_id).unwrap())
             } else {
-                Err(RunningProcError::ProcRunning(proc_id.clone()))
+                Err(Error::ProcRunning(proc_id.clone()))
             }
         } else {
-            Err(RunningProcError::NoProcId(proc_id.clone()))
+            Err(Error::NoProcId(proc_id.clone()))
         }
     }
 

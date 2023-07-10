@@ -9,9 +9,36 @@ use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::SharedFdHandler;
 use crate::res;
-use crate::sig::{SignalReceiver, SignalWatcher};
+use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec::{Input, ProcId};
-use crate::sys::{execve, fork, wait, WaitInfo};
+use crate::sys::{execve, fork, wait, kill, WaitInfo};
+
+//------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum RunningProcError {
+    Io(std::io::Error),
+    NoProcId(ProcId),
+    ProcRunning(ProcId),
+    ProcNotRunning(ProcId),
+}
+
+impl std::fmt::Display for RunningProcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RunningProcError::Io(err) => write!(f, "error: {}", err),
+            RunningProcError::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
+            RunningProcError::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
+            RunningProcError::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
+        }
+    }
+}
+
+impl From<std::io::Error> for RunningProcError {
+    fn from(err: std::io::Error) -> RunningProcError {
+        RunningProcError::Io(err)
+    }
+}
 
 //------------------------------------------------------------------------------
 
@@ -32,6 +59,10 @@ impl RunningProc {
             wait_info: None,
             fd_handlers,
         }
+    }
+
+    pub fn send_signal(&self, signum: Signum) -> Result<(), RunningProcError> {
+        Ok(kill(self.pid, signum)?)
     }
 
     pub fn to_result(&self) -> res::ProcRes {
@@ -88,21 +119,6 @@ pub type RunningProcs = BTreeMap<ProcId, SharedRunningProc>;
 #[derive(Clone)]
 pub struct SharedRunningProcs {
     procs: Rc<RefCell<RunningProcs>>,
-}
-
-#[derive(Debug)]
-pub enum RunningProcError {
-    NoProcId(ProcId),
-    ProcRunning(ProcId),
-}
-
-impl std::fmt::Display for RunningProcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            RunningProcError::NoProcId(proc_id) => write!(f, "proc ID not found: {}", proc_id),
-            RunningProcError::ProcRunning(proc_id) => write!(f, "proc running: {}", proc_id),
-        }
-    }
 }
 
 impl SharedRunningProcs {

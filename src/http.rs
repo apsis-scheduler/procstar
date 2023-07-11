@@ -130,7 +130,7 @@ impl Router {
         let mut router = matchit::Router::new();
         router.insert("/procs", 0).unwrap();
         router.insert("/procs/:id", 1).unwrap();
-        router.insert("/procs/:id/signal/:signum", 2).unwrap();
+        router.insert("/procs/:id/signals/:signum", 2).unwrap();
         Router { router }
     }
 

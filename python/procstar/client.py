@@ -71,4 +71,9 @@ class AsyncClient:
             rsp.raise_for_status()
 
 
+    async def post_signal(self, proc_id, signum):
+        async with self.__request("POST", "procs", proc_id, "signals", signum) as rsp:
+            rsp.raise_for_status()
+
+
 

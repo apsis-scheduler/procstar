@@ -1,8 +1,7 @@
 use libc::pid_t;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::fd::RawFd;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use crate::environ;
 use crate::err_pipe::ErrorPipe;
@@ -11,7 +10,7 @@ use crate::fd::SharedFdHandler;
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec::{Input, ProcId};
-use crate::sys::{execve, fork, wait, kill, WaitInfo};
+use crate::sys::{execve, fork, kill, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
@@ -113,51 +112,56 @@ impl std::fmt::Debug for RunningProc {
 
 //------------------------------------------------------------------------------
 
-type SharedRunningProc = Rc<RefCell<RunningProc>>;
+type SharedRunningProc = Arc<Mutex<RunningProc>>;
 pub type RunningProcs = BTreeMap<ProcId, SharedRunningProc>;
 
 #[derive(Clone)]
 pub struct SharedRunningProcs {
-    procs: Rc<RefCell<RunningProcs>>,
+    procs: Arc<Mutex<RunningProcs>>,
 }
 
 impl SharedRunningProcs {
     pub fn new() -> SharedRunningProcs {
         SharedRunningProcs {
-            procs: Rc::new(RefCell::new(BTreeMap::new())),
+            procs: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
     // FIXME: Some of these methods are unused.
 
     pub fn insert(&self, proc_id: ProcId, proc: SharedRunningProc) {
-        self.procs.borrow_mut().insert(proc_id, proc);
+        self.procs.lock().unwrap().insert(proc_id, proc);
     }
 
     pub fn len(&self) -> usize {
-        self.procs.borrow().len()
+        self.procs.lock().unwrap().len()
     }
 
-    pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
-        self.procs.borrow().get(proc_id).cloned()
+    pub fn get(&self, proc_id: &str) -> Result<SharedRunningProc, Error> {
+        if let Some(proc) = self.procs.lock().unwrap().get(proc_id) {
+            Ok(proc.clone())
+        } else {
+            Err(Error::NoProcId(proc_id.to_string()))
+        }
     }
 
     pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
         self.procs
-            .borrow()
+            .lock()
+            .unwrap()
             .first_key_value()
-            .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
+            .map(|(proc_id, proc)| (proc_id.clone(), Arc::clone(proc)))
     }
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
-        self.procs.borrow_mut().remove(&proc_id)
+        self.procs.lock().unwrap().remove(&proc_id)
     }
 
     /// Removes and returns a proc, if it is complete (has wait info).
     pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedRunningProc, Error> {
-        let mut procs = self.procs.borrow_mut();
+        let mut procs = self.procs.lock().unwrap();
         if let Some(proc) = procs.get(proc_id) {
-            if proc.borrow().wait_info.is_some() {
+            if proc.lock().unwrap().wait_info.is_some() {
                 Ok(procs.remove(proc_id).unwrap())
             } else {
                 Err(Error::ProcRunning(proc_id.clone()))
@@ -168,20 +172,21 @@ impl SharedRunningProcs {
     }
 
     pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {
-        self.procs.borrow_mut().pop_first()
+        self.procs.lock().unwrap().pop_first()
     }
 
     pub fn to_result(&self) -> res::Res {
         self.procs
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
-            .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
+            .map(|(proc_id, proc)| (proc_id.clone(), proc.lock().unwrap().to_result()))
             .collect::<BTreeMap<_, _>>()
     }
 }
 
 async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: SignalReceiver) {
-    let pid = proc.borrow().pid;
+    let pid = proc.lock().unwrap().pid;
 
     loop {
         // Wait until the process receives SIGCHLD.
@@ -189,7 +194,7 @@ async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: SignalRece
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
-            let mut proc = proc.borrow_mut();
+            let mut proc = proc.lock().unwrap();
             assert!(proc.wait_info.is_none());
             // Process terminated.
             proc.wait_info = Some(wait_info);
@@ -206,14 +211,14 @@ pub async fn run_proc(
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {
-        let proc = Rc::clone(&proc);
-        tokio::task::spawn_local(async move {
+        let proc = Arc::clone(&proc);
+        tokio::task::spawn(async move {
             let mut errors = error_pipe.in_parent().await;
-            proc.borrow_mut().errors.append(&mut errors);
+            proc.lock().unwrap().errors.append(&mut errors);
         })
     };
 
-    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
+    let wait_task = tokio::task::spawn(wait_for_proc(proc, sigchld_receiver));
 
     _ = error_task.await;
     _ = wait_task.await;
@@ -289,11 +294,11 @@ pub async fn start_procs(
                     })
                     .collect::<Vec<_>>();
 
-                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid, fd_handlers)));
+                let proc = Arc::new(Mutex::new(RunningProc::new(child_pid, fd_handlers)));
 
                 // Start a task to handle this child.
-                tasks.push(tokio::task::spawn_local(run_proc(
-                    Rc::clone(&proc),
+                tasks.push(tokio::task::spawn(run_proc(
+                    Arc::clone(&proc),
                     sigchld_receiver.clone(),
                     error_pipe,
                 )));
@@ -336,7 +341,7 @@ pub async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
 
     // Collect proc results by removing and waiting each running proc.
     while let Some((proc_id, proc)) = running_procs.pop() {
-        let proc = Rc::try_unwrap(proc).unwrap().into_inner();
+        let proc = Arc::try_unwrap(proc).unwrap().into_inner().unwrap();
         // Build the proc res.
         result.insert(proc_id.clone(), proc.to_result());
     }

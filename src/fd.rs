@@ -1,10 +1,9 @@
 use libc::c_int;
-use std::cell::RefCell;
 use std::fs;
 use std::io::{Read, Seek};
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 use tokio_pipe::PipeRead;
@@ -108,7 +107,7 @@ pub enum FdHandler {
     },
 }
 
-pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
+pub struct SharedFdHandler(Arc<Mutex<FdHandler>>);
 
 //------------------------------------------------------------------------------
 
@@ -190,12 +189,12 @@ impl SharedFdHandler {
                 }
             }
         };
-        Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
+        Ok(SharedFdHandler(Arc::new(Mutex::new(fd_handler))))
     }
 
     /// Reads from the pipe read fd, appending data to `buf`, until EOF.
-    async fn run_capture_memory(rc: Rc<RefCell<FdHandler>>) -> Result<()> {
-        let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.borrow() {
+    async fn run_capture_memory(rc: Arc<Mutex<FdHandler>>) -> Result<()> {
+        let mut read_pipe = if let FdHandler::CaptureMemory { read_fd, .. } = *rc.lock().unwrap() {
             PipeRead::from_raw_fd_checked(read_fd)?
         } else {
             panic!();
@@ -209,7 +208,8 @@ impl SharedFdHandler {
             if len == 0 {
                 break;
             } else {
-                if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+                if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.lock().unwrap()
+                {
                     buf.extend_from_slice(&read_buf[..len]);
                 } else {
                     panic!();
@@ -220,7 +220,7 @@ impl SharedFdHandler {
     }
 
     pub fn in_parent(&self) -> Result<Option<JoinHandle<Result<()>>>> {
-        Ok(match *self.0.borrow() {
+        Ok(match *self.0.lock().unwrap() {
             FdHandler::Inherit => None,
 
             FdHandler::Close { .. } => None,
@@ -238,15 +238,15 @@ impl SharedFdHandler {
                 // In the parent, we only read.
                 sys::close(write_fd)?;
                 // Start a task to drain the pipe into the buffer.
-                Some(tokio::task::spawn_local(Self::run_capture_memory(
-                    Rc::clone(&self.0),
-                )))
+                Some(tokio::task::spawn(Self::run_capture_memory(Arc::clone(
+                    &self.0,
+                ))))
             }
         })
     }
 
     pub fn in_child(self) -> Result<()> {
-        match Rc::try_unwrap(self.0).unwrap().into_inner() {
+        match Arc::try_unwrap(self.0).unwrap().into_inner().unwrap() {
             FdHandler::Inherit => Ok(()),
 
             FdHandler::Close { fd } => {
@@ -287,7 +287,7 @@ impl SharedFdHandler {
 
     pub fn get_result(&self) -> Result<FdRes> {
         // FIXME: Should we provide more information here?
-        Ok(match &*self.0.borrow() {
+        Ok(match &*self.0.lock().unwrap() {
             FdHandler::Inherit
             | FdHandler::Close { .. }
             | FdHandler::Dup { .. }

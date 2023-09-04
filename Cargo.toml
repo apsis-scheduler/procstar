@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 assert_cmd = "2"
+axum = { verson = "0.6", features = ["macros"] }
 base64 = "0.21"
 bytes = "1"
 clap = { version = "4.3", features = ["derive"] }
@@ -20,11 +21,11 @@ http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.3", features = ["http1", "server"] }
 lazy_static = "1.4.0"
 libc = "0.2"
-matchit = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 tokio-pipe = { version="0.2" }
+tower = "0.4"
 
 # [[bin]]
 # name = "pipeclose"

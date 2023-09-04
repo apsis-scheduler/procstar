@@ -1,4 +1,3 @@
-use axum::debug_handler;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -60,7 +59,6 @@ async fn procs_get(State(procs): State<SharedRunningProcs>) -> impl IntoResponse
 }
 
 /// Handles `POST /procs`.
-#[debug_handler]
 async fn procs_post(
     State(procs): State<SharedRunningProcs>,
     Json(input): Json<Input>,

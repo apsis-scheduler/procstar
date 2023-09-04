@@ -256,4 +256,3 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
         ret => panic!("kill returned {}", ret),
     }
 }
-

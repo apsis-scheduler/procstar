@@ -16,6 +16,11 @@
 - [ ] compress output
 
 
+# Bugs
+
+- Sending signal to completed proc returns 500 Internal Server Errr (os error 3).
+
+
 # Integration tests
 
 

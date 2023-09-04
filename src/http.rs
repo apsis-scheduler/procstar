@@ -6,22 +6,40 @@ use axum::routing::{get, post};
 use axum::{Json, Router, Server};
 use serde_json::json;
 
-use crate::procs::{start_procs, Error, SharedRunningProcs};
+use crate::procs::{start_procs, SharedRunningProcs};
 use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
 
 //------------------------------------------------------------------------------
 
+pub enum Error {
+    Request(String),
+    NoSignal(String),
+    Proc(crate::procs::Error),
+}
+
+impl From<crate::procs::Error> for Error {
+    fn from(err: crate::procs::Error) -> Error {
+        Error::Proc(err)
+    }
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
-            Error::Io(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
-            Error::NoProcId(proc_id) => (StatusCode::NOT_FOUND, format!("no proc id: {}", proc_id)),
-            Error::ProcRunning(proc_id) => (
+            Error::Request(msg) => (StatusCode::BAD_REQUEST, msg),
+            Error::NoSignal(signal) => (StatusCode::BAD_REQUEST, format!("no signal: {}", signal)),
+            Error::Proc(crate::procs::Error::Io(err)) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+            }
+            Error::Proc(crate::procs::Error::NoProcId(proc_id)) => {
+                (StatusCode::NOT_FOUND, format!("no proc id: {}", proc_id))
+            }
+            Error::Proc(crate::procs::Error::ProcRunning(proc_id)) => (
                 StatusCode::BAD_REQUEST,
                 format!("proc running: {}", proc_id),
             ),
-            Error::ProcNotRunning(proc_id) => (
+            Error::Proc(crate::procs::Error::ProcNotRunning(proc_id)) => (
                 StatusCode::BAD_REQUEST,
                 format!("proc not running: {}", proc_id),
             ),
@@ -89,7 +107,7 @@ async fn procs_signal_signum_post(
 ) -> Result<impl IntoResponse, Error> {
     let proc = procs.get(&proc_id)?;
     // FIXME: This is not an appropriate error.
-    let signum = parse_signum(&signum).ok_or_else(|| Error::NoProcId(signum))?;
+    let signum = parse_signum(&signum).ok_or_else(|| Error::NoSignal(signum))?;
     proc.lock().unwrap().send_signal(signum)?;
     let body = json!({"data": {
         // FIXME

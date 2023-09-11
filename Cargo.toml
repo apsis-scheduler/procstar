@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 assert_cmd = "2"
-axum = { verson = "0.6", features = ["macros"] }
+axum = { version = "0.6", features = ["macros", "ws"] }
 base64 = "0.21"
 bytes = "1"
 clap = { version = "4.3", features = ["derive"] }

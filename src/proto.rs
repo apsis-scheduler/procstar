@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 use crate::spec::{Proc, ProcId};
@@ -6,7 +6,7 @@ use crate::res::ProcRes;
 
 //------------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum Message {
     // Incomding message types.

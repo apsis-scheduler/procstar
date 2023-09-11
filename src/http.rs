@@ -1,11 +1,15 @@
 use axum::extract::{Path, State};
+use axum::extract::connect_info::ConnectInfo;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router, Server};
 use serde_json::json;
+use std::net::SocketAddr;
 
 use crate::procs::{start_procs, SharedRunningProcs};
+use crate::proto;
 use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
 
@@ -53,6 +57,7 @@ impl IntoResponse for Error {
 
 /// Handles `GET /procs`.
 async fn procs_get(State(procs): State<SharedRunningProcs>) -> impl IntoResponse {
+    eprintln!("procs_get");
     Json(json!({
         "data": procs.to_result()
     }))
@@ -115,6 +120,49 @@ async fn procs_signal_signum_post(
 
 //------------------------------------------------------------------------------
 
+async fn ws_get(ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_ws(socket, addr))
+}
+
+async fn handle_ws(mut ws: WebSocket, client: SocketAddr) {
+    eprintln!("ws connection: {}", client);
+
+    loop {
+        if let Some(msg) = ws.recv().await {
+            if let Ok(msg) = msg {
+                match msg {
+                    Message::Text(msg) => {
+                        if let Some(rsp) = handle_ws_msg(msg).await {
+                            ws.send(Message::Text(rsp)).await.unwrap();
+                        }
+                    },
+                    Message::Binary(data) => { eprintln!("binary message: {} bytes", data.len()); }
+                    Message::Close(_close) => { eprintln!("close: {}", client); break; }
+                    Message::Ping(ping) => { eprintln!("ping: {:?}", ping); }
+                    Message::Pong(pong) => { eprintln!("pong: {:?}", pong); }
+                }
+            } else {
+                eprintln!("diconnect: {}", client);
+                return;
+            }
+        } else {
+            eprintln!("no message");
+        }
+    }
+}
+
+async fn handle_ws_msg(msg: String) -> Option<String> {
+    if let Ok(msg) = serde_json::from_str::<proto::Message>(&msg) {
+        eprintln!("got msg: {:?}", msg);
+        Some(serde_json::to_string(&proto::Message::ProcidList{ procids: [].to_vec() }).unwrap())
+    } else {
+        eprintln!("could not deserialize msg");
+        None
+    }
+}
+
+//------------------------------------------------------------------------------
+
 /// Runs the HTTP service.
 pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
@@ -124,10 +172,11 @@ pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::erro
         .route("/procs", get(procs_get).post(procs_post))
         .route("/procs/:id", get(procs_id_get).delete(procs_id_delete))
         .route("/procs/:id/signals/:signum", post(procs_signal_signum_post))
+        .route("/ws", get(ws_get))
         .with_state(procs);
 
     Server::bind(&addr)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
     eprintln!("Listening on http://{}", addr);

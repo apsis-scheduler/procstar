@@ -224,6 +224,7 @@ impl Default for Fd {
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct Proc {
+    // FIXME: Should the ID be here at all?
     pub id: Option<String>,
     pub argv: Vec<String>,
     pub env: Env,

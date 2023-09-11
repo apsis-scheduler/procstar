@@ -41,7 +41,7 @@ POST /procs/{id}
 Please start a new process and send `proc-update`.
 ```json
 {
-  "type": "proc-start",
+  "type": "ProcStart",
   "id": ...,
   "spec": ...
 }
@@ -50,14 +50,14 @@ Please start a new process and send `proc-update`.
 Please send `procid-list`.
 ```json
 {
-  "type": "procid-list-request"
+  "type": "ProcidListReqyest"
 }
 ```
 
 Please send `proc-result`.
 ```json
 {
-  "type": "proc-result-request",
+  "type": "ProcResultRequest",
   "id": ...
 }
 ```
@@ -65,7 +65,7 @@ Please send `proc-result`.
 Please clean up a proc and send `proc-delete`.
 ```json
 {
-  "type": "proc-delete-request",
+  "type": "ProcDeleteRequest",
   "id": ...
 }
 ```
@@ -76,14 +76,14 @@ Please clean up a proc and send `proc-delete`.
 
 ```json
 {
-  "type": "procid-list",
+  "type": "ProcidList",
   "procids": [...]
 }
 ```
 
 ```json
 {
-  "type": "proc-result",
+  "type": "ProcResult",
   "id": ...,
   "res": ...
 }
@@ -91,7 +91,7 @@ Please clean up a proc and send `proc-delete`.
 
 ```json
 {
-  "type": "proc-delete",
+  "type": "ProcDelete",
   "id": ...
 }
 ```

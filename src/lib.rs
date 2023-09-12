@@ -9,3 +9,4 @@ pub mod res;
 pub mod sig;
 pub mod spec;
 pub mod sys;
+pub mod wsclient;

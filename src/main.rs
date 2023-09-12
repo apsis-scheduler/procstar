@@ -7,6 +7,7 @@ use procstar::http::run_http;
 use procstar::procs::{collect_results, start_procs, SharedRunningProcs};
 use procstar::res;
 use procstar::spec;
+use procstar::wsclient::run_ws;
 
 //------------------------------------------------------------------------------
 
@@ -25,6 +26,7 @@ async fn main() {
     };
 
     let local = tokio::task::LocalSet::new();
+    // FIXME: Are HTTP serve and websockets actually exclusive?
     if args.serve {
         // Service mode.
         local
@@ -38,6 +40,8 @@ async fn main() {
                 run_http(running_procs).await.unwrap()
             })
             .await;
+    } else if let Some(url) = args.connect {
+        run_ws(running_procs, &url).await;
     } else {
         local
             .run_until(async move {

@@ -1,7 +1,7 @@
 /// Named "Res" to avoid confusion with the `Result` types.
 use base64::Engine;
 use libc::{c_int, pid_t, rusage};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +15,7 @@ use crate::spec::{CaptureFormat, ProcId};
 /// - to convert some values to more convenient units
 /// - because `libc::rusage` doesn't implement `serde::Serialize`.
 ///
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ResourceUsage {
     /// User CPU time used.
     pub utime: f64,
@@ -62,7 +62,7 @@ impl ResourceUsage {
 
 //------------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(untagged)]
 pub enum FdRes {
@@ -99,7 +99,7 @@ impl FdRes {
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Status {
     /// The raw process exit status returned by `wait()`.  This combines exit
     /// code and signum.
@@ -130,7 +130,7 @@ impl Status {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProcRes {
     /// Errors starting the process.
     pub errors: Vec<String>,

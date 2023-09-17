@@ -41,7 +41,9 @@ async fn main() {
             })
             .await;
     } else if let Some(url) = args.connect {
-        run_ws(running_procs, &url).await;
+        let url = url::Url::parse(&url).unwrap();  // FIXME
+        start_procs(input, running_procs.clone()).await;
+        run_ws(running_procs, &url).await.unwrap();  // FIXME
     } else {
         local
             .run_until(async move {

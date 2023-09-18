@@ -93,7 +93,7 @@ async fn procs_id_delete(procs: SharedRunningProcs, proc_id: &str) -> RspResult 
             Ok(json!({
                 // FIXME
             }))
-        },
+        }
         Err(crate::procs::Error::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
         Err(err) => Err(RspError::bad_request(&err.to_string())),
     }
@@ -109,15 +109,22 @@ async fn procs_post(procs: SharedRunningProcs, input: Input) -> RspResult {
 }
 
 /// Handles POST /procs/:id/signal/:signum.
-async fn procs_signal_signum_post(procs: SharedRunningProcs, proc_id: &str, signum: &str) -> RspResult {
+async fn procs_signal_signum_post(
+    procs: SharedRunningProcs,
+    proc_id: &str,
+    signum: &str,
+) -> RspResult {
     let signum = parse_signum(signum).ok_or_else(|| RspError::bad_request("unknwon signum"))?;
-    let proc = procs.get(proc_id).ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
-    proc.borrow().send_signal(signum).map_err(|e| RspError::bad_request(&e.to_string()))?;
+    let proc = procs
+        .get(proc_id)
+        .ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
+    proc.borrow()
+        .send_signal(signum)
+        .map_err(|e| RspError::bad_request(&e.to_string()))?;
     Ok(json!({
         // FIXME
     }))
 }
-
 
 //------------------------------------------------------------------------------
 
@@ -172,7 +179,9 @@ impl Router {
                     (1, Method::GET) => procs_id_get(procs, param("id")).await?,
                     (1, Method::DELETE) => procs_id_delete(procs, param("id")).await?,
 
-                    (2, Method::POST) => procs_signal_signum_post(procs, param("id"), param("signum")).await?,
+                    (2, Method::POST) => {
+                        procs_signal_signum_post(procs, param("id"), param("signum")).await?
+                    }
 
                     // Route number (i.e. path match) but no method match.
                     (_, _) => {

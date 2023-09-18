@@ -6,7 +6,6 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 pub struct Args {
     // FIXME: --serve and --connect should be exclusive?
-
     /// run an HTTP service
     #[arg(short, long)]
     pub serve: bool,

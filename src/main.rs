@@ -7,7 +7,7 @@ use procstar::http::run_http;
 use procstar::procs::{collect_results, start_procs, SharedRunningProcs};
 use procstar::res;
 use procstar::spec;
-use procstar::wsclient::run_ws;
+use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
@@ -41,9 +41,14 @@ async fn main() {
             })
             .await;
     } else if let Some(url) = args.connect {
-        let url = url::Url::parse(&url).unwrap();  // FIXME
-        start_procs(input, running_procs.clone()).await;
-        run_ws(running_procs, &url).await.unwrap();  // FIXME
+        let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
+        local
+            .run_until(async move {
+                start_procs(input, running_procs.clone()).await;
+                let (connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
+                handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
+            })
+            .await;
     } else {
         local
             .run_until(async move {

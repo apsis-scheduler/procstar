@@ -735,6 +735,7 @@ dependencies = [
  "tokio",
  "tokio-pipe",
  "tokio-tungstenite",
+ "tungstenite",
  "url",
 ]
 

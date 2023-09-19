@@ -7,6 +7,7 @@ use crate::spec::{Proc, ProcId};
 
 //------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub enum Error {
     Connection(tungstenite::error::Error),
     Json(serde_json::Error),
@@ -45,16 +46,15 @@ pub enum OutgoingMessage {
     ProcDelete { procid: ProcId },
 }
 
-pub fn handle_incoming(
+pub async fn handle_incoming(
     procs: SharedRunningProcs,
     msg: IncomingMessage,
 ) -> Result<Option<OutgoingMessage>, Error> {
     match msg {
-        IncomingMessage::ProcStart { procid, spec } => {}
-        IncomingMessage::ProcidListRequest {} => {}
-        IncomingMessage::ProcResultRequest { procid } => {}
-        IncomingMessage::ProcDeleteRequest { procid } => {}
+        IncomingMessage::ProcStart { procid, spec } => Ok(None),
+        IncomingMessage::ProcidListRequest {} => Ok(None),
+        IncomingMessage::ProcResultRequest { procid } => Ok(None),
+        IncomingMessage::ProcDeleteRequest { procid } => Ok(None),
     }
-    Ok(None)
 }
 

@@ -45,7 +45,7 @@ async fn main() {
         local
             .run_until(async move {
                 start_procs(input, running_procs.clone()).await;
-                let (connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
+                let (_connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
                 handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
             })
             .await;

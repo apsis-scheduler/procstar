@@ -11,6 +11,7 @@ use tokio::sync::watch::{channel, Receiver, Sender};
 
 pub type Signum = c_int;
 
+#[rustfmt::skip]
 lazy_static! {
     static ref SIGNAL_NAMES: HashMap::<&'static str, Signum> = {
         HashMap::from([

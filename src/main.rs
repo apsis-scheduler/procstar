@@ -22,7 +22,7 @@ async fn maybe_run_ws(url: Option<String>, running_procs: SharedRunningProcs) {
     if let Some(url) = url {
         let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
         let (_connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
-        handler.run(running_procs.clone()).await.unwrap();  // FIXME: unwrap
+        handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
     }
 }
 
@@ -47,13 +47,17 @@ async fn main() {
         // intentionally don't start the HTTP service until the input
         // processes have started, to avoid races where these procs
         // don't appear in HTTP results.
-        local.run_until(start_procs(input, running_procs.clone())).await;
+        local
+            .run_until(start_procs(input, running_procs.clone()))
+            .await;
 
         // Now run one or both servers.
-        local.run_until(join(
-            maybe_run_http(args.serve, running_procs.clone()),
-            maybe_run_ws(args.connect, running_procs.clone()),
-        )).await;
+        local
+            .run_until(join(
+                maybe_run_http(args.serve, running_procs.clone()),
+                maybe_run_ws(args.connect, running_procs.clone()),
+            ))
+            .await;
     } else {
         local
             .run_until(async move {

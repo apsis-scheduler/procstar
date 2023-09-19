@@ -59,6 +59,7 @@ async fn main() {
             ))
             .await;
     } else {
+        // FIXME: There should be a flag for "run to completion" and "print results"?
         local
             .run_until(async move {
                 // Start specs from the command line.

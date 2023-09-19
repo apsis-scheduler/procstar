@@ -1,7 +1,7 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::tungstenite::Error;
@@ -33,24 +33,26 @@ pub struct Handler {
 }
 
 impl Handler {
-    async fn handle(connection: SharedConnection, procs: SharedRunningProcs, msg: Message) -> Result<(), proto::Error> {
+    async fn handle(
+        connection: SharedConnection,
+        procs: SharedRunningProcs,
+        msg: Message,
+    ) -> Result<(), proto::Error> {
         match msg {
-            Message::Text(json) => {
-                match serde_json::from_str::<proto::IncomingMessage>(&json) {
-                    Ok(msg) => {
-                        eprintln!("msg: {:?}", msg);
-                        match proto::handle_incoming(procs, msg).await {
-                            Ok(Some(rsp)) => {
-                                eprintln!("rsp: {:?}", rsp);
-                                connection.borrow_mut().send(&rsp).await?
-                            },
-                            Ok(None) => (),
-                            Err(err) => eprintln!("message error: {:?}: {}", err, json),
+            Message::Text(json) => match serde_json::from_str::<proto::IncomingMessage>(&json) {
+                Ok(msg) => {
+                    eprintln!("msg: {:?}", msg);
+                    match proto::handle_incoming(procs, msg).await {
+                        Ok(Some(rsp)) => {
+                            eprintln!("rsp: {:?}", rsp);
+                            connection.borrow_mut().send(&rsp).await?
                         }
+                        Ok(None) => (),
+                        Err(err) => eprintln!("message error: {:?}: {}", err, json),
                     }
-                    Err(err) => eprintln!("invalid JSON: {:?}: {}", err, json),
                 }
-            }
+                Err(err) => eprintln!("invalid JSON: {:?}: {}", err, json),
+            },
             _ => eprintln!("unexpected ws msg: {}", msg),
         }
         Ok(())
@@ -61,7 +63,9 @@ impl Handler {
         self.read
             .for_each(|msg| async {
                 if let Ok(msg) = msg {
-                    if let Err(err) = Self::handle(self.connection.clone(), procs.clone(), msg).await {
+                    if let Err(err) =
+                        Self::handle(self.connection.clone(), procs.clone(), msg).await
+                    {
                         eprintln!("error: {:?}", err);
                     }
                 } else {
@@ -80,7 +84,7 @@ impl Connection {
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
         let (write, read) = ws_stream.split();
-        let connection = Rc::new(RefCell::new(Connection{write}));
+        let connection = Rc::new(RefCell::new(Connection { write }));
         Ok((connection.clone(), Handler { read, connection }))
     }
 }

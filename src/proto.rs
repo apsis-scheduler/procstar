@@ -56,10 +56,9 @@ pub async fn handle_incoming(
         IncomingMessage::ProcidListRequest {} => {
             let procids = procs.get_proc_ids();
             Ok(Some(OutgoingMessage::ProcidList { procids }))
-        },
+        }
 
         IncomingMessage::ProcResultRequest { procid } => Ok(None),
         IncomingMessage::ProcDeleteRequest { procid } => Ok(None),
     }
 }
-

@@ -2,9 +2,7 @@ extern crate exitcode;
 
 mod argv;
 
-use futures::stream::FuturesUnordered;
-use futures::stream::StreamExt;
-
+use futures::future::join;
 // use procstar::fd::parse_fd;
 use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedRunningProcs};
@@ -14,14 +12,18 @@ use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
-async fn run_http(running_procs: SharedRunningProcs) {
-    http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
+async fn maybe_run_http(serve: bool, running_procs: SharedRunningProcs) {
+    if serve {
+        http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
+    }
 }
 
-async fn run_ws(url: String, running_procs: SharedRunningProcs) {
-    let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
-    let (_connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
-    handler.run(running_procs.clone()).await.unwrap();  // FIXME: unwrap
+async fn maybe_run_ws(url: Option<String>, running_procs: SharedRunningProcs) {
+    if let Some(url) = url {
+        let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
+        let (_connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
+        handler.run(running_procs.clone()).await.unwrap();  // FIXME: unwrap
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -47,21 +49,11 @@ async fn main() {
         // don't appear in HTTP results.
         local.run_until(start_procs(input, running_procs.clone())).await;
 
-        let mut futs = FuturesUnordered::<_>::new();
-
-        if args.serve {
-            // Run the HTTP service.
-            futs.push(futures::future::Either::Right(run_http(running_procs.clone())));
-        }
-
-        if let Some(url) = args.connect {
-            futs.push(futures::future::Either::Left(run_ws(url, running_procs.clone())));
-        }
-
-        local.run_until(async move {
-            while futs.next().await.is_some() {
-            }
-        }).await;
+        // Now run one or both servers.
+        local.run_until(join(
+            maybe_run_http(args.serve, running_procs.clone()),
+            maybe_run_ws(args.connect, running_procs.clone()),
+        )).await;
     } else {
         local
             .run_until(async move {

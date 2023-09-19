@@ -52,7 +52,12 @@ pub async fn handle_incoming(
 ) -> Result<Option<OutgoingMessage>, Error> {
     match msg {
         IncomingMessage::ProcStart { procid, spec } => Ok(None),
-        IncomingMessage::ProcidListRequest {} => Ok(None),
+
+        IncomingMessage::ProcidListRequest {} => {
+            let procids = procs.get_proc_ids();
+            Ok(Some(OutgoingMessage::ProcidList { procids }))
+        },
+
         IncomingMessage::ProcResultRequest { procid } => Ok(None),
         IncomingMessage::ProcDeleteRequest { procid } => Ok(None),
     }

@@ -138,6 +138,10 @@ impl SharedRunningProcs {
         self.procs.borrow().len()
     }
 
+    pub fn get_proc_ids(&self) -> Vec<ProcId> {
+        self.procs.borrow().keys().map(|s| s.clone()).collect()
+    }
+
     pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
         self.procs.borrow().get(proc_id).cloned()
     }

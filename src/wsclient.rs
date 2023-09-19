@@ -12,15 +12,16 @@ use crate::proto;
 
 //------------------------------------------------------------------------------
 
-// FIXME: Elsewhere.
-pub trait Notifier {
-    fn notify(msg: &proto::OutgoingMessage);
-}
-
-//------------------------------------------------------------------------------
-
 pub struct Connection {
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+}
+
+impl Connection {
+    async fn send(&mut self, msg: &proto::OutgoingMessage) -> Result<(), proto::Error> {
+        let json = serde_json::to_string(msg)?;
+        self.write.send(Message::Text(json)).await?;
+        Ok(())
+    }
 }
 
 pub struct Handler {

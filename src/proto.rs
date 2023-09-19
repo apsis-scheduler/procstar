@@ -9,6 +9,7 @@ use crate::spec::{Proc, ProcId};
 
 pub enum Error {
     Connection(tungstenite::error::Error),
+    Json(serde_json::Error),
 }
 
 impl From<tungstenite::error::Error> for Error {
@@ -16,6 +17,14 @@ impl From<tungstenite::error::Error> for Error {
         Error::Connection(err)
     }
 }
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Error {
+        Error::Json(err)
+    }
+}
+
+//------------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
@@ -48,3 +57,4 @@ pub fn handle_incoming(
     }
     Ok(None)
 }
+

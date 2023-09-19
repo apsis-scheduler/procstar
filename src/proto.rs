@@ -31,19 +31,19 @@ impl From<serde_json::Error> for Error {
 #[serde(tag = "type")]
 pub enum IncomingMessage {
     // Incomding message types.
-    ProcStart { procid: ProcId, spec: Proc },
+    ProcStart { proc_id: ProcId, spec: Proc },
     ProcidListRequest {},
-    ProcResultRequest { procid: ProcId },
-    ProcDeleteRequest { procid: ProcId },
+    ProcResultRequest { proc_id: ProcId },
+    ProcDeleteRequest { proc_id: ProcId },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     // Outgoing message types.
-    ProcidList { procids: Vec<ProcId> },
-    ProcResult { procid: ProcId, res: ProcRes },
-    ProcDelete { procid: ProcId },
+    ProcidList { proc_ids: Vec<ProcId> },
+    ProcResult { proc_id: ProcId, res: ProcRes },
+    ProcDelete { proc_id: ProcId },
 }
 
 pub async fn handle_incoming(
@@ -51,14 +51,24 @@ pub async fn handle_incoming(
     msg: IncomingMessage,
 ) -> Result<Option<OutgoingMessage>, Error> {
     match msg {
-        IncomingMessage::ProcStart { procid, spec } => Ok(None),
+        IncomingMessage::ProcStart { proc_id, spec } => Ok(None),
 
         IncomingMessage::ProcidListRequest {} => {
-            let procids = procs.get_proc_ids();
-            Ok(Some(OutgoingMessage::ProcidList { procids }))
+            let proc_ids = procs.get_proc_ids();
+            Ok(Some(OutgoingMessage::ProcidList { proc_ids }))
         }
 
-        IncomingMessage::ProcResultRequest { procid } => Ok(None),
-        IncomingMessage::ProcDeleteRequest { procid } => Ok(None),
+        IncomingMessage::ProcResultRequest { proc_id } => {
+            if let Some(proc) = procs.get(&proc_id) {
+                let res = proc.borrow().to_result();
+                Ok(Some(OutgoingMessage::ProcResult { proc_id, res }))
+            } else {
+                // FIXME: How do we indicate protocol errors??
+                eprintln!("no such proc id: {}", proc_id);
+                Ok(None)
+            }
+        }
+
+        IncomingMessage::ProcDeleteRequest { proc_id } => Ok(None),
     }
 }

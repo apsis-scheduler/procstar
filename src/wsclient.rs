@@ -18,9 +18,9 @@ pub struct Connection {
 }
 
 impl Connection {
-    async fn send(&mut self, msg: &proto::OutgoingMessage) -> Result<(), proto::Error> {
-        let json = serde_json::to_string(msg)?;
-        self.write.send(Message::Text(json)).await?;
+    async fn send(&mut self, msg: proto::OutgoingMessage) -> Result<(), proto::Error> {
+        let json = serde_json::to_vec(&msg)?;
+        self.write.send(Message::Binary(json)).await?;
         Ok(())
     }
 }
@@ -45,7 +45,7 @@ impl Handler {
                     match proto::handle_incoming(procs, msg).await {
                         Ok(Some(rsp)) => {
                             eprintln!("rsp: {:?}", rsp);
-                            connection.borrow_mut().send(&rsp).await?
+                            connection.borrow_mut().send(rsp).await?
                         }
                         Ok(None) => (),
                         Err(err) => eprintln!("message error: {:?}: {}", err, json),
@@ -79,12 +79,19 @@ impl Handler {
 }
 
 impl Connection {
-    pub async fn connect(url: &Url) -> Result<(SharedConnection, Handler), Error> {
+    pub async fn connect(url: &Url) -> Result<(SharedConnection, Handler), proto::Error> {
         eprintln!("connecting to {}", url);
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
         let (write, read) = ws_stream.split();
         let connection = Rc::new(RefCell::new(Connection { write }));
+
+        // Send a connect message.
+        let name = "name".to_string();
+        let group = "group".to_string();
+        let connect = proto::OutgoingMessage::Connect { name, group };
+        connection.borrow_mut().send(connect).await?;
+
         Ok((connection.clone(), Handler { read, connection }))
     }
 }

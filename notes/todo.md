@@ -15,6 +15,10 @@
 - [ ] base2048 output format
 - [ ] compress output
 
+### WebSockets connection
+
+- [ ] auth secret to connect
+
 
 # Integration tests
 

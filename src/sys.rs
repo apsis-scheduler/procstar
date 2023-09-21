@@ -274,8 +274,21 @@ pub fn get_username() -> String {
     }
 }
 
-// FIXME: Don't use nix.
+const HOST_NAME_MAX: usize = 64;
+
 pub fn get_hostname() -> String {
-    return nix::unistd::gethostname().unwrap().into_string().unwrap();
+    let mut buffer = vec![0u8; HOST_NAME_MAX];
+    let ptr = buffer.as_mut_ptr() as *mut i8;
+    let ret = unsafe { libc::gethostname(ptr, buffer.len()) };
+    match ret {
+        0 => {
+            // FIXME: Is this really the right way to do this??
+            let len = buffer.iter().position(|&c| c == 0).unwrap();
+            buffer.truncate(len);
+            String::from_utf8(buffer).unwrap()
+        },
+        -1 => panic!("gethostname failed: {}", ret),
+        _ => panic!("gethostname invalid ressult: {}", ret),
+    }
 }
 

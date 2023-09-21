@@ -4,6 +4,18 @@ use std::vec::Vec;
 use crate::procs::SharedRunningProcs;
 use crate::res::ProcRes;
 use crate::spec::{Proc, ProcId};
+use crate::sys;
+
+//------------------------------------------------------------------------------
+
+pub const DEFAULT_GROUP: &str = "default";
+
+pub fn get_default_name() -> String {
+    let hostname = sys::get_hostname();
+    let username = sys::get_username();
+    let pid = sys::getpid();
+    format!("{}:{}:{}", hostname, username, pid)
+}
 
 //------------------------------------------------------------------------------
 

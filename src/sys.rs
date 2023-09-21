@@ -256,3 +256,26 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
         ret => panic!("kill returned {}", ret),
     }
 }
+
+//------------------------------------------------------------------------------
+
+// FIXME: Don't use nix.
+pub fn get_username() -> String {
+    if let Ok(user) = std::env::var("USER") {
+        user
+    } else {
+        let euid = nix::unistd::Uid::effective();
+        if let Some(user) = nix::unistd::User::from_uid(euid).unwrap() {
+            user.name
+        } else {
+            // Fall back to stringified UID.
+            euid.to_string()
+        }
+    }
+}
+
+// FIXME: Don't use nix.
+pub fn get_hostname() -> String {
+    return nix::unistd::gethostname().unwrap().into_string().unwrap();
+}
+

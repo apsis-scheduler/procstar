@@ -79,7 +79,10 @@ impl Handler {
 }
 
 impl Connection {
-    pub async fn connect(url: &Url) -> Result<(SharedConnection, Handler), proto::Error> {
+    pub async fn connect(url: &Url, name: Option<&str>, group: Option<&str>) -> Result<(SharedConnection, Handler), proto::Error> {
+        let name = name.map_or_else(|| proto::get_default_name(), |n| n.to_string());
+        let group = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
+
         eprintln!("connecting to {}", url);
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
@@ -87,8 +90,6 @@ impl Connection {
         let connection = Rc::new(RefCell::new(Connection { write }));
 
         // Send a connect message.
-        let name = "name".to_string();
-        let group = "group".to_string();
         let connect = proto::OutgoingMessage::Connect { name, group };
         connection.borrow_mut().send(connect).await?;
 

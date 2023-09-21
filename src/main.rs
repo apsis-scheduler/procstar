@@ -12,16 +12,16 @@ use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
-async fn maybe_run_http(serve: bool, running_procs: SharedRunningProcs) {
-    if serve {
+async fn maybe_run_http(args: &argv::Args, running_procs: SharedRunningProcs) {
+    if args.serve {
         http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
     }
 }
 
-async fn maybe_run_ws(url: Option<String>, running_procs: SharedRunningProcs) {
-    if let Some(url) = url {
+async fn maybe_run_ws(args: &argv::Args, running_procs: SharedRunningProcs) {
+    if let Some(url) = args.connect.as_deref() {
         let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
-        let (_connection, handler) = wsclient::Connection::connect(&url).await.unwrap(); // FIXME: unwrap
+        let (_connection, handler) = wsclient::Connection::connect(&url, args.name.as_deref(), args.group.as_deref()).await.unwrap(); // FIXME: unwrap
         handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
     }
 }
@@ -31,7 +31,7 @@ async fn main() {
     let args = argv::parse();
 
     let running_procs = SharedRunningProcs::new();
-    let input = if let Some(p) = args.input {
+    let input = if let Some(p) = args.input.as_deref() {
         spec::load_file(&p).unwrap_or_else(|err| {
             eprintln!("failed to load {}: {}", p, err);
             std::process::exit(exitcode::OSFILE);
@@ -54,8 +54,8 @@ async fn main() {
         // Now run one or both servers.
         local
             .run_until(join(
-                maybe_run_http(args.serve, running_procs.clone()),
-                maybe_run_ws(args.connect, running_procs.clone()),
+                maybe_run_http(&args, running_procs.clone()),
+                maybe_run_ws(&args, running_procs.clone()),
             ))
             .await;
     } else {

@@ -79,7 +79,11 @@ impl Handler {
 }
 
 impl Connection {
-    pub async fn connect(url: &Url, name: Option<&str>, group: Option<&str>) -> Result<(SharedConnection, Handler), proto::Error> {
+    pub async fn connect(
+        url: &Url,
+        name: Option<&str>,
+        group: Option<&str>,
+    ) -> Result<(SharedConnection, Handler), proto::Error> {
         let name = name.map_or_else(|| proto::get_default_name(), |n| n.to_string());
         let group = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
 

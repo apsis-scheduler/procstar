@@ -21,7 +21,10 @@ async fn maybe_run_http(args: &argv::Args, running_procs: SharedRunningProcs) {
 async fn maybe_run_ws(args: &argv::Args, running_procs: SharedRunningProcs) {
     if let Some(url) = args.connect.as_deref() {
         let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
-        let (_connection, handler) = wsclient::Connection::connect(&url, args.name.as_deref(), args.group.as_deref()).await.unwrap(); // FIXME: unwrap
+        let (_connection, handler) =
+            wsclient::Connection::connect(&url, args.name.as_deref(), args.group.as_deref())
+                .await
+                .unwrap(); // FIXME: unwrap
         handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
     }
 }

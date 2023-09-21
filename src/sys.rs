@@ -285,9 +285,8 @@ pub fn get_hostname() -> String {
             let len = buffer.iter().position(|&c| c == 0).unwrap();
             buffer.truncate(len);
             String::from_utf8(buffer).unwrap()
-        },
+        }
         -1 => panic!("gethostname failed: {}", ret),
         _ => panic!("gethostname invalid ressult: {}", ret),
     }
 }
-

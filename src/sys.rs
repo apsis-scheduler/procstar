@@ -278,8 +278,7 @@ const HOST_NAME_MAX: usize = 64;
 
 pub fn get_hostname() -> String {
     let mut buffer = vec![0u8; HOST_NAME_MAX];
-    let ptr = buffer.as_mut_ptr() as *mut i8;
-    let ret = unsafe { libc::gethostname(ptr, buffer.len()) };
+    let ret = unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut i8, buffer.len()) };
     match ret {
         0 => {
             // FIXME: Is this really the right way to do this??

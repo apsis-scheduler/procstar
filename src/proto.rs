@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::procs::SharedRunningProcs;
+use crate::procs::{SharedRunningProcs, start_procs};
 use crate::res::ProcRes;
-use crate::spec::{Proc, ProcId};
+use crate::spec::{Input, Proc, ProcId};
 use crate::sys;
 
 //------------------------------------------------------------------------------
@@ -43,7 +44,7 @@ impl From<serde_json::Error> for Error {
 #[serde(tag = "type")]
 pub enum IncomingMessage {
     // Incomding message types.
-    ProcStart { proc_id: ProcId, spec: Proc },
+    ProcStart { procs: BTreeMap<ProcId, Proc> },
     ProcidListRequest {},
     ProcResultRequest { proc_id: ProcId },
     ProcDeleteRequest { proc_id: ProcId },
@@ -64,7 +65,10 @@ pub async fn handle_incoming(
     msg: IncomingMessage,
 ) -> Result<Option<OutgoingMessage>, Error> {
     match msg {
-        IncomingMessage::ProcStart { proc_id, spec } => Ok(None),
+        IncomingMessage::ProcStart { procs: procs_ } => {
+            start_procs(Input { procs: procs_ }, procs).await;
+            Ok(None)
+        }
 
         IncomingMessage::ProcidListRequest {} => {
             let proc_ids = procs.get_proc_ids();

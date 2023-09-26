@@ -225,6 +225,7 @@ pub async fn run_proc(
 
 //------------------------------------------------------------------------------
 
+// FIXME: Check that proc_ids aren't already known; return Error if so.
 pub async fn start_procs(
     input: Input,
     running_procs: SharedRunningProcs,

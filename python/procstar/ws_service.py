@@ -8,7 +8,7 @@ from   dataclasses import dataclass
 import ipaddress
 import logging
 import orjson
-from   typing import List
+from   typing import Dict, List
 import websockets.server
 
 #-------------------------------------------------------------------------------
@@ -28,15 +28,36 @@ class ProtocolError(Exception):
 #-------------------------------------------------------------------------------
 
 @dataclass
+class ProcStart:
+    procs: Dict[str, dict]
+
+
+
+@dataclass
 class ProcidListRequest:
     pass
+
+
+
+@dataclass
+class ProcResultRequest:
+    proc_id: str
+
+
+
+@dataclass
+class ProcDeleteRequest:
+    proc_id: str
 
 
 
 OUTGOING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
+            ProcStart,
             ProcidListRequest,
+            ProcResultRequest,
+            ProcDeleteRequest,
     )
 }
 
@@ -55,11 +76,26 @@ class ProcidList:
 
 
 
+@dataclass
+class ProcResult:
+    proc_id: str
+    res: dict
+
+
+
+@dataclass
+class ProcDelete:
+    proc_id: str
+
+
+
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             Connect,
             ProcidList,
+            ProcResult,
+            ProcDelete,
     )
 }
 
@@ -207,6 +243,16 @@ class Server:
         await connection.send(ProcidListRequest())
 
 
+    async def request_proc_result(self, name, proc_id):
+        connection = self.__connections[name]
+        await connection.send(ProcResultRequest(proc_id))
+
+
+    async def start_proc(self, name, proc_id, spec):
+        connection = self.__connections[name]
+        await connection.send(ProcStart(procs={proc_id: spec}))
+
+
 
 async def run(server, loc=(None, DEFAULT_PORT)):
     """
@@ -217,12 +263,26 @@ async def run(server, loc=(None, DEFAULT_PORT)):
       The (host, port) on which to run.
     """
     host, port = loc
+
+    started = False
+    proc_id = "testproc0"
+
     async with websockets.server.serve(server.serve_connection, host, port):
         while True:
             await asyncio.sleep(2)
             print(f"connections: {', '.join(server.names)}")
             for name in server.names:
                 await server.request_proc_ids(name)
+
+            if not started and len(server.names) > 0:
+                await asyncio.sleep(2)
+                name = server.names[0]
+                print(f"starting {proc_id}")
+                await server.start_proc(name, proc_id, {"argv": ["/usr/bin/sleep", "5"]})
+                started = True
+
+            if started:
+                await server.request_proc_result(name, proc_id)
 
         # await asyncio.Future()
 

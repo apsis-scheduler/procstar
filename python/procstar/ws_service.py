@@ -10,6 +10,7 @@ import logging
 import orjson
 from   typing import Dict, List
 import websockets.server
+from   websockets.exceptions import ConnectionClosedError
 
 #-------------------------------------------------------------------------------
 
@@ -64,13 +65,6 @@ OUTGOING_MESSAGE_TYPES = {
 #-------------------------------------------------------------------------------
 
 @dataclass
-class Connect:
-    name: str
-    group: str
-
-
-
-@dataclass
 class ProcidList:
     proc_ids: List[str]
 
@@ -89,13 +83,20 @@ class ProcDelete:
 
 
 
+@dataclass
+class Register:
+    name: str
+    group: str
+
+
+
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
-            Connect,
             ProcidList,
             ProcResult,
             ProcDelete,
+            Register,
     )
 }
 
@@ -152,6 +153,12 @@ def _deserialize_message(msg):
 
 #-------------------------------------------------------------------------------
 
+class NoConnectionError(LookupError):
+    """
+    No connection with the given name.
+    """
+
+
 @dataclass
 class ConnectionInfo:
     address: ipaddress._BaseAddress
@@ -162,21 +169,17 @@ class ConnectionInfo:
 
 
 
+@dataclass
+class Connection:
+    info: ConnectionInfo
+    ws: asyncio.protocols.Protocol
+    group: str
+
+
+
 # FIXME: What is the temporal scope of a connection?
 
 class Server:
-
-    @dataclass
-    class __Connection:
-        info: ConnectionInfo
-        ws: asyncio.protocols.Protocol
-        group: str
-
-        async def send(self, msg):
-            data = _serialize_message(msg)
-            await self.ws.send(data)
-
-
 
     def __init__(self):
         # Mapping from connection name to connection.
@@ -191,6 +194,8 @@ class Server:
 
         Use this bound method with `websockets.server.serve()`.
         """
+        log = self.logger
+
         # Collect remote loc.
         address, port, *_ = ws.remote_address
         address = ipaddress.ip_address(address)
@@ -202,32 +207,41 @@ class Server:
                 async with asyncio.timeout(TIMEOUT_LOGIN):
                     msg = await ws.recv()
             except TimeoutError:
-                raise ProtocolError(
-                    f"no Connect msg in {TIMEOUT_LOGIN} s") from None
-            self.logger.debug(f"msg: {msg}")
+                raise ProtocolError(f"no register in {TIMEOUT_LOGIN} s")
+            except ConnectionClosedError:
+                raise ProtocolError("closed before register")
+            log.debug(f"msg: {msg}")
 
             # Only Connect is acceptable.
             msg_type, msg = _deserialize_message(msg)
-            if msg_type != "Connect":
-                raise ProtocolError(f"expected Connect msg; got {msg_type}")
+            if msg_type != "Register":
+                raise ProtocolError(f"expected register; got {msg_type}")
 
         except Exception as exc:
-            self.logger.error(f"connection failed: {info}: {exc}")
+            log.error(f"{info}: {exc}")
+            ws.close()
+            return
 
         old = self.__connections.pop(msg.name, None)
         if old is not None:
-            self.logger.info(f"reconnected: {msg.name} was @{old.info}")
+            log.info(f"reconnected: {msg.name} was @{old.info}")
             old.ws.close()
             old = None
 
-        self.__connections[msg.name] = self.__Connection(info, ws, msg.group)
-        self.logger.info(f"connected: {msg.name} group {msg.group} @{info}")
+        self.__connections[msg.name] = Connection(info, ws, msg.group)
+        log.info(f"connected: {msg.name} group {msg.group} @{info}")
 
         # Receive messages.
         while True:
-            msg = await ws.recv()
+            try:
+                msg = await ws.recv()
+            except ConnectionClosedError:
+                log.info(f"connection closed: @{info}")
+                break
             msg = _deserialize_message(msg)
-            self.logger.info(f"received: {msg}")
+            log.info(f"received: {msg}")
+
+        ws.close()
 
 
     @property
@@ -238,19 +252,33 @@ class Server:
         return tuple(self.__connections.keys())
 
 
+    async def send(self, name, msg):
+        try:
+            connection = self.__connections[name]
+        except KeyError:
+            raise NoConnectionError(f"no connection: {name}") from None
+
+        data = _serialize_message(msg)
+
+        try:
+            await connection.ws.send(data)
+        except ConnectionClosedError:
+            # FIXME: Don't forget the connection.
+            self.logger.warning(f"{connection.info}: connection closed")
+            removed = self.__connections.pop(name)
+            assert removed is self
+
+
     async def request_proc_ids(self, name):
-        connection = self.__connections[name]
-        await connection.send(ProcidListRequest())
+        await self.send(name, ProcidListRequest())
 
 
     async def request_proc_result(self, name, proc_id):
-        connection = self.__connections[name]
-        await connection.send(ProcResultRequest(proc_id))
+        await self.send(name, ProcResultRequest(proc_id))
 
 
     async def start_proc(self, name, proc_id, spec):
-        connection = self.__connections[name]
-        await connection.send(ProcStart(procs={proc_id: spec}))
+        await self.send(name, ProcStart(procs={proc_id: spec}))
 
 
 
@@ -289,8 +317,13 @@ async def run(server, loc=(None, DEFAULT_PORT)):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)-7s] %(message)s",
+    )
     logging.getLogger("websockets.server").setLevel(logging.INFO)
-    asyncio.run(run(Server()))
-
+    try:
+        asyncio.run(run(Server()))
+    except KeyboardInterrupt:
+        pass
 

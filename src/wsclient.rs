@@ -39,7 +39,7 @@ impl Handler {
         msg: Message,
     ) -> Result<(), proto::Error> {
         match msg {
-            Message::Text(json) => match serde_json::from_str::<proto::IncomingMessage>(&json) {
+            Message::Binary(json) => match serde_json::from_slice::<proto::IncomingMessage>(&json) {
                 Ok(msg) => {
                     eprintln!("msg: {:?}", msg);
                     match proto::handle_incoming(procs, msg).await {
@@ -48,10 +48,10 @@ impl Handler {
                             connection.borrow_mut().send(rsp).await?
                         }
                         Ok(None) => (),
-                        Err(err) => eprintln!("message error: {:?}: {}", err, json),
+                        Err(err) => eprintln!("message error: {:?}: {}", err, String::from_utf8(json).unwrap()),
                     }
                 }
-                Err(err) => eprintln!("invalid JSON: {:?}: {}", err, json),
+                Err(err) => eprintln!("invalid JSON: {:?}: {}", err, String::from_utf8(json).unwrap()),
             },
             _ => eprintln!("unexpected ws msg: {}", msg),
         }

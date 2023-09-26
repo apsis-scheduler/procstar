@@ -94,8 +94,8 @@ impl Connection {
         let connection = Rc::new(RefCell::new(Connection { write }));
 
         // Send a connect message.
-        let connect = proto::OutgoingMessage::Connect { name, group };
-        connection.borrow_mut().send(connect).await?;
+        let register = proto::OutgoingMessage::Register { name, group };
+        connection.borrow_mut().send(register).await?;
 
         Ok((connection.clone(), Handler { read, connection }))
     }

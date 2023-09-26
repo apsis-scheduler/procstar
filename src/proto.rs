@@ -54,7 +54,7 @@ pub enum IncomingMessage {
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     // Outgoing message types.
-    Connect { name: String, group: String },
+    Register { name: String, group: String },
     ProcidList { proc_ids: Vec<ProcId> },
     ProcResult { proc_id: ProcId, res: ProcRes },
     ProcDelete { proc_id: ProcId },

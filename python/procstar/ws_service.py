@@ -8,6 +8,7 @@ from   dataclasses import dataclass
 import ipaddress
 import logging
 import orjson
+from   typing import List
 import websockets.server
 
 #-------------------------------------------------------------------------------
@@ -27,9 +28,30 @@ class ProtocolError(Exception):
 #-------------------------------------------------------------------------------
 
 @dataclass
+class ProcidListRequest:
+    pass
+
+
+
+OUTGOING_MESSAGE_TYPES = {
+    c.__name__: c
+    for c in (
+            ProcidListRequest,
+    )
+}
+
+#-------------------------------------------------------------------------------
+
+@dataclass
 class Connect:
     name: str
     group: str
+
+
+
+@dataclass
+class ProcidList:
+    proc_ids: List[str]
 
 
 
@@ -37,10 +59,24 @@ INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             Connect,
+            ProcidList,
     )
 }
 
-def _parse_message(msg):
+def _serialize_message(msg):
+    """
+    Serializes a message as a WebSocket message.
+
+    :param msg:
+      An instance of an `OUTGOING_MESSAGE_TYPES` class.
+    """
+    cls = msg.__class__
+    type = cls.__name__
+    assert OUTGOING_MESSAGE_TYPES[type] is cls
+    return orjson.dumps({"type": type} | msg.__dict__)
+
+
+def _deserialize_message(msg):
     """
     Parses a WebSocket message to a message type.
 
@@ -74,11 +110,6 @@ def _parse_message(msg):
         obj = cls(**msg)
     except TypeError as exc:
         raise ProtocolError(f"invalid {type_name} msg: {exc}") from None
-    # Check types of field values.
-    for name, field in cls.__dataclass_fields__.items():
-        value = getattr(obj, name)
-        if not isinstance(getattr(obj, name), field.type):
-            raise ProtocolError(f"wrong type for {name}: {value!r}")
 
     return type_name, obj
 
@@ -102,8 +133,12 @@ class Server:
     @dataclass
     class __Connection:
         info: ConnectionInfo
-        socket: asyncio.protocols.Protocol
+        ws: asyncio.protocols.Protocol
         group: str
+
+        async def send(self, msg):
+            data = _serialize_message(msg)
+            await self.ws.send(data)
 
 
 
@@ -136,15 +171,27 @@ class Server:
             self.logger.debug(f"msg: {msg}")
 
             # Only Connect is acceptable.
-            msg_type, msg = _parse_message(msg)
+            msg_type, msg = _deserialize_message(msg)
             if msg_type != "Connect":
                 raise ProtocolError(f"expected Connect msg; got {msg_type}")
 
         except Exception as exc:
             self.logger.error(f"connection failed: {info}: {exc}")
 
+        old = self.__connections.pop(msg.name, None)
+        if old is not None:
+            self.logger.info(f"reconnected: {msg.name} was @{old.info}")
+            old.ws.close()
+            old = None
 
+        self.__connections[msg.name] = self.__Connection(info, ws, msg.group)
         self.logger.info(f"connected: {msg.name} group {msg.group} @{info}")
+
+        # Receive messages.
+        while True:
+            msg = await ws.recv()
+            msg = _deserialize_message(msg)
+            self.logger.info(f"received: {msg}")
 
 
     @property
@@ -156,7 +203,8 @@ class Server:
 
 
     async def request_proc_ids(self, name):
-        pass
+        connection = self.__connections[name]
+        await connection.send(ProcidListRequest())
 
 
 
@@ -170,7 +218,13 @@ async def run(server, loc=(None, DEFAULT_PORT)):
     """
     host, port = loc
     async with websockets.server.serve(server.serve_connection, host, port):
-        await asyncio.Future()
+        while True:
+            await asyncio.sleep(2)
+            print(f"connections: {', '.join(server.names)}")
+            for name in server.names:
+                await server.request_proc_ids(name)
+
+        # await asyncio.Future()
 
 
 

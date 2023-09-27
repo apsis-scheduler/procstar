@@ -7,149 +7,14 @@ from   collections.abc import Sequence
 from   dataclasses import dataclass
 import ipaddress
 import logging
-import orjson
-from   typing import Dict, List
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
-#-------------------------------------------------------------------------------
-
-DEFAULT_PORT = 18782
+from   . import proto
+from   .proto import ProtocolError, serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
-
-class ProtocolError(Exception):
-    """
-    Error in the procstar WebSocket message protocol.
-    """
-
-
-
-#-------------------------------------------------------------------------------
-
-@dataclass
-class ProcStart:
-    procs: Dict[str, dict]
-
-
-
-@dataclass
-class ProcidListRequest:
-    pass
-
-
-
-@dataclass
-class ProcResultRequest:
-    proc_id: str
-
-
-
-@dataclass
-class ProcDeleteRequest:
-    proc_id: str
-
-
-
-OUTGOING_MESSAGE_TYPES = {
-    c.__name__: c
-    for c in (
-            ProcStart,
-            ProcidListRequest,
-            ProcResultRequest,
-            ProcDeleteRequest,
-    )
-}
-
-#-------------------------------------------------------------------------------
-
-@dataclass
-class ProcidList:
-    proc_ids: List[str]
-
-
-
-@dataclass
-class ProcResult:
-    proc_id: str
-    res: dict
-
-
-
-@dataclass
-class ProcDelete:
-    proc_id: str
-
-
-
-@dataclass
-class Register:
-    name: str
-    group: str
-
-
-
-INCOMING_MESSAGE_TYPES = {
-    c.__name__: c
-    for c in (
-            ProcidList,
-            ProcResult,
-            ProcDelete,
-            Register,
-    )
-}
-
-def _serialize_message(msg):
-    """
-    Serializes a message as a WebSocket message.
-
-    :param msg:
-      An instance of an `OUTGOING_MESSAGE_TYPES` class.
-    """
-    cls = msg.__class__
-    type = cls.__name__
-    assert OUTGOING_MESSAGE_TYPES[type] is cls
-    return orjson.dumps({"type": type} | msg.__dict__)
-
-
-def _deserialize_message(msg):
-    """
-    Parses a WebSocket message to a message type.
-
-    :return:
-      An instance of an INCOMING_MESSAGE_TYPES class.
-    :raise ProtocolError:
-      An invalid message.
-    """
-    # We use only binary WebSocket messages.
-    if not isinstance(msg, bytes):
-        raise ProtocolError(f"wrong ws msg type: {type(msg)}")
-    # Parse JSON.
-    try:
-        msg = orjson.loads(msg)
-    except orjson.JSONDecodeError as err:
-        raise ProtocolError(f"ws msg JSON error: {err}") from None
-    if not isinstance(msg, dict):
-        raise ProtocolError("msg not a dict")
-    # All messages are tagged.
-    try:
-        type_name = msg.pop("type")
-    except KeyError:
-        raise ProtocolError("msg missing type") from None
-    # Look up the corresponding class.
-    try:
-        cls = INCOMING_MESSAGE_TYPES[type_name]
-    except KeyError:
-        raise ProtocolError(f"unknown msg type: {type_name}") from None
-    # Convert to an instance of the message class.
-    try:
-        obj = cls(**msg)
-    except TypeError as exc:
-        raise ProtocolError(f"invalid {type_name} msg: {exc}") from None
-
-    return type_name, obj
-
 
 #-------------------------------------------------------------------------------
 
@@ -213,12 +78,12 @@ class Server:
             log.debug(f"msg: {msg}")
 
             # Only Connect is acceptable.
-            msg_type, msg = _deserialize_message(msg)
+            msg_type, msg = deserialize_message(msg)
             if msg_type != "Register":
                 raise ProtocolError(f"expected register; got {msg_type}")
 
         except Exception as exc:
-            log.error(f"{info}: {exc}")
+            log.warning(f"{info}: {exc}")
             ws.close()
             return
 
@@ -229,16 +94,16 @@ class Server:
             old = None
 
         self.__connections[msg.name] = Connection(info, ws, msg.group)
-        log.info(f"connected: {msg.name} group {msg.group} @{info}")
+        log.info(f"{info}: connected: {msg.name} group {msg.group}")
 
         # Receive messages.
         while True:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                log.info(f"connection closed: @{info}")
+                log.info(f"{info}: connection closed")
                 break
-            msg = _deserialize_message(msg)
+            msg = deserialize_message(msg)
             log.info(f"received: {msg}")
 
         ws.close()
@@ -252,17 +117,18 @@ class Server:
         return tuple(self.__connections.keys())
 
 
-    async def send(self, name, msg):
+    async def __send(self, name, msg):
         try:
             connection = self.__connections[name]
         except KeyError:
             raise NoConnectionError(f"no connection: {name}") from None
 
-        data = _serialize_message(msg)
+        data = serialize_message(msg)
 
         try:
             await connection.ws.send(data)
         except ConnectionClosedError:
+            # Connection closed; drop it.
             # FIXME: Don't forget the connection.
             self.logger.warning(f"{connection.info}: connection closed")
             removed = self.__connections.pop(name)
@@ -270,19 +136,19 @@ class Server:
 
 
     async def request_proc_ids(self, name):
-        await self.send(name, ProcidListRequest())
+        await self.__send(name, proto.ProcidListRequest())
 
 
     async def request_proc_result(self, name, proc_id):
-        await self.send(name, ProcResultRequest(proc_id))
+        await self.__send(name, proto.ProcResultRequest(proc_id))
 
 
     async def start_proc(self, name, proc_id, spec):
-        await self.send(name, ProcStart(procs={proc_id: spec}))
+        await self.__send(name, proto.ProcStart(procs={proc_id: spec}))
 
 
 
-async def run(server, loc=(None, DEFAULT_PORT)):
+async def run(server, loc=(None, proto.DEFAULT_PORT)):
     """
     Creates a WebSockets server at `loc` and accepts connections to it with
     `server`.

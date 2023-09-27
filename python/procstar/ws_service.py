@@ -5,12 +5,14 @@ WebSocket service for incoming connections from procstar instances.
 import asyncio
 from   collections.abc import Sequence
 from   dataclasses import dataclass
+import datetime
 import ipaddress
 import logging
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import proto
+from   .lib.time import now
 from   .proto import ProtocolError, serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
@@ -41,6 +43,7 @@ class Connection:
     info: ConnectionInfo
     ws: asyncio.protocols.Protocol
     group: str
+    connect_time: datetime.datetime
 
 
 
@@ -60,6 +63,7 @@ class Server:
         Use this bound method with `websockets.server.serve()`.
         """
         log = self.logger
+        connect_time = now()
 
         # Collect remote loc.
         address, port, *_ = ws.remote_address
@@ -95,7 +99,7 @@ class Server:
             old.ws.close()
             old = None
 
-        self.__connections[name] = Connection(info, ws, msg.group)
+        self.__connections[name] = Connection(info, ws, msg.group, connect_time)
         log.info(f"{info}: connected: {name} group {msg.group}")
 
         # Receive messages.

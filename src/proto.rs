@@ -55,6 +55,7 @@ pub enum IncomingMessage {
 pub enum OutgoingMessage {
     // Outgoing message types.
     Register { name: String, group: String },
+    ProcNew { proc_id: ProcId },
     ProcidList { proc_ids: Vec<ProcId> },
     ProcResult { proc_id: ProcId, res: ProcRes },
     ProcDelete { proc_id: ProcId },
@@ -86,6 +87,15 @@ pub async fn handle_incoming(
             }
         }
 
-        IncomingMessage::ProcDeleteRequest { proc_id } => Ok(None),
+        IncomingMessage::ProcDeleteRequest { proc_id } => {
+            match procs.remove_if_complete(&proc_id) {
+                Ok(_) => Ok(None),
+                Err(err) => {
+                    // FIXME: How do we indicate protocol errors??
+                    eprintln!("can't delete: {}", err);
+                    Ok(None)
+                }
+            }
+        }
     }
 }

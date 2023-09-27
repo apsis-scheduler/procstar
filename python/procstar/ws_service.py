@@ -16,6 +16,8 @@ from   .proto import ProtocolError, serialize_message, deserialize_message
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
 
+# FIXME: What is the temporal scope of a connection?
+
 #-------------------------------------------------------------------------------
 
 class NoConnectionError(LookupError):
@@ -41,8 +43,6 @@ class Connection:
     group: str
 
 
-
-# FIXME: What is the temporal scope of a connection?
 
 class Server:
 
@@ -87,14 +87,16 @@ class Server:
             ws.close()
             return
 
-        old = self.__connections.pop(msg.name, None)
+        name = msg.name
+
+        old = self.__connections.pop(name, None)
         if old is not None:
-            log.info(f"reconnected: {msg.name} was @{old.info}")
+            log.info(f"reconnected: {name} was @{old.info}")
             old.ws.close()
             old = None
 
-        self.__connections[msg.name] = Connection(info, ws, msg.group)
-        log.info(f"{info}: connected: {msg.name} group {msg.group}")
+        self.__connections[name] = Connection(info, ws, msg.group)
+        log.info(f"{info}: connected: {name} group {msg.group}")
 
         # Receive messages.
         while True:
@@ -103,8 +105,12 @@ class Server:
             except ConnectionClosedError:
                 log.info(f"{info}: connection closed")
                 break
-            msg = deserialize_message(msg)
+            type, msg = deserialize_message(msg)
             log.info(f"received: {msg}")
+
+            # FIXME: For testing.
+            if type == "ProcResult" and msg.res["status"] is not None:
+                await self.__send(name, proto.ProcDeleteRequest(msg.proc_id))
 
         ws.close()
 
@@ -162,6 +168,7 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
     proc_id = "testproc0"
 
     async with websockets.server.serve(server.serve_connection, host, port):
+        # FIXME: For testing.
         while True:
             await asyncio.sleep(2)
             print(f"connections: {', '.join(server.names)}")

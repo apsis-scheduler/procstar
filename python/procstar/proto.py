@@ -71,6 +71,11 @@ class ProcidList:
 
 
 @dataclass
+class ProcNew:
+    proc_id: str
+
+
+@dataclass
 class ProcResult:
     proc_id: str
     res: dict
@@ -94,6 +99,7 @@ INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             ProcidList,
+            ProcNew,
             ProcResult,
             ProcDelete,
             Register,
@@ -105,7 +111,7 @@ def deserialize_message(msg):
     Parses a WebSocket message to a message type.
 
     :return:
-      An instance of an INCOMING_MESSAGE_TYPES class.
+      The message type, and an instance of an INCOMING_MESSAGE_TYPES class.
     :raise ProtocolError:
       An invalid message.
     """

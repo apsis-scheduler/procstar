@@ -58,6 +58,14 @@ class Connections:
         return self.__connections.keys()
 
 
+    def __len__(self):
+        return len(self.__connections)
+
+
+    def __iter__(self):
+        return iter(self.__connections)
+
+
     def __setitem__(self, conn_id, connection: Connection):
         """
         Adds a new connection.
@@ -175,14 +183,6 @@ class Server:
         ws.close()
 
 
-    @property
-    def conn_ids(self) -> Sequence[str]:
-        """
-        IDs of current connections.
-        """
-        return tuple(self.connections.keys())
-
-
     async def __send(self, conn_id, msg):
         try:
             connection = self.connections[conn_id]
@@ -235,13 +235,13 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
         # FIXME: For testing.
         while True:
             await asyncio.sleep(2)
-            print(f"connections: {', '.join(server.conn_ids)}")
-            for conn_id in server.conn_ids:
+            print(f"connections: {', '.join(server.connections)}")
+            for conn_id in server.connections:
                 await server.request_proc_ids(conn_id)
 
-            if not started and len(server.conn_ids) > 0:
+            if not started and len(server.connections) > 0:
                 await asyncio.sleep(2)
-                conn_id = server.conn_ids[0]
+                conn_id = next(iter(server.connections))
                 print(f"starting {proc_id}")
                 await server.start_proc(conn_id, proc_id, {"argv": ["/usr/bin/sleep", "5"]})
                 started = True

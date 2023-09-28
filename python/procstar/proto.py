@@ -90,8 +90,9 @@ class ProcDelete:
 
 @dataclass
 class Register:
-    name: str
+    conn_id: str
     group: str
+    info: dict
 
 
 

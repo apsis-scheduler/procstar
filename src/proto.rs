@@ -11,11 +11,8 @@ use crate::sys;
 
 pub const DEFAULT_GROUP: &str = "default";
 
-pub fn get_default_name() -> String {
-    let hostname = sys::get_hostname();
-    let username = sys::get_username();
-    let pid = sys::getpid();
-    format!("{}:{}:{}", hostname, username, pid)
+pub fn get_default_conn_id() -> String {
+    return uuid::Uuid::new_v4().to_string();
 }
 
 //------------------------------------------------------------------------------
@@ -51,10 +48,26 @@ pub enum IncomingMessage {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct InstanceInfo {
+    hostname: String,
+    username: String,
+    pid: u32,
+}
+
+impl InstanceInfo {
+    pub fn new() -> Self {
+        let hostname = sys::get_hostname();
+        let username = sys::get_username();
+        let pid = sys::getpid() as u32;
+        Self { hostname, username, pid }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     // Outgoing message types.
-    Register { name: String, group: String },
+    Register { conn_id: String, group: String, info: InstanceInfo },
     ProcNew { proc_id: ProcId },
     ProcidList { proc_ids: Vec<ProcId> },
     ProcResult { proc_id: ProcId, res: ProcRes },

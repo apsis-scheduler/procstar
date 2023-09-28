@@ -47,11 +47,64 @@ class Connection:
 
 
 
+class Connections:
+
+    def __init__(self):
+        self.__connections = {}
+        self.__groups = {}
+
+
+    def keys(self):
+        return self.__connections.keys()
+
+
+    def __setitem__(self, conn_id, connection: Connection):
+        """
+        Adds a new connection.
+
+        :param conn_id:
+          The new connection ID, which must not already be in use.
+        """
+        try:
+            self.__delitem__(conn_id)
+        except KeyError:
+            pass
+
+        assert conn_id not in self.__connections
+        self.__connections[conn_id] = connection
+
+        # Add it to the group.
+        group = self.__groups.setdefault(connection.group, set())
+        group.add(conn_id)
+
+
+    def __getitem__(self, conn_id):
+        return self.__connections[conn_id]
+
+
+    def __delitem__(self, conn_id):
+        self.pop(conn_id)
+
+
+    def pop(self, conn_id) -> Connection:
+        connection = self.__connections.pop(conn_id)
+
+        # Remove it from its group.
+        group = self.__groups[connection.group]
+        group.remove(conn_id)
+        # If the group is now empty, clean it up.
+        if len(group) == 0:
+            del self.__groups[connection.group]
+
+        return connection
+
+
+
 class Server:
 
     def __init__(self):
         # Mapping from connection name to connection.
-        self.__connections = {}
+        self.connections = Connections()
         # Use the module logger by default.
         self.logger = logging.getLogger(__name__)
 
@@ -91,16 +144,19 @@ class Server:
             ws.close()
             return
 
-        name = msg.name
+        conn_id = msg.conn_id
 
-        old = self.__connections.pop(name, None)
-        if old is not None:
-            log.info(f"reconnected: {name} was @{old.info}")
+        try:
+            old = self.connections.pop(conn_id)
+        except KeyError:
+            pass
+        else:
+            log.info(f"reconnected: {conn_id} was @{old.info}")
             old.ws.close()
             old = None
 
-        self.__connections[name] = Connection(info, ws, msg.group, connect_time)
-        log.info(f"{info}: connected: {name} group {msg.group}")
+        self.connections[conn_id] = Connection(info, ws, msg.group, connect_time)
+        log.info(f"{info}: connected: {conn_id} group {msg.group}")
 
         # Receive messages.
         while True:
@@ -114,24 +170,24 @@ class Server:
 
             # FIXME: For testing.
             if type == "ProcResult" and msg.res["status"] is not None:
-                await self.__send(name, proto.ProcDeleteRequest(msg.proc_id))
+                await self.__send(conn_id, proto.ProcDeleteRequest(msg.proc_id))
 
         ws.close()
 
 
     @property
-    def names(self) -> Sequence[str]:
+    def conn_ids(self) -> Sequence[str]:
         """
-        Names of current connections.
+        IDs of current connections.
         """
-        return tuple(self.__connections.keys())
+        return tuple(self.connections.keys())
 
 
-    async def __send(self, name, msg):
+    async def __send(self, conn_id, msg):
         try:
-            connection = self.__connections[name]
+            connection = self.connections[conn_id]
         except KeyError:
-            raise NoConnectionError(f"no connection: {name}") from None
+            raise NoConnectionError(f"no connection: {conn_id}") from None
 
         data = serialize_message(msg)
 
@@ -141,20 +197,24 @@ class Server:
             # Connection closed; drop it.
             # FIXME: Don't forget the connection.
             self.logger.warning(f"{connection.info}: connection closed")
-            removed = self.__connections.pop(name)
+            removed = self.connections.pop(conn_id)
             assert removed is self
 
 
-    async def request_proc_ids(self, name):
-        await self.__send(name, proto.ProcidListRequest())
+    async def request_proc_ids(self, conn_id):
+        await self.__send(conn_id, proto.ProcidListRequest())
 
 
-    async def request_proc_result(self, name, proc_id):
-        await self.__send(name, proto.ProcResultRequest(proc_id))
+    async def request_proc_result(self, conn_id, proc_id):
+        await self.__send(conn_id, proto.ProcResultRequest(proc_id))
 
 
-    async def start_proc(self, name, proc_id, spec):
-        await self.__send(name, proto.ProcStart(procs={proc_id: spec}))
+    async def start_proc(self, conn_id, proc_id, spec):
+        await self.__send(conn_id, proto.ProcStart(procs={proc_id: spec}))
+
+
+
+
 
 
 
@@ -175,19 +235,19 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
         # FIXME: For testing.
         while True:
             await asyncio.sleep(2)
-            print(f"connections: {', '.join(server.names)}")
-            for name in server.names:
-                await server.request_proc_ids(name)
+            print(f"connections: {', '.join(server.conn_ids)}")
+            for conn_id in server.conn_ids:
+                await server.request_proc_ids(conn_id)
 
-            if not started and len(server.names) > 0:
+            if not started and len(server.conn_ids) > 0:
                 await asyncio.sleep(2)
-                name = server.names[0]
+                conn_id = server.conn_ids[0]
                 print(f"starting {proc_id}")
-                await server.start_proc(name, proc_id, {"argv": ["/usr/bin/sleep", "5"]})
+                await server.start_proc(conn_id, proc_id, {"argv": ["/usr/bin/sleep", "5"]})
                 started = True
 
             if started:
-                await server.request_proc_result(name, proc_id)
+                await server.request_proc_result(conn_id, proc_id)
 
         # await asyncio.Future()
 

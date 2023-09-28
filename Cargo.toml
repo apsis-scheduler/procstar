@@ -30,7 +30,7 @@ tokio-pipe = { version = "0.2" }
 tokio-tungstenite = "*"
 tungstenite = "*"
 url = "*"
-uuid = "1.4"
+uuid = { version = "1.4", features = ["v4", "fast-rng"] }
 
 # [[bin]]
 # name = "pipeclose"

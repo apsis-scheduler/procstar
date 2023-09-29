@@ -20,6 +20,8 @@ TIMEOUT_LOGIN = 60
 
 # FIXME: What is the temporal scope of a connection?
 
+logger = logging.getLogger(__name__)
+
 #-------------------------------------------------------------------------------
 
 class NoGroupError(LookupError):
@@ -72,7 +74,7 @@ class Connection:
         except ConnectionClosedError:
             # Connection closed; drop it.
             # FIXME: Don't forget the connection.
-            self.logger.warning(f"{self.info}: connection closed")
+            logger.warning(f"{self.info}: connection closed")
             # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             assert self.ws.closed
             # removed = self.connections.pop(conn_id)
@@ -81,27 +83,11 @@ class Connection:
 
 
 
-class Connections:
+class Connections(dict):
 
     def __init__(self):
-        self.__connections = {}
+        super().__init__()
         self.__groups = {}
-
-
-    def keys(self):
-        return self.__connections.keys()
-
-
-    def values(self):
-        return self.__connections.values()
-
-
-    def __len__(self):
-        return len(self.__connections)
-
-
-    def __iter__(self):
-        return iter(self.__connections)
 
 
     def __setitem__(self, conn_id, connection: Connection):
@@ -112,20 +98,16 @@ class Connections:
           The new connection ID, which must not already be in use.
         """
         try:
-            self.__delitem__(conn_id)
+            super().__delitem__(conn_id)
         except KeyError:
             pass
 
-        assert conn_id not in self.__connections
-        self.__connections[conn_id] = connection
+        assert not super().__contains__(conn_id)
+        super().__setitem__(conn_id, connection)
 
         # Add it to the group.
         group = self.__groups.setdefault(connection.group, set())
         group.add(conn_id)
-
-
-    def __getitem__(self, conn_id):
-        return self.__connections[conn_id]
 
 
     def __delitem__(self, conn_id):
@@ -133,7 +115,7 @@ class Connections:
 
 
     def pop(self, conn_id) -> Connection:
-        connection = self.__connections.pop(conn_id)
+        connection = super().pop(conn_id)
 
         # Remove it from its group.
         group = self.__groups[connection.group]
@@ -159,7 +141,7 @@ class Connections:
         connections = [
             c
             for i in conn_ids
-            if (c := self.__connections[i]).open
+            if (c := self[i]).open
         ]
         if len(connections) == 0:
             raise NoOpenConnectionInGroup(group)
@@ -170,6 +152,8 @@ class Connections:
 
 
 class Process:
+
+    # FIXME: What happens when the connection is closed?
 
     def __init__(self, connection, proc_id):
         self.connection = connection
@@ -200,8 +184,6 @@ class Server:
     def __init__(self):
         # Mapping from connection name to connection.
         self.connections = Connections()
-        # Use the module logger by default.
-        self.logger = logging.getLogger(__name__)
 
 
     async def serve_connection(self, ws):
@@ -210,7 +192,6 @@ class Server:
 
         Use this bound method with `websockets.server.serve()`.
         """
-        log = self.logger
         connect_time = now()
 
         # Collect remote loc.
@@ -227,7 +208,7 @@ class Server:
                 raise ProtocolError(f"no register in {TIMEOUT_LOGIN} s")
             except ConnectionClosedError:
                 raise ProtocolError("closed before register")
-            log.debug(f"msg: {msg}")
+            logger.debug(f"msg: {msg}")
 
             # Only Connect is acceptable.
             msg_type, msg = deserialize_message(msg)
@@ -235,7 +216,7 @@ class Server:
                 raise ProtocolError(f"expected register; got {msg_type}")
 
         except Exception as exc:
-            log.warning(f"{info}: {exc}")
+            logger.warning(f"{info}: {exc}")
             ws.close()
             return
 
@@ -246,28 +227,29 @@ class Server:
         except KeyError:
             pass
         else:
-            log.info(f"reconnected: {conn_id} was @{old.info}")
+            logger.info(f"reconnected: {conn_id} was @{old.info}")
             old.ws.close()
             old = None
 
         connection = self.connections[conn_id] = Connection(info, ws, msg.group, connect_time)
-        log.info(f"{info}: connected: {conn_id} group {msg.group}")
+        logger.info(f"{info}: connected: {conn_id} group {msg.group}")
 
         # Receive messages.
         while True:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                log.info(f"{info}: connection closed")
+                logger.info(f"{info}: connection closed")
                 break
             type, msg = deserialize_message(msg)
-            log.info(f"received: {msg}")
+            logger.info(f"received: {msg}")
 
             # FIXME: For testing.
             if type == "ProcResult" and msg.res["status"] is not None:
                 await connection.send(proto.ProcDeleteRequest(msg.proc_id))
 
-        ws.close()
+        await ws.close()
+        del self.connections[conn_id]
 
 
     async def start(self, group, proc_id, spec) -> Process:
@@ -319,6 +301,7 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
         while True:
             await asyncio.sleep(1)
             print(f"connections: {', '.join(server.connections)}")
+            print(f"groups: {server.connections._Connections__groups}")
             for connection in server.connections.values():
                 await connection.send(proto.ProcidListRequest())
 
@@ -330,7 +313,7 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
                     spec    =spec,
                 )
 
-            if process is not None:
+            if process is not None and process.connection in server.connections.values():
                 await process.request_result()
 
         # await asyncio.Future()

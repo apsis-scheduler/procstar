@@ -3,11 +3,11 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
-from   collections.abc import Sequence
 from   dataclasses import dataclass
 import datetime
 import ipaddress
 import logging
+import random
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
@@ -21,6 +21,20 @@ TIMEOUT_LOGIN = 60
 # FIXME: What is the temporal scope of a connection?
 
 #-------------------------------------------------------------------------------
+
+class NoGroupError(LookupError):
+    """
+    No group with the given group name.
+    """
+
+
+
+class NoOpenConnectionInGroup(RuntimeError):
+    """
+    The group contains no open connections.
+    """
+
+
 
 class NoConnectionError(LookupError):
     """
@@ -45,6 +59,26 @@ class Connection:
     group: str
     connect_time: datetime.datetime
 
+    @property
+    def open(self):
+        return self.ws.open
+
+
+    async def send(self, msg):
+        data = serialize_message(msg)
+
+        try:
+            await self.ws.send(data)
+        except ConnectionClosedError:
+            # Connection closed; drop it.
+            # FIXME: Don't forget the connection.
+            self.logger.warning(f"{self.info}: connection closed")
+            # FIXME: Mark it as closed?  Or is its internal closed flag enough?
+            assert self.ws.closed
+            # removed = self.connections.pop(conn_id)
+            # assert removed is self
+
+
 
 
 class Connections:
@@ -56,6 +90,10 @@ class Connections:
 
     def keys(self):
         return self.__connections.keys()
+
+
+    def values(self):
+        return self.__connections.values()
 
 
     def __len__(self):
@@ -105,6 +143,55 @@ class Connections:
             del self.__groups[connection.group]
 
         return connection
+
+
+    # Group methods
+
+    def choose_connection(self, group) -> Connection:
+        """
+        Chooses an open connection in 'group'.
+        """
+        try:
+            conn_ids = self.__groups[group]
+        except KeyError:
+            raise NoGroupError(group) from None
+
+        connections = [
+            c
+            for i in conn_ids
+            if (c := self.__connections[i]).open
+        ]
+        if len(connections) == 0:
+            raise NoOpenConnectionInGroup(group)
+
+        # FIXME: Better choice mechanism.
+        return random.choice(connections)
+
+
+
+class Process:
+
+    def __init__(self, connection, proc_id):
+        self.connection = connection
+        self.proc_id = proc_id
+        self.__messages = asyncio.Queue()
+
+
+    def __aiter__(self):
+        return self
+
+
+    async def __anext__(self):
+        # FIXME: Queue can be closed.
+        return await self.__messages.get()
+
+
+    async def request_result(self):
+        """
+        Sends a request for the current process result.
+        """
+        await self.connection.send(proto.ProcResultRequest(self.proc_id))
+
 
 
 
@@ -163,7 +250,7 @@ class Server:
             old.ws.close()
             old = None
 
-        self.connections[conn_id] = Connection(info, ws, msg.group, connect_time)
+        connection = self.connections[conn_id] = Connection(info, ws, msg.group, connect_time)
         log.info(f"{info}: connected: {conn_id} group {msg.group}")
 
         # Receive messages.
@@ -178,41 +265,36 @@ class Server:
 
             # FIXME: For testing.
             if type == "ProcResult" and msg.res["status"] is not None:
-                await self.__send(conn_id, proto.ProcDeleteRequest(msg.proc_id))
+                await connection.send(proto.ProcDeleteRequest(msg.proc_id))
 
         ws.close()
 
 
-    async def __send(self, conn_id, msg):
-        try:
-            connection = self.connections[conn_id]
-        except KeyError:
-            raise NoConnectionError(f"no connection: {conn_id}") from None
+    async def start(self, group, proc_id, spec) -> Process:
+        """
+        Starts a new process on a connection in `group`.
 
-        data = serialize_message(msg)
-
-        try:
-            await connection.ws.send(data)
-        except ConnectionClosedError:
-            # Connection closed; drop it.
-            # FIXME: Don't forget the connection.
-            self.logger.warning(f"{connection.info}: connection closed")
-            removed = self.connections.pop(conn_id)
-            assert removed is self
+        :return:
+          The connection on which the process starts.
+        """
+        connection = self.connections.choose_connection(group)
+        await connection.send(proto.ProcStart(procs={proc_id: spec}))
+        return Process(connection, proc_id)
 
 
-    async def request_proc_ids(self, conn_id):
-        await self.__send(conn_id, proto.ProcidListRequest())
+
+class Connection_:
+
+    async def request_result(self, proc_id):
+        """
+        Requests current results for a process.
+        """
 
 
-    async def request_proc_result(self, conn_id, proc_id):
-        await self.__send(conn_id, proto.ProcResultRequest(proc_id))
-
-
-    async def start_proc(self, conn_id, proc_id, spec):
-        await self.__send(conn_id, proto.ProcStart(procs={proc_id: spec}))
-
-
+    async def request_delete(self, proc_id):
+        """
+        Requests deletion of a completed process.
+        """
 
 
 
@@ -228,26 +310,28 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
     """
     host, port = loc
 
-    started = False
     proc_id = "testproc0"
+    spec = {"argv": ["/usr/bin/sleep", "5"]}
+    process = None
 
     async with websockets.server.serve(server.serve_connection, host, port):
         # FIXME: For testing.
         while True:
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             print(f"connections: {', '.join(server.connections)}")
-            for conn_id in server.connections:
-                await server.request_proc_ids(conn_id)
+            for connection in server.connections.values():
+                await connection.send(proto.ProcidListRequest())
 
-            if not started and len(server.connections) > 0:
-                await asyncio.sleep(2)
-                conn_id = next(iter(server.connections))
-                print(f"starting {proc_id}")
-                await server.start_proc(conn_id, proc_id, {"argv": ["/usr/bin/sleep", "5"]})
-                started = True
+            if process is None and len(server.connections) > 0:
+                await asyncio.sleep(1)
+                process = await server.start(
+                    group   ="default",
+                    proc_id =proc_id,
+                    spec    =spec,
+                )
 
-            if started:
-                await server.request_proc_result(conn_id, proc_id)
+            if process is not None:
+                await process.request_result()
 
         # await asyncio.Future()
 

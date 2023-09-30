@@ -97,12 +97,7 @@ class Connections(dict):
         :param conn_id:
           The new connection ID, which must not already be in use.
         """
-        try:
-            super().__delitem__(conn_id)
-        except KeyError:
-            pass
-
-        assert not super().__contains__(conn_id)
+        assert conn_id not in self
         super().__setitem__(conn_id, connection)
 
         # Add it to the group.
@@ -222,17 +217,35 @@ class Server:
 
         conn_id = msg.conn_id
 
+        # Do we recognize this connection?
         try:
-            old = self.connections.pop(conn_id)
-        except KeyError:
-            pass
-        else:
-            logger.info(f"reconnected: {conn_id} was @{old.info}")
-            old.ws.close()
-            old = None
+            old_connection = self.connections[conn_id]
 
-        connection = self.connections[conn_id] = Connection(info, ws, msg.group, connect_time)
-        logger.info(f"{info}: connected: {conn_id} group {msg.group}")
+        except KeyError:
+            # A new connection ID.
+            connection = Connection(info, ws, msg.group, connect_time)
+            self.connections[conn_id] = connection
+            logger.info(f"{info}: connected: {conn_id} group {msg.group}")
+
+        else:
+            # Previous connection with the same ID.  First, some sanity checks.
+            if connection.info.address != old_connection.info.address:
+                logger.warning(f"{info}: reconnect {conn_id}: old address was {old_connection.info.address}")
+            if connection.group != old_connection.group:
+                logger.warning(f"{info}: reconnect {conn_id}: new group {connection.group}")
+
+            # Is the old connection still (purportedly) open?
+            if old_connection.ws.open:
+                logger.warning(f"reconnect {conn_id}: closing old connection")
+                old_connection.ws.close()
+                assert not old_connection.ws.open
+
+            # Use the new socket with the old connection.
+            connection.info = info
+            connection.ws = ws
+            connection.group = msg.group
+            connection.connect_time = connect_time
+            logger.info(f"{info}: reconnected: {conn_id}")
 
         # Receive messages.
         while True:

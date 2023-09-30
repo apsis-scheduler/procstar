@@ -212,7 +212,7 @@ class Server:
 
         except Exception as exc:
             logger.warning(f"{info}: {exc}")
-            ws.close()
+            await ws.close()
             return
 
         conn_id = msg.conn_id
@@ -229,22 +229,32 @@ class Server:
 
         else:
             # Previous connection with the same ID.  First, some sanity checks.
-            if connection.info.address != old_connection.info.address:
-                logger.warning(f"{info}: reconnect {conn_id}: old address was {old_connection.info.address}")
-            if connection.group != old_connection.group:
-                logger.warning(f"{info}: reconnect {conn_id}: new group {connection.group}")
+            if info.address != old_connection.info.address:
+                # Allow the address to change, in case the remote reconnects
+                # through a different interface.  The port may always be
+                # different, of course.
+                logger.warning(
+                    f"{info}: reconnect {conn_id}: "
+                    f"old address was {old_connection.info.address}"
+                )
+            if msg.group != old_connection.group:
+                logger.error(
+                    f"{info}: reconnect {conn_id}: group changed: {msg.group}")
+                ws.close()
+                return
 
-            # Is the old connection still (purportedly) open?
-            if old_connection.ws.open:
+            # Is the old connection socket still (purportedly) open?
+            if not old_connection.ws.closed:
                 logger.warning(f"reconnect {conn_id}: closing old connection")
                 old_connection.ws.close()
                 assert not old_connection.ws.open
 
             # Use the new socket with the old connection.
-            connection.info = info
-            connection.ws = ws
-            connection.group = msg.group
-            connection.connect_time = connect_time
+            old_connection.info = info
+            old_connection.ws = ws
+            old_connection.group = msg.group
+            old_connection.connect_time = connect_time
+            connection = old_connection
             logger.info(f"{info}: reconnected: {conn_id}")
 
         # Receive messages.
@@ -262,7 +272,8 @@ class Server:
                 await connection.send(proto.ProcDeleteRequest(msg.proc_id))
 
         await ws.close()
-        del self.connections[conn_id]
+        assert ws.closed
+        # Don't forget the connection; the other end may reconnect.
 
 
     async def start(self, group, proc_id, spec) -> Process:

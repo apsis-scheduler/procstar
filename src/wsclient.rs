@@ -13,9 +13,21 @@ use crate::proto;
 //------------------------------------------------------------------------------
 
 pub struct Connection {
+    /// The remote server URL to which we connect.
+    url: Url,
+
+    /// A unique ID which identifies this instance to the server URL.  This ID
+    /// should change for each procstar process, even on the same host.
     conn_id: String,
+
+    /// The group to which this instance belongs.  A processes may be run on
+    /// a group, in which case one instance in the group is used.
     group: String,
+
+    /// Process information about this instance.
     info: proto::InstanceInfo,
+
+    /// The write end of the websocket connection.
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 }
 
@@ -29,9 +41,12 @@ impl Connection {
 
 type SharedConnection = Rc<RefCell<Connection>>;
 
+/// Handler for incoming messages on a websocket client connection.
 pub struct Handler {
-    url: Url,
+    /// The read end of the websocket connection.
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+
+    /// The client-visible connection object.
     connection: SharedConnection,
 }
 
@@ -62,32 +77,31 @@ impl Handler {
         Ok(())
     }
 
+    /// Runs the incoming half of the websocket connection, receiving,
+    /// processing, and responding to incoming messages.
     pub async fn run(self, procs: SharedRunningProcs) -> Result<(), proto::Error> {
-        let Self { url, mut read, connection } = self;
+        let Self { mut read, connection } = self;
+        let url = connection.borrow().url.clone();
         loop {
             match read.next().await {
-                Some(msg) => {
-                    match msg {
-                        Ok(msg) => match Self::handle(connection.clone(), procs.clone(), msg).await {
-                            Ok(_) => {},
-                            Err(proto::Error::Close) => {
-                                eprintln!("connection closed; reconnecting");
-                                // FIXME: Handle error and retry instead of returning!
-                                let (ws_stream, _) = connect_async(&url).await?;
-                                let (new_write, new_read) = ws_stream.split();
-                                connection.borrow_mut().write = new_write;
-                                read = new_read;
+                Some(Ok(msg)) => match Self::handle(connection.clone(), procs.clone(), msg).await {
+                    Ok(_) => {},
+                    Err(proto::Error::Close) => {
+                        eprintln!("connection closed; reconnecting");
+                        // FIXME: Handle error and retry instead of returning!
+                        let (ws_stream, _) = connect_async(&url).await?;
+                        let (new_write, new_read) = ws_stream.split();
+                        connection.borrow_mut().write = new_write;
+                        read = new_read;
 
-                                let mut c = connection.borrow_mut();
-                                let register = proto::OutgoingMessage::Register {
-                                    conn_id: c.conn_id.clone(), group: c.group.clone(), info: c.info.clone() };
-                                c.send(register).await?;
-                            },
-                            Err(err) => eprintln!("error: {:?}", err),
-                        },
-                        Err(err) => eprintln!("msg error: {:?}", err),
-                    }
+                        let mut c = connection.borrow_mut();
+                        let register = proto::OutgoingMessage::Register {
+                            conn_id: c.conn_id.clone(), group: c.group.clone(), info: c.info.clone() };
+                        c.send(register).await?;
+                    },
+                    Err(err) => eprintln!("error: {:?}", err),
                 },
+                Some(Err(err)) => eprintln!("msg error: {:?}", err),
                 None => break,
             }
         }
@@ -110,12 +124,12 @@ impl Connection {
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
         let (write, read) = ws_stream.split();
-        let connection = Rc::new(RefCell::new(Connection { conn_id: conn_id.clone(), group: group.clone(), info: info.clone(), write }));
+        let connection = Rc::new(RefCell::new(Connection { url: url.clone(), conn_id: conn_id.clone(), group: group.clone(), info: info.clone(), write }));
 
         // Send a connect message.
         let register = proto::OutgoingMessage::Register { conn_id, group, info };
         connection.borrow_mut().send(register).await?;
 
-        Ok((connection.clone(), Handler { url: url.clone(), read, connection }))
+        Ok((connection.clone(), Handler { read, connection }))
     }
 }

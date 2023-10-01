@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::protocol::Message;
-use tokio_tungstenite::tungstenite::Error;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
@@ -14,6 +13,9 @@ use crate::proto;
 //------------------------------------------------------------------------------
 
 pub struct Connection {
+    conn_id: String,
+    group: String,
+    info: proto::InstanceInfo,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 }
 
@@ -28,6 +30,7 @@ impl Connection {
 type SharedConnection = Rc<RefCell<Connection>>;
 
 pub struct Handler {
+    url: Url,
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     connection: SharedConnection,
 }
@@ -52,27 +55,42 @@ impl Handler {
                     }
                 }
                 Err(err) => eprintln!("invalid JSON: {:?}: {}", err, String::from_utf8(json).unwrap()),
-            },
-            _ => eprintln!("unexpected ws msg: {}", msg),
+            }
+            Message::Close(_) => return Err(proto::Error::Close),
+            _ => eprintln!("unexpected ws msg: {:?}", msg),
         }
         Ok(())
     }
 
-    pub async fn run(self, procs: SharedRunningProcs) -> Result<(), Error> {
-        // FIXME: Reconnect.
-        self.read
-            .for_each(|msg| async {
-                if let Ok(msg) = msg {
-                    if let Err(err) =
-                        Self::handle(self.connection.clone(), procs.clone(), msg).await
-                    {
-                        eprintln!("error: {:?}", err);
+    pub async fn run(self, procs: SharedRunningProcs) -> Result<(), proto::Error> {
+        let Self { url, mut read, connection } = self;
+        loop {
+            match read.next().await {
+                Some(msg) => {
+                    match msg {
+                        Ok(msg) => match Self::handle(connection.clone(), procs.clone(), msg).await {
+                            Ok(_) => {},
+                            Err(proto::Error::Close) => {
+                                eprintln!("connection closed; reconnecting");
+                                // FIXME: Handle error and retry instead of returning!
+                                let (ws_stream, _) = connect_async(&url).await?;
+                                let (new_write, new_read) = ws_stream.split();
+                                connection.borrow_mut().write = new_write;
+                                read = new_read;
+
+                                let mut c = connection.borrow_mut();
+                                let register = proto::OutgoingMessage::Register {
+                                    conn_id: c.conn_id.clone(), group: c.group.clone(), info: c.info.clone() };
+                                c.send(register).await?;
+                            },
+                            Err(err) => eprintln!("error: {:?}", err),
+                        },
+                        Err(err) => eprintln!("msg error: {:?}", err),
                     }
-                } else {
-                    eprintln!("msg error: {:?}", msg.err());
-                }
-            })
-            .await;
+                },
+                None => break,
+            }
+        }
 
         Ok(())
     }
@@ -92,12 +110,12 @@ impl Connection {
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
         let (write, read) = ws_stream.split();
-        let connection = Rc::new(RefCell::new(Connection { write }));
+        let connection = Rc::new(RefCell::new(Connection { conn_id: conn_id.clone(), group: group.clone(), info: info.clone(), write }));
 
         // Send a connect message.
         let register = proto::OutgoingMessage::Register { conn_id, group, info };
         connection.borrow_mut().send(register).await?;
 
-        Ok((connection.clone(), Handler { read, connection }))
+        Ok((connection.clone(), Handler { url: url.clone(), read, connection }))
     }
 }

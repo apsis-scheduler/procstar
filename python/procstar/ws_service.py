@@ -336,6 +336,7 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
                     proc_id =proc_id,
                     spec    =spec,
                 )
+                # await next(iter(server.connections.values())).ws.close()
 
             if process is not None and process.connection in server.connections.values():
                 await process.request_result()

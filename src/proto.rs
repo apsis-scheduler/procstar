@@ -20,6 +20,7 @@ pub fn get_default_conn_id() -> String {
 #[derive(Debug)]
 pub enum Error {
     Connection(tungstenite::error::Error),
+    Close,
     Json(serde_json::Error),
 }
 
@@ -47,7 +48,7 @@ pub enum IncomingMessage {
     ProcDeleteRequest { proc_id: ProcId },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InstanceInfo {
     hostname: String,
     username: String,

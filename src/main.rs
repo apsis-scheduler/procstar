@@ -2,20 +2,39 @@ extern crate exitcode;
 
 mod argv;
 
+use futures::future::join;
 // use procstar::fd::parse_fd;
-use procstar::http::run_http;
+use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedRunningProcs};
 use procstar::res;
 use procstar::spec;
+use procstar::wsclient;
 
 //------------------------------------------------------------------------------
+
+async fn maybe_run_http(args: &argv::Args, running_procs: SharedRunningProcs) {
+    if args.serve {
+        http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
+    }
+}
+
+async fn maybe_run_ws(args: &argv::Args, running_procs: SharedRunningProcs) {
+    if let Some(url) = args.connect.as_deref() {
+        let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
+        let (_connection, handler) =
+            wsclient::Connection::connect(&url, args.name.as_deref(), args.group.as_deref())
+                .await
+                .unwrap(); // FIXME: unwrap
+        handler.run(running_procs.clone()).await.unwrap(); // FIXME: unwrap
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = argv::parse();
 
     let running_procs = SharedRunningProcs::new();
-    let input = if let Some(p) = args.input {
+    let input = if let Some(p) = args.input.as_deref() {
         spec::load_file(&p).unwrap_or_else(|err| {
             eprintln!("failed to load {}: {}", p, err);
             std::process::exit(exitcode::OSFILE);
@@ -25,20 +44,25 @@ async fn main() {
     };
 
     let local = tokio::task::LocalSet::new();
-    if args.serve {
-        // Service mode.
+
+    if args.serve || args.connect.is_some() {
+        // Start specs from the command line.  Discard the tasks.  We
+        // intentionally don't start the HTTP service until the input
+        // processes have started, to avoid races where these procs
+        // don't appear in HTTP results.
         local
-            .run_until(async move {
-                // Start specs from the command line.  Discard the tasks.  We
-                // intentionally don't start the HTTP service until the input
-                // processes have started, to avoid races where these procs
-                // don't appear in HTTP results.
-                start_procs(input, running_procs.clone()).await;
-                // Run the HTTP service.
-                run_http(running_procs).await.unwrap()
-            })
+            .run_until(start_procs(input, running_procs.clone()))
+            .await;
+
+        // Now run one or both servers.
+        local
+            .run_until(join(
+                maybe_run_http(&args, running_procs.clone()),
+                maybe_run_ws(&args, running_procs.clone()),
+            ))
             .await;
     } else {
+        // FIXME: There should be a flag for "run to completion" and "print results"?
         local
             .run_until(async move {
                 // Start specs from the command line.

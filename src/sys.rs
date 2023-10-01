@@ -257,3 +257,36 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
     }
 }
 
+//------------------------------------------------------------------------------
+
+// FIXME: Don't use nix.
+pub fn get_username() -> String {
+    if let Ok(user) = std::env::var("USER") {
+        user
+    } else {
+        let euid = nix::unistd::Uid::effective();
+        if let Some(user) = nix::unistd::User::from_uid(euid).unwrap() {
+            user.name
+        } else {
+            // Fall back to stringified UID.
+            euid.to_string()
+        }
+    }
+}
+
+const HOST_NAME_MAX: usize = 64;
+
+pub fn get_hostname() -> String {
+    let mut buffer = vec![0u8; HOST_NAME_MAX];
+    let ret = unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut i8, buffer.len()) };
+    match ret {
+        0 => {
+            // FIXME: Is this really the right way to do this??
+            let len = buffer.iter().position(|&c| c == 0).unwrap();
+            buffer.truncate(len);
+            String::from_utf8(buffer).unwrap()
+        }
+        -1 => panic!("gethostname failed: {}", ret),
+        _ => panic!("gethostname invalid ressult: {}", ret),
+    }
+}

@@ -11,7 +11,7 @@ use crate::fd::SharedFdHandler;
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec::{Input, ProcId};
-use crate::sys::{execve, fork, wait, kill, WaitInfo};
+use crate::sys::{execve, fork, kill, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
@@ -138,6 +138,10 @@ impl SharedRunningProcs {
         self.procs.borrow().len()
     }
 
+    pub fn get_proc_ids(&self) -> Vec<ProcId> {
+        self.procs.borrow().keys().map(|s| s.clone()).collect()
+    }
+
     pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
         self.procs.borrow().get(proc_id).cloned()
     }
@@ -221,6 +225,7 @@ pub async fn run_proc(
 
 //------------------------------------------------------------------------------
 
+// FIXME: Check that proc_ids aren't already known; return Error if so.
 pub async fn start_procs(
     input: Input,
     running_procs: SharedRunningProcs,

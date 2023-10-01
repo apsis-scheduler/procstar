@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::procs::{SharedRunningProcs, start_procs};
+use crate::procs::{start_procs, SharedRunningProcs};
 use crate::res::ProcRes;
 use crate::spec::{Input, Proc, ProcId};
 use crate::sys;
@@ -60,7 +60,11 @@ impl InstanceInfo {
         let hostname = sys::get_hostname();
         let username = sys::get_username();
         let pid = sys::getpid() as u32;
-        Self { hostname, username, pid }
+        Self {
+            hostname,
+            username,
+            pid,
+        }
     }
 }
 
@@ -68,11 +72,24 @@ impl InstanceInfo {
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     // Outgoing message types.
-    Register { conn_id: String, group: String, info: InstanceInfo },
-    ProcNew { proc_id: ProcId },
-    ProcidList { proc_ids: Vec<ProcId> },
-    ProcResult { proc_id: ProcId, res: ProcRes },
-    ProcDelete { proc_id: ProcId },
+    Register {
+        conn_id: String,
+        group: String,
+        info: InstanceInfo,
+    },
+    ProcNew {
+        proc_id: ProcId,
+    },
+    ProcidList {
+        proc_ids: Vec<ProcId>,
+    },
+    ProcResult {
+        proc_id: ProcId,
+        res: ProcRes,
+    },
+    ProcDelete {
+        proc_id: ProcId,
+    },
 }
 
 pub async fn handle_incoming(

@@ -57,19 +57,29 @@ impl Handler {
         msg: Message,
     ) -> Result<(), proto::Error> {
         match msg {
-            Message::Binary(json) => match serde_json::from_slice::<proto::IncomingMessage>(&json) {
-                Ok(msg) => {
-                    eprintln!("msg: {:?}", msg);
-                    match proto::handle_incoming(procs, msg).await {
-                        Ok(Some(rsp)) => {
-                            eprintln!("rsp: {:?}", rsp);
-                            connection.borrow_mut().send(rsp).await?
+            Message::Binary(json) => {
+                match serde_json::from_slice::<proto::IncomingMessage>(&json) {
+                    Ok(msg) => {
+                        eprintln!("msg: {:?}", msg);
+                        match proto::handle_incoming(procs, msg).await {
+                            Ok(Some(rsp)) => {
+                                eprintln!("rsp: {:?}", rsp);
+                                connection.borrow_mut().send(rsp).await?
+                            }
+                            Ok(None) => (),
+                            Err(err) => eprintln!(
+                                "message error: {:?}: {}",
+                                err,
+                                String::from_utf8(json).unwrap()
+                            ),
                         }
-                        Ok(None) => (),
-                        Err(err) => eprintln!("message error: {:?}: {}", err, String::from_utf8(json).unwrap()),
                     }
+                    Err(err) => eprintln!(
+                        "invalid JSON: {:?}: {}",
+                        err,
+                        String::from_utf8(json).unwrap()
+                    ),
                 }
-                Err(err) => eprintln!("invalid JSON: {:?}: {}", err, String::from_utf8(json).unwrap()),
             }
             Message::Close(_) => return Err(proto::Error::Close),
             _ => eprintln!("unexpected ws msg: {:?}", msg),
@@ -80,12 +90,15 @@ impl Handler {
     /// Runs the incoming half of the websocket connection, receiving,
     /// processing, and responding to incoming messages.
     pub async fn run(self, procs: SharedRunningProcs) -> Result<(), proto::Error> {
-        let Self { mut read, connection } = self;
+        let Self {
+            mut read,
+            connection,
+        } = self;
         let url = connection.borrow().url.clone();
         loop {
             match read.next().await {
                 Some(Ok(msg)) => match Self::handle(connection.clone(), procs.clone(), msg).await {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(proto::Error::Close) => {
                         eprintln!("connection closed; reconnecting");
                         // FIXME: Handle error and retry instead of returning!
@@ -96,9 +109,12 @@ impl Handler {
 
                         let mut c = connection.borrow_mut();
                         let register = proto::OutgoingMessage::Register {
-                            conn_id: c.conn_id.clone(), group: c.group.clone(), info: c.info.clone() };
+                            conn_id: c.conn_id.clone(),
+                            group: c.group.clone(),
+                            info: c.info.clone(),
+                        };
                         c.send(register).await?;
-                    },
+                    }
                     Err(err) => eprintln!("error: {:?}", err),
                 },
                 Some(Err(err)) => eprintln!("msg error: {:?}", err),
@@ -124,10 +140,20 @@ impl Connection {
         let (ws_stream, _) = connect_async(url).await?;
         eprintln!("connected");
         let (write, read) = ws_stream.split();
-        let connection = Rc::new(RefCell::new(Connection { url: url.clone(), conn_id: conn_id.clone(), group: group.clone(), info: info.clone(), write }));
+        let connection = Rc::new(RefCell::new(Connection {
+            url: url.clone(),
+            conn_id: conn_id.clone(),
+            group: group.clone(),
+            info: info.clone(),
+            write,
+        }));
 
         // Send a connect message.
-        let register = proto::OutgoingMessage::Register { conn_id, group, info };
+        let register = proto::OutgoingMessage::Register {
+            conn_id,
+            group,
+            info,
+        };
         connection.borrow_mut().send(register).await?;
 
         Ok((connection.clone(), Handler { read, connection }))

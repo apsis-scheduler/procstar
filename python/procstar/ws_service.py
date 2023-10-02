@@ -187,6 +187,8 @@ class Server:
 
         Use this bound method with `websockets.server.serve()`.
         """
+        assert ws.open
+
         connect_time = now()
 
         # Collect remote loc.
@@ -286,23 +288,6 @@ class Server:
         connection = self.connections.choose_connection(group)
         await connection.send(proto.ProcStart(procs={proc_id: spec}))
         return Process(connection, proc_id)
-
-
-
-class Connection_:
-
-    async def request_result(self, proc_id):
-        """
-        Requests current results for a process.
-        """
-
-
-    async def request_delete(self, proc_id):
-        """
-        Requests deletion of a completed process.
-        """
-
-
 
 
 

@@ -40,90 +40,77 @@ impl Connection {
 }
 
 type SharedConnection = Rc<RefCell<Connection>>;
+pub type WebSocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// Handler for incoming messages on a websocket client connection.
-pub struct Handler {
-    /// The read end of the websocket connection.
-    read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-
-    /// The client-visible connection object.
+async fn handle(
     connection: SharedConnection,
+    procs: SharedRunningProcs,
+    msg: Message,
+) -> Result<(), proto::Error> {
+    match msg {
+        Message::Binary(json) => {
+            match serde_json::from_slice::<proto::IncomingMessage>(&json) {
+                Ok(msg) => {
+                    eprintln!("msg: {:?}", msg);
+                    match proto::handle_incoming(procs, msg).await {
+                        Ok(Some(rsp)) => {
+                            eprintln!("rsp: {:?}", rsp);
+                            connection.borrow_mut().send(rsp).await?
+                        }
+                        Ok(None) => (),
+                        Err(err) => eprintln!(
+                            "message error: {:?}: {}",
+                            err,
+                            String::from_utf8(json).unwrap()
+                        ),
+                    }
+                }
+                Err(err) => eprintln!(
+                    "invalid JSON: {:?}: {}",
+                    err,
+                    String::from_utf8(json).unwrap()
+                ),
+            }
+        }
+        Message::Close(_) => return Err(proto::Error::Close),
+        _ => eprintln!("unexpected ws msg: {:?}", msg),
+    }
+    Ok(())
 }
 
-impl Handler {
-    async fn handle(
-        connection: SharedConnection,
-        procs: SharedRunningProcs,
-        msg: Message,
-    ) -> Result<(), proto::Error> {
-        match msg {
-            Message::Binary(json) => {
-                match serde_json::from_slice::<proto::IncomingMessage>(&json) {
-                    Ok(msg) => {
-                        eprintln!("msg: {:?}", msg);
-                        match proto::handle_incoming(procs, msg).await {
-                            Ok(Some(rsp)) => {
-                                eprintln!("rsp: {:?}", rsp);
-                                connection.borrow_mut().send(rsp).await?
-                            }
-                            Ok(None) => (),
-                            Err(err) => eprintln!(
-                                "message error: {:?}: {}",
-                                err,
-                                String::from_utf8(json).unwrap()
-                            ),
-                        }
-                    }
-                    Err(err) => eprintln!(
-                        "invalid JSON: {:?}: {}",
-                        err,
-                        String::from_utf8(json).unwrap()
-                    ),
+/// Runs the incoming half of the websocket connection, receiving,
+/// processing, and responding to incoming messages.
+pub async fn run(mut read: WebSocket, connection: SharedConnection, procs: SharedRunningProcs) -> Result<(), proto::Error> {
+    let url = connection.borrow().url.clone();
+    loop {
+        match read.next().await {
+            Some(Ok(msg)) => match handle(connection.clone(), procs.clone(), msg).await {
+                Ok(_) => {}
+                Err(proto::Error::Close) => {
+                    eprintln!("connection closed; reconnecting");
+                    // FIXME: Handle error and retry instead of returning!
+                    let (ws_stream, _) = connect_async(&url).await?;
+                    let (new_write, new_read) = ws_stream.split();
+                    connection.borrow_mut().write = new_write;
+                    read = new_read;
+
+                    let mut c = connection.borrow_mut();
+                    let register = proto::OutgoingMessage::Register {
+                        conn_id: c.conn_id.clone(),
+                        group: c.group.clone(),
+                        info: c.info.clone(),
+                    };
+                    c.send(register).await?;
                 }
-            }
-            Message::Close(_) => return Err(proto::Error::Close),
-            _ => eprintln!("unexpected ws msg: {:?}", msg),
+                Err(err) => eprintln!("error: {:?}", err),
+            },
+            Some(Err(err)) => eprintln!("msg error: {:?}", err),
+            None => break,
         }
-        Ok(())
     }
 
-    /// Runs the incoming half of the websocket connection, receiving,
-    /// processing, and responding to incoming messages.
-    pub async fn run(self, procs: SharedRunningProcs) -> Result<(), proto::Error> {
-        let Self {
-            mut read,
-            connection,
-        } = self;
-        let url = connection.borrow().url.clone();
-        loop {
-            match read.next().await {
-                Some(Ok(msg)) => match Self::handle(connection.clone(), procs.clone(), msg).await {
-                    Ok(_) => {}
-                    Err(proto::Error::Close) => {
-                        eprintln!("connection closed; reconnecting");
-                        // FIXME: Handle error and retry instead of returning!
-                        let (ws_stream, _) = connect_async(&url).await?;
-                        let (new_write, new_read) = ws_stream.split();
-                        connection.borrow_mut().write = new_write;
-                        read = new_read;
-
-                        let mut c = connection.borrow_mut();
-                        let register = proto::OutgoingMessage::Register {
-                            conn_id: c.conn_id.clone(),
-                            group: c.group.clone(),
-                            info: c.info.clone(),
-                        };
-                        c.send(register).await?;
-                    }
-                    Err(err) => eprintln!("error: {:?}", err),
-                },
-                Some(Err(err)) => eprintln!("msg error: {:?}", err),
-                None => break,
-            }
-        }
-
-        Ok(())
-    }
+    Ok(())
 }
 
 impl Connection {
@@ -131,7 +118,7 @@ impl Connection {
         url: &Url,
         conn_id: Option<&str>,
         group: Option<&str>,
-    ) -> Result<(SharedConnection, Handler), proto::Error> {
+    ) -> Result<(SharedConnection, WebSocket), proto::Error> {
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
         let group = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
         let info = proto::InstanceInfo::new();
@@ -156,6 +143,6 @@ impl Connection {
         };
         connection.borrow_mut().send(register).await?;
 
-        Ok((connection.clone(), Handler { read, connection }))
+        Ok((connection, read))
     }
 }

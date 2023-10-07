@@ -49,30 +49,28 @@ async fn handle(
     msg: Message,
 ) -> Result<(), proto::Error> {
     match msg {
-        Message::Binary(json) => {
-            match serde_json::from_slice::<proto::IncomingMessage>(&json) {
-                Ok(msg) => {
-                    eprintln!("msg: {:?}", msg);
-                    match proto::handle_incoming(procs, msg).await {
-                        Ok(Some(rsp)) => {
-                            eprintln!("rsp: {:?}", rsp);
-                            connection.borrow_mut().send(rsp).await?
-                        }
-                        Ok(None) => (),
-                        Err(err) => eprintln!(
-                            "message error: {:?}: {}",
-                            err,
-                            String::from_utf8(json).unwrap()
-                        ),
+        Message::Binary(json) => match serde_json::from_slice::<proto::IncomingMessage>(&json) {
+            Ok(msg) => {
+                eprintln!("msg: {:?}", msg);
+                match proto::handle_incoming(procs, msg).await {
+                    Ok(Some(rsp)) => {
+                        eprintln!("rsp: {:?}", rsp);
+                        connection.borrow_mut().send(rsp).await?
                     }
+                    Ok(None) => (),
+                    Err(err) => eprintln!(
+                        "message error: {:?}: {}",
+                        err,
+                        String::from_utf8(json).unwrap()
+                    ),
                 }
-                Err(err) => eprintln!(
-                    "invalid JSON: {:?}: {}",
-                    err,
-                    String::from_utf8(json).unwrap()
-                ),
             }
-        }
+            Err(err) => eprintln!(
+                "invalid JSON: {:?}: {}",
+                err,
+                String::from_utf8(json).unwrap()
+            ),
+        },
         Message::Close(_) => return Err(proto::Error::Close),
         _ => eprintln!("unexpected ws msg: {:?}", msg),
     }
@@ -81,7 +79,11 @@ async fn handle(
 
 /// Runs the incoming half of the websocket connection, receiving,
 /// processing, and responding to incoming messages.
-pub async fn run(mut read: WebSocket, connection: SharedConnection, procs: SharedRunningProcs) -> Result<(), proto::Error> {
+pub async fn run(
+    mut read: WebSocket,
+    connection: SharedConnection,
+    procs: SharedRunningProcs,
+) -> Result<(), proto::Error> {
     let url = connection.borrow().url.clone();
     loop {
         match read.next().await {

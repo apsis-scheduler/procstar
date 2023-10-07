@@ -12,6 +12,9 @@ use crate::proto;
 
 //------------------------------------------------------------------------------
 
+/// Wait time before reconnection attempts.
+const RECONNECT_INTERVAL: Duration = Duration::new(5, 0);
+
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 pub type SocketSender = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
@@ -108,7 +111,7 @@ pub async fn run(
                 eprintln!("error: {:?}", err);
                 // Reconnect, after a moment.
                 // FIXME: Is this the right policy?
-                sleep(Duration::from_secs(1)).await;
+                sleep(RECONNECT_INTERVAL).await;
                 continue;
             }
         };

@@ -1,6 +1,8 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use url::Url;
@@ -104,7 +106,9 @@ pub async fn run(
             Ok(pair) => pair,
             Err(err) => {
                 eprintln!("error: {:?}", err);
-                // Reconnect.
+                // Reconnect, after a moment.
+                // FIXME: Is this the right policy?
+                sleep(Duration::from_secs(1)).await;
                 continue;
             }
         };

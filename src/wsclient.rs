@@ -40,7 +40,7 @@ impl Connection {
 }
 
 type SharedConnection = Rc<RefCell<Connection>>;
-pub type WebSocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+pub type SplitSocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// Handler for incoming messages on a websocket client connection.
 async fn handle(
@@ -80,11 +80,10 @@ async fn handle(
 /// Runs the incoming half of the websocket connection, receiving,
 /// processing, and responding to incoming messages.
 pub async fn run(
-    mut read: WebSocket,
+    mut read: SplitSocket,
     connection: SharedConnection,
     procs: SharedRunningProcs,
 ) -> Result<(), proto::Error> {
-    let url = connection.borrow().url.clone();
     loop {
         match read.next().await {
             Some(Ok(msg)) => match handle(connection.clone(), procs.clone(), msg).await {
@@ -92,7 +91,7 @@ pub async fn run(
                 Err(proto::Error::Close) => {
                     eprintln!("connection closed; reconnecting");
                     // FIXME: Handle error and retry instead of returning!
-                    let (ws_stream, _) = connect_async(&url).await?;
+                    let (ws_stream, _) = connect_async(&connection.borrow().url).await?;
                     let (new_write, new_read) = ws_stream.split();
                     connection.borrow_mut().write = new_write;
                     read = new_read;
@@ -120,7 +119,7 @@ impl Connection {
         url: &Url,
         conn_id: Option<&str>,
         group: Option<&str>,
-    ) -> Result<(SharedConnection, WebSocket), proto::Error> {
+    ) -> Result<(SharedConnection, SplitSocket), proto::Error> {
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
         let group = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
         let info = proto::InstanceInfo::new();

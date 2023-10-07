@@ -22,6 +22,7 @@ pub enum Error {
     Connection(tungstenite::error::Error),
     Close,
     Json(serde_json::Error),
+    WrongMessageType(String),
 }
 
 impl From<tungstenite::error::Error> for Error {

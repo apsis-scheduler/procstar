@@ -7,7 +7,7 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use crate::procs::SharedRunningProcs;
+use crate::procs::SharedProcs;
 use crate::proto;
 
 //------------------------------------------------------------------------------
@@ -55,7 +55,7 @@ impl Connection {
 
 /// Handler for incoming messages on a websocket client connection.
 async fn handle(
-    procs: SharedRunningProcs,
+    procs: SharedProcs,
     msg: Message,
 ) -> Result<Option<proto::OutgoingMessage>, proto::Error> {
     match msg {
@@ -104,7 +104,7 @@ async fn connect(
 
 pub async fn run(
     mut connection: Connection,
-    procs: SharedRunningProcs,
+    procs: SharedProcs,
 ) -> Result<(), proto::Error> {
     'connect: loop {
         // (Re)connect to the service.

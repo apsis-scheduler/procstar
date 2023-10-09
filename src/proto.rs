@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::procs::{start_procs, SharedRunningProcs};
+use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::spec::{Input, Proc, ProcId};
 use crate::sys;
@@ -94,7 +94,7 @@ pub enum OutgoingMessage {
 }
 
 pub async fn handle_incoming(
-    procs: SharedRunningProcs,
+    procs: SharedProcs,
     msg: IncomingMessage,
 ) -> Result<Option<OutgoingMessage>, Error> {
     match msg {

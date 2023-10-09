@@ -5,7 +5,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use serde_json::json;
 use std::rc::Rc;
 
-use crate::procs::{start_procs, SharedRunningProcs};
+use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
 
@@ -66,14 +66,14 @@ fn make_response(rsp: RspResult) -> Rsp {
 }
 
 /// Handles `GET /procs`.
-async fn procs_get(procs: SharedRunningProcs) -> RspResult {
+async fn procs_get(procs: SharedProcs) -> RspResult {
     Ok(json!({
         "procs": procs.to_result(),
     }))
 }
 
 /// Handles `GET /procs/:id`.
-async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
+async fn procs_id_get(procs: SharedProcs, proc_id: &str) -> RspResult {
     if let Some(proc) = procs.get(proc_id) {
         Ok(json!({
             "procs": {
@@ -86,7 +86,7 @@ async fn procs_id_get(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
 }
 
 /// Handles `DEL /procs/:id`.
-async fn procs_id_delete(procs: SharedRunningProcs, proc_id: &str) -> RspResult {
+async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> RspResult {
     let proc_id: ProcId = proc_id.to_string();
     match procs.remove_if_complete(&proc_id) {
         Ok(_) => {
@@ -100,7 +100,7 @@ async fn procs_id_delete(procs: SharedRunningProcs, proc_id: &str) -> RspResult 
 }
 
 /// Handles `POST /procs`.
-async fn procs_post(procs: SharedRunningProcs, input: Input) -> RspResult {
+async fn procs_post(procs: SharedProcs, input: Input) -> RspResult {
     // FIXME: Check duplicate proc IDs.
     start_procs(input, procs.clone()).await;
     Ok(json!({
@@ -110,7 +110,7 @@ async fn procs_post(procs: SharedRunningProcs, input: Input) -> RspResult {
 
 /// Handles POST /procs/:id/signal/:signum.
 async fn procs_signal_signum_post(
-    procs: SharedRunningProcs,
+    procs: SharedProcs,
     proc_id: &str,
     signum: &str,
 ) -> RspResult {
@@ -163,7 +163,7 @@ impl Router {
         }
     }
 
-    async fn dispatch(&self, req: Req, procs: SharedRunningProcs) -> RspResult {
+    async fn dispatch(&self, req: Req, procs: SharedProcs) -> RspResult {
         let (parts, body) = req.into_parts();
         let rsp = match self.router.at(parts.uri.path()) {
             Ok(m) => {
@@ -203,7 +203,7 @@ impl Router {
 //------------------------------------------------------------------------------
 
 /// Runs the HTTP service.
-pub async fn run_http(procs: SharedRunningProcs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_http(procs: SharedProcs) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

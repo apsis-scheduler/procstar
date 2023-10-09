@@ -5,20 +5,20 @@ mod argv;
 use futures::future::join;
 // use procstar::fd::parse_fd;
 use procstar::http;
-use procstar::procs::{collect_results, start_procs, SharedRunningProcs};
+use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::res;
 use procstar::spec;
 use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
-async fn maybe_run_http(args: &argv::Args, running_procs: SharedRunningProcs) {
+async fn maybe_run_http(args: &argv::Args, running_procs: SharedProcs) {
     if args.serve {
         http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
     }
 }
 
-async fn maybe_run_ws(args: &argv::Args, running_procs: SharedRunningProcs) {
+async fn maybe_run_ws(args: &argv::Args, running_procs: SharedProcs) {
     if let Some(url) = args.connect.as_deref() {
         let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
         let connection =
@@ -31,7 +31,7 @@ async fn maybe_run_ws(args: &argv::Args, running_procs: SharedRunningProcs) {
 async fn main() {
     let args = argv::parse();
 
-    let running_procs = SharedRunningProcs::new();
+    let running_procs = SharedProcs::new();
     let input = if let Some(p) = args.input.as_deref() {
         spec::load_file(&p).unwrap_or_else(|err| {
             eprintln!("failed to load {}: {}", p, err);

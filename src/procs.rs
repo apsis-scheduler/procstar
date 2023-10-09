@@ -114,16 +114,16 @@ impl std::fmt::Debug for RunningProc {
 //------------------------------------------------------------------------------
 
 type SharedRunningProc = Rc<RefCell<RunningProc>>;
-pub type RunningProcs = BTreeMap<ProcId, SharedRunningProc>;
+pub type Procs = BTreeMap<ProcId, SharedRunningProc>;
 
 #[derive(Clone)]
-pub struct SharedRunningProcs {
-    procs: Rc<RefCell<RunningProcs>>,
+pub struct SharedProcs {
+    procs: Rc<RefCell<Procs>>,
 }
 
-impl SharedRunningProcs {
-    pub fn new() -> SharedRunningProcs {
-        SharedRunningProcs {
+impl SharedProcs {
+    pub fn new() -> SharedProcs {
+        SharedProcs {
             procs: Rc::new(RefCell::new(BTreeMap::new())),
         }
     }
@@ -228,7 +228,7 @@ pub async fn run_proc(
 // FIXME: Check that proc_ids aren't already known; return Error if so.
 pub async fn start_procs(
     input: Input,
-    running_procs: SharedRunningProcs,
+    running_procs: SharedProcs,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());
@@ -314,7 +314,7 @@ pub async fn start_procs(
     tasks
 }
 
-pub async fn collect_results(running_procs: SharedRunningProcs) -> res::Res {
+pub async fn collect_results(running_procs: SharedProcs) -> res::Res {
     let mut result = res::Res::new();
 
     // // Clean up procs that might have completed already.

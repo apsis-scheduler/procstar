@@ -18,6 +18,7 @@ classifiers = [
 
 requires-python = ">=3.10"
 dependencies = [
+    "aioconsole",
     "orjson >=3",
     "websockets >=11",
 ]

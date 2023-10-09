@@ -24,21 +24,27 @@ logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
-class NoGroupError(LookupError):
+class Error(Exception):
+
+    pass
+
+
+
+class NoGroupError(Exception):
     """
     No group with the given group name.
     """
 
 
 
-class NoOpenConnectionInGroup(RuntimeError):
+class NoOpenConnectionInGroup(Exception):
     """
     The group contains no open connections.
     """
 
 
 
-class NoConnectionError(LookupError):
+class NoConnectionError(Exception):
     """
     No connection with the given name.
     """
@@ -181,7 +187,15 @@ class Server:
         self.connections = Connections()
 
 
-    async def serve_connection(self, ws):
+    def serve(self, loc=(None, proto.DEFAULT_PORT)):
+        """
+        Returns an async context manager that runs the service.
+        """
+        host, port = loc
+        return websockets.server.serve(self._serve_connection, host, port)
+
+
+    async def _serve_connection(self, ws):
         """
         Serves an incoming connection.
 
@@ -299,13 +313,11 @@ async def run(server, loc=(None, proto.DEFAULT_PORT)):
     :param loc:
       The (host, port) on which to run.
     """
-    host, port = loc
-
     proc_id = "testproc0"
     spec = {"argv": ["/usr/bin/sleep", "5"]}
     process = None
 
-    async with websockets.server.serve(server.serve_connection, host, port):
+    async with server.serve(loc):
         # FIXME: For testing.
         while True:
             await asyncio.sleep(1)

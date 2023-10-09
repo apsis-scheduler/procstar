@@ -109,11 +109,7 @@ async fn procs_post(procs: SharedProcs, input: Input) -> RspResult {
 }
 
 /// Handles POST /procs/:id/signal/:signum.
-async fn procs_signal_signum_post(
-    procs: SharedProcs,
-    proc_id: &str,
-    signum: &str,
-) -> RspResult {
+async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &str) -> RspResult {
     let signum = parse_signum(signum).ok_or_else(|| RspError::bad_request("unknwon signum"))?;
     let proc = procs
         .get(proc_id)

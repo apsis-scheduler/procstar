@@ -105,9 +105,7 @@ impl Proc {
 
 impl std::fmt::Debug for Proc {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.debug_struct("Proc")
-            .field("pid", &self.pid)
-            .finish()
+        f.debug_struct("Proc").field("pid", &self.pid).finish()
     }
 }
 
@@ -202,11 +200,7 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
     }
 }
 
-pub async fn run_proc(
-    proc: SharedProc,
-    sigchld_receiver: SignalReceiver,
-    error_pipe: ErrorPipe,
-) {
+pub async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe: ErrorPipe) {
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {

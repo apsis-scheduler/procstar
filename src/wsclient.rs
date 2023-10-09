@@ -102,10 +102,7 @@ async fn connect(
     Ok((sender, receiver))
 }
 
-pub async fn run(
-    mut connection: Connection,
-    procs: SharedProcs,
-) -> Result<(), proto::Error> {
+pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), proto::Error> {
     'connect: loop {
         // (Re)connect to the service.
         let (mut sender, mut receiver) = match connect(&mut connection).await {

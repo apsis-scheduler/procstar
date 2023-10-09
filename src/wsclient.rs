@@ -15,7 +15,10 @@ use crate::proto;
 /// Wait time before reconnection attempts.
 const RECONNECT_INTERVAL: Duration = Duration::new(5, 0);
 
+/// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+
+/// The write end of a split websocket.
 pub type SocketSender = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
 pub struct Connection {

@@ -44,14 +44,14 @@ impl From<std::io::Error> for Error {
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
-pub struct RunningProc {
+pub struct Proc {
     pub pid: pid_t,
     pub errors: Vec<String>,
     pub wait_info: Option<WaitInfo>,
     pub fd_handlers: FdHandlers,
 }
 
-impl RunningProc {
+impl Proc {
     pub fn new(pid: pid_t, fd_handlers: FdHandlers) -> Self {
         Self {
             pid,
@@ -103,9 +103,9 @@ impl RunningProc {
     }
 }
 
-impl std::fmt::Debug for RunningProc {
+impl std::fmt::Debug for Proc {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.debug_struct("RunningProc")
+        f.debug_struct("Proc")
             .field("pid", &self.pid)
             .finish()
     }
@@ -113,8 +113,8 @@ impl std::fmt::Debug for RunningProc {
 
 //------------------------------------------------------------------------------
 
-type SharedRunningProc = Rc<RefCell<RunningProc>>;
-pub type Procs = BTreeMap<ProcId, SharedRunningProc>;
+type SharedProc = Rc<RefCell<Proc>>;
+pub type Procs = BTreeMap<ProcId, SharedProc>;
 
 #[derive(Clone)]
 pub struct SharedProcs {
@@ -130,7 +130,7 @@ impl SharedProcs {
 
     // FIXME: Some of these methods are unused.
 
-    pub fn insert(&self, proc_id: ProcId, proc: SharedRunningProc) {
+    pub fn insert(&self, proc_id: ProcId, proc: SharedProc) {
         self.procs.borrow_mut().insert(proc_id, proc);
     }
 
@@ -142,23 +142,23 @@ impl SharedProcs {
         self.procs.borrow().keys().map(|s| s.clone()).collect()
     }
 
-    pub fn get(&self, proc_id: &str) -> Option<SharedRunningProc> {
+    pub fn get(&self, proc_id: &str) -> Option<SharedProc> {
         self.procs.borrow().get(proc_id).cloned()
     }
 
-    pub fn first(&self) -> Option<(ProcId, SharedRunningProc)> {
+    pub fn first(&self) -> Option<(ProcId, SharedProc)> {
         self.procs
             .borrow()
             .first_key_value()
             .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
     }
 
-    pub fn remove(&self, proc_id: ProcId) -> Option<SharedRunningProc> {
+    pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
         self.procs.borrow_mut().remove(&proc_id)
     }
 
     /// Removes and returns a proc, if it is complete (has wait info).
-    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedRunningProc, Error> {
+    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
         let mut procs = self.procs.borrow_mut();
         if let Some(proc) = procs.get(proc_id) {
             if proc.borrow().wait_info.is_some() {
@@ -171,7 +171,7 @@ impl SharedProcs {
         }
     }
 
-    pub fn pop(&self) -> Option<(ProcId, SharedRunningProc)> {
+    pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
         self.procs.borrow_mut().pop_first()
     }
 
@@ -184,7 +184,7 @@ impl SharedProcs {
     }
 }
 
-async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: SignalReceiver) {
+async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
     let pid = proc.borrow().pid;
 
     loop {
@@ -203,7 +203,7 @@ async fn wait_for_proc(proc: SharedRunningProc, mut sigchld_receiver: SignalRece
 }
 
 pub async fn run_proc(
-    proc: SharedRunningProc,
+    proc: SharedProc,
     sigchld_receiver: SignalReceiver,
     error_pipe: ErrorPipe,
 ) {
@@ -294,7 +294,7 @@ pub async fn start_procs(
                     })
                     .collect::<Vec<_>>();
 
-                let proc = Rc::new(RefCell::new(RunningProc::new(child_pid, fd_handlers)));
+                let proc = Rc::new(RefCell::new(Proc::new(child_pid, fd_handlers)));
 
                 // Start a task to handle this child.
                 tasks.push(tokio::task::spawn_local(run_proc(

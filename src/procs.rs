@@ -109,10 +109,13 @@ impl std::fmt::Debug for Proc {
     }
 }
 
+type SharedProc = Rc<RefCell<Proc>>;
+
 //------------------------------------------------------------------------------
 
-type SharedProc = Rc<RefCell<Proc>>;
-pub type Procs = BTreeMap<ProcId, SharedProc>;
+pub struct Procs {
+    procs: BTreeMap<ProcId, SharedProc>,
+}
 
 #[derive(Clone)]
 pub struct SharedProcs {
@@ -122,45 +125,46 @@ pub struct SharedProcs {
 impl SharedProcs {
     pub fn new() -> SharedProcs {
         SharedProcs {
-            procs: Rc::new(RefCell::new(BTreeMap::new())),
+            procs: Rc::new(RefCell::new(Procs { procs: BTreeMap::new() })),
         }
     }
 
     // FIXME: Some of these methods are unused.
 
     pub fn insert(&self, proc_id: ProcId, proc: SharedProc) {
-        self.procs.borrow_mut().insert(proc_id, proc);
+        self.procs.borrow_mut().procs.insert(proc_id, proc);
     }
 
     pub fn len(&self) -> usize {
-        self.procs.borrow().len()
+        self.procs.borrow().procs.len()
     }
 
     pub fn get_proc_ids(&self) -> Vec<ProcId> {
-        self.procs.borrow().keys().map(|s| s.clone()).collect()
+        self.procs.borrow().procs.keys().map(|s| s.clone()).collect()
     }
 
     pub fn get(&self, proc_id: &str) -> Option<SharedProc> {
-        self.procs.borrow().get(proc_id).cloned()
+        self.procs.borrow().procs.get(proc_id).cloned()
     }
 
     pub fn first(&self) -> Option<(ProcId, SharedProc)> {
         self.procs
             .borrow()
+            .procs
             .first_key_value()
             .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
     }
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
-        self.procs.borrow_mut().remove(&proc_id)
+        self.procs.borrow_mut().procs.remove(&proc_id)
     }
 
     /// Removes and returns a proc, if it is complete (has wait info).
     pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
         let mut procs = self.procs.borrow_mut();
-        if let Some(proc) = procs.get(proc_id) {
+        if let Some(proc) = procs.procs.get(proc_id) {
             if proc.borrow().wait_info.is_some() {
-                Ok(procs.remove(proc_id).unwrap())
+                Ok(procs.procs.remove(proc_id).unwrap())
             } else {
                 Err(Error::ProcRunning(proc_id.clone()))
             }
@@ -170,12 +174,13 @@ impl SharedProcs {
     }
 
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
-        self.procs.borrow_mut().pop_first()
+        self.procs.borrow_mut().procs.pop_first()
     }
 
     pub fn to_result(&self) -> res::Res {
         self.procs
             .borrow()
+            .procs
             .iter()
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
             .collect::<BTreeMap<_, _>>()

@@ -114,7 +114,9 @@ type SharedProc = Rc<RefCell<Proc>>;
 
 //------------------------------------------------------------------------------
 
+/// Asynchronous notifications to clients when something happens.
 pub enum ProcNotification {
+    /// Notification that a process has completed.
     Complete(ProcId),
 }
 
@@ -124,7 +126,10 @@ pub type ProcNotificationReceiver = mpsc::UnboundedReceiver<ProcNotification>;
 //------------------------------------------------------------------------------
 
 pub struct Procs {
+    /// Map from proc ID to proc object.
     procs: BTreeMap<ProcId, SharedProc>,
+
+    /// Notification subscriptions.
     subs: Vec<ProcNotificationSender>,
 }
 

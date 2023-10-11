@@ -1,5 +1,7 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
@@ -7,8 +9,10 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use crate::procs::SharedProcs;
+use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
+
+// FIXME: Replace `eprintln` for errors with something more appropriate.
 
 //------------------------------------------------------------------------------
 
@@ -38,7 +42,6 @@ pub struct Connection {
 }
 
 impl Connection {
-    // FIXME: Is it in bad taste to return a Rc<RefCell> from new()?
     pub fn new(url: &Url, conn_id: Option<&str>, group: Option<&str>) -> Self {
         let url = url.clone();
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
@@ -102,10 +105,85 @@ async fn connect(
     Ok((sender, receiver))
 }
 
+/// Constructs an outgoing message corresponding to a notification message.
+fn notification_to_message(
+    procs: &SharedProcs,
+    noti: ProcNotification,
+) -> Option<proto::OutgoingMessage> {
+    match noti {
+        ProcNotification::Complete(proc_id) => {
+            // Look up the proc.
+            if let Some(proc) = procs.get(&proc_id) {
+                // Got it.  Send its result.
+                let res = proc.borrow().to_result();
+                Some(proto::OutgoingMessage::ProcResult { proc_id, res })
+            } else {
+                // The proc has disappeared since the notification was sent;
+                // it must have been deleted.
+                None
+            }
+        }
+    }
+}
+
+/// Background task that receives notification messages through `noti_sender`,
+/// converts them to outgoing messages, and sends them via `sender`.
+async fn send_notifications(
+    procs: SharedProcs,
+    mut noti_receiver: ProcNotificationReceiver,
+    sender: Rc<RefCell<Option<SocketSender>>>,
+) {
+    loop {
+        // Wait for a notification to arrive on the channel.
+        match noti_receiver.recv().await {
+            Some(noti) => {
+                // Borrow the websocket sender.
+                if let Some(sender) = sender.borrow_mut().as_mut() {
+                    // Generate the outgoing message corresponding to the
+                    // notification.
+                    if let Some(msg) = notification_to_message(&procs, noti) {
+                        // Send the outgoing message.
+                        if let Err(err) = send(sender, msg).await {
+                            eprintln!("msg send error: {:?}", err);
+                            // Close the websocket.
+                            if let Err(err) = sender.close().await {
+                                eprintln!("websocket close error: {:?}", err);
+                            }
+                        }
+                    } else {
+                        // No outgoing message corresponding to this
+                        // notification.
+                    }
+                } else {
+                    // No current websocket sender; we are not currently
+                    // connected.  Drop this notification.
+                }
+            }
+            // End of channel.
+            None => break,
+        }
+    }
+}
+
 pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), proto::Error> {
+    // Create a shared websocket sender, which is shared between the
+    // notification sender and the main message loop.
+    let sender: Rc<RefCell<Option<SocketSender>>> = Rc::new(RefCell::new(None));
+
+    // Subscribe to receive asynchronous notifications, such as when a process
+    // completes.
+    let noti_receiver = procs.subscribe();
+    // Start a task that sends notifications as outgoing messages to the
+    // websocket.
+    let _noti_task = tokio::task::spawn_local(send_notifications(
+        procs.clone(),
+        noti_receiver,
+        sender.clone(),
+    ));
+
     'connect: loop {
         // (Re)connect to the service.
-        let (mut sender, mut receiver) = match connect(&mut connection).await {
+        let (new_sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => pair,
             Err(err) => {
                 eprintln!("error: {:?}", err);
@@ -115,6 +193,8 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                 continue;
             }
         };
+        // Connected.  There's now a websocket sender available.
+        sender.replace(Some(new_sender));
 
         loop {
             match receiver.next().await {
@@ -122,7 +202,10 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                     Ok(Some(rsp))
                         // Handling the incoming message procuced a response;
                         // send it back.
-                        => send(&mut sender, rsp).await?,
+                        => if let Err(err) = send(sender.borrow_mut().as_mut().unwrap(), rsp).await {
+                            eprintln!("msg send error: {:?}", err);
+                            break;
+                        },
                     Ok(None)
                         // Handling the message produced no response.
                         => {},
@@ -130,15 +213,24 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                         // Error while handling the message.
                         => {
                             eprintln!("msg handle error: {:?}", err);
-                            continue 'connect;
+                            break;
                         },
                 },
-                Some(Err(err)) => eprintln!("msg receive error: {:?}", err),
+                Some(Err(err)) => {
+                    eprintln!("msg receive error: {:?}", err);
+                    break;
+                }
                 None => {
                     eprintln!("msg stream end");
-                    continue 'connect;
+                    break;
                 }
             }
         }
+
+        // The connection is closed.  No sender is available.
+        sender.replace(None);
+
+        // Go back and reconnect.
+        continue 'connect;
     }
 }

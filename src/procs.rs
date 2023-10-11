@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::fd::RawFd;
 use std::rc::Rc;
+use tokio::sync::mpsc;
 
 use crate::environ;
 use crate::err_pipe::ErrorPipe;
@@ -113,8 +114,18 @@ type SharedProc = Rc<RefCell<Proc>>;
 
 //------------------------------------------------------------------------------
 
+pub enum ProcNotification {
+    Complete(ProcId),
+}
+
+pub type ProcNotificationSender = mpsc::UnboundedSender<ProcNotification>;
+pub type ProcNotificationReceiver = mpsc::UnboundedReceiver<ProcNotification>;
+
+//------------------------------------------------------------------------------
+
 pub struct Procs {
     procs: BTreeMap<ProcId, SharedProc>,
+    subs: Vec<ProcNotificationSender>,
 }
 
 #[derive(Clone)]
@@ -124,6 +135,7 @@ impl SharedProcs {
     pub fn new() -> SharedProcs {
         SharedProcs(Rc::new(RefCell::new(Procs {
             procs: BTreeMap::new(),
+            subs: Vec::new(),
         })))
     }
 
@@ -183,6 +195,12 @@ impl SharedProcs {
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
             .collect::<BTreeMap<_, _>>()
     }
+
+    pub fn subscribe(&self) -> ProcNotificationReceiver {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        self.0.borrow_mut().subs.push(sender);
+        receiver
+    }
 }
 
 async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
@@ -203,7 +221,13 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
     }
 }
 
-pub async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe: ErrorPipe) {
+async fn run_proc(
+    proc_id: ProcId,
+    proc: SharedProc,
+    sigchld_receiver: SignalReceiver,
+    error_pipe: ErrorPipe,
+    subs: Vec<ProcNotificationSender>,
+) {
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {
@@ -218,6 +242,10 @@ pub async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_
 
     _ = error_task.await;
     _ = wait_task.await;
+
+    // Let all subscribers know that this proc has completed.
+    subs.iter()
+        .for_each(|s| s.send(ProcNotification::Complete(proc_id.clone())).unwrap());
 }
 
 //------------------------------------------------------------------------------
@@ -295,9 +323,11 @@ pub async fn start_procs(
 
                 // Start a task to handle this child.
                 tasks.push(tokio::task::spawn_local(run_proc(
+                    proc_id.clone(),
                     Rc::clone(&proc),
                     sigchld_receiver.clone(),
                     error_pipe,
+                    running_procs.0.borrow().subs.clone(),
                 )));
 
                 // Construct the record of this running proc.

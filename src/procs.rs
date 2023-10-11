@@ -258,7 +258,7 @@ async fn run_proc(
 // FIXME: Check that proc_ids aren't already known; return Error if so.
 pub async fn start_procs(
     input: Input,
-    running_procs: SharedProcs,
+    procs: SharedProcs,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());
@@ -332,11 +332,11 @@ pub async fn start_procs(
                     Rc::clone(&proc),
                     sigchld_receiver.clone(),
                     error_pipe,
-                    running_procs.0.borrow().subs.clone(),
+                    procs.0.borrow().subs.clone(),
                 )));
 
                 // Construct the record of this running proc.
-                running_procs.insert(proc_id, proc);
+                procs.insert(proc_id, proc);
             }
 
             Err(err) => panic!("failed to fork: {}", err),
@@ -346,7 +346,7 @@ pub async fn start_procs(
     tasks
 }
 
-pub async fn collect_results(running_procs: SharedProcs) -> res::Res {
+pub async fn collect_results(procs: SharedProcs) -> res::Res {
     let mut result = res::Res::new();
 
     // // Clean up procs that might have completed already.
@@ -372,13 +372,13 @@ pub async fn collect_results(running_procs: SharedProcs) -> res::Res {
     // std::mem::drop(select);
 
     // Collect proc results by removing and waiting each running proc.
-    while let Some((proc_id, proc)) = running_procs.pop() {
+    while let Some((proc_id, proc)) = procs.pop() {
         let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
         result.insert(proc_id.clone(), proc.to_result());
     }
     // Nothing should be left running.
-    assert!(running_procs.len() == 0);
+    assert!(procs.len() == 0);
 
     result
 }

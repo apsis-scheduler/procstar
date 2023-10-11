@@ -111,7 +111,7 @@ fn notification_to_message(
     noti: ProcNotification,
 ) -> Option<proto::OutgoingMessage> {
     match noti {
-        ProcNotification::Complete(proc_id) => {
+        ProcNotification::Start(proc_id) | ProcNotification::Complete(proc_id) => {
             // Look up the proc.
             if let Some(proc) = procs.get(&proc_id) {
                 // Got it.  Send its result.

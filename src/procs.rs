@@ -115,7 +115,11 @@ type SharedProc = Rc<RefCell<Proc>>;
 //------------------------------------------------------------------------------
 
 /// Asynchronous notifications to clients when something happens.
+#[derive(Clone)]
 pub enum ProcNotification {
+    /// Notification that a process has started.
+    Start(ProcId),
+
     /// Notification that a process has completed.
     Complete(ProcId),
 }
@@ -206,6 +210,10 @@ impl SharedProcs {
         self.0.borrow_mut().subs.push(sender);
         receiver
     }
+
+    fn notify(&self, noti: ProcNotification) {
+        self.0.borrow().subs.iter().for_each(|s| s.send(noti.clone()).unwrap());
+    }
 }
 
 async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
@@ -227,12 +235,16 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
 }
 
 async fn run_proc(
+    procs: SharedProcs,
     proc_id: ProcId,
-    proc: SharedProc,
+    proc: Proc,
     sigchld_receiver: SignalReceiver,
     error_pipe: ErrorPipe,
-    subs: Vec<ProcNotificationSender>,
 ) {
+    // Construct the record of this running proc.
+    let proc = Rc::new(RefCell::new(proc));
+    procs.insert(proc_id.clone(), proc.clone());
+
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {
@@ -245,12 +257,14 @@ async fn run_proc(
 
     let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
 
+    // Let subscribers know that there is a new proc.
+    procs.notify(ProcNotification::Start(proc_id.clone()));
+
     _ = error_task.await;
     _ = wait_task.await;
 
     // Let all subscribers know that this proc has completed.
-    subs.iter()
-        .for_each(|s| s.send(ProcNotification::Complete(proc_id.clone())).unwrap());
+    procs.notify(ProcNotification::Complete(proc_id));
 }
 
 //------------------------------------------------------------------------------
@@ -308,6 +322,7 @@ pub async fn start_procs(
 
             Ok(child_pid) => {
                 // Parent process.
+
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let _fd_handler_tasks = fd_handlers
                     .iter()
@@ -324,19 +339,16 @@ pub async fn start_procs(
                     })
                     .collect::<Vec<_>>();
 
-                let proc = Rc::new(RefCell::new(Proc::new(child_pid, fd_handlers)));
+                let proc = Proc::new(child_pid, fd_handlers);
 
                 // Start a task to handle this child.
                 tasks.push(tokio::task::spawn_local(run_proc(
+                    procs.clone(),
                     proc_id.clone(),
-                    Rc::clone(&proc),
+                    proc,
                     sigchld_receiver.clone(),
                     error_pipe,
-                    procs.0.borrow().subs.clone(),
                 )));
-
-                // Construct the record of this running proc.
-                procs.insert(proc_id, proc);
             }
 
             Err(err) => panic!("failed to fork: {}", err),

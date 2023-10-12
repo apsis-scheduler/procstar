@@ -122,7 +122,9 @@ fn notification_to_message(
                 // it must have been deleted.
                 None
             }
-        }
+        },
+
+        ProcNotification::Delete(proc_id) => Some(proto::OutgoingMessage::ProcDelete { proc_id }),
     }
 }
 

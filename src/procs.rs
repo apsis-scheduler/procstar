@@ -116,13 +116,16 @@ type SharedProc = Rc<RefCell<Proc>>;
 //------------------------------------------------------------------------------
 
 /// Asynchronous notifications to clients when something happens.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ProcNotification {
-    /// Notification that a process has started.
+    /// Notification that a process has been created and started.
     Start(ProcId),
 
     /// Notification that a process has completed.
     Complete(ProcId),
+
+    /// Notification that a process has been deleted.
+    Delete(ProcId),
 }
 
 pub type ProcNotificationSender = mpsc::UnboundedSender<ProcNotification>;
@@ -152,7 +155,9 @@ impl SharedProcs {
     // FIXME: Some of these methods are unused.
 
     pub fn insert(&self, proc_id: ProcId, proc: SharedProc) {
-        self.0.borrow_mut().procs.insert(proc_id, proc);
+        self.0.borrow_mut().procs.insert(proc_id.clone(), proc);
+        // Let subscribers know that there is a new proc.
+        self.notify(ProcNotification::Start(proc_id));
     }
 
     pub fn len(&self) -> usize {
@@ -176,15 +181,21 @@ impl SharedProcs {
     }
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
-        self.0.borrow_mut().procs.remove(&proc_id)
+        let proc = self.0.borrow_mut().procs.remove(&proc_id);
+        self.notify(ProcNotification::Delete(proc_id.clone()));
+        proc
     }
 
-    /// Removes and returns a proc, if it is complete (has wait info).
+    /// Removes and returns a proc, if it is complete.
     pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
         let mut procs = self.0.borrow_mut();
         if let Some(proc) = procs.procs.get(proc_id) {
             if proc.borrow().wait_info.is_some() {
-                Ok(procs.procs.remove(proc_id).unwrap())
+                let proc = procs.procs.remove(proc_id).unwrap();
+                drop(procs);
+                eprintln!("notify delete");
+                self.notify(ProcNotification::Delete(proc_id.clone()));
+                Ok(proc)
             } else {
                 Err(Error::ProcRunning(proc_id.clone()))
             }
@@ -213,6 +224,10 @@ impl SharedProcs {
     }
 
     fn notify(&self, noti: ProcNotification) {
+        // FIXME: For debugging.
+        let n = self.0.borrow().subs.len();
+        eprintln!("notify: {} subs: {:?}", n, noti);
+
         self.0
             .borrow()
             .subs
@@ -333,8 +348,6 @@ pub async fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::J
                 // Register the new proc.
                 let proc = Rc::new(RefCell::new(proc));
                 procs.insert(proc_id.clone(), proc.clone());
-                // Let subscribers know that there is a new proc.
-                procs.notify(ProcNotification::Start(proc_id.clone()));
 
                 // Build the task that awaits the process.
                 let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe);

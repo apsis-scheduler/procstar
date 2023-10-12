@@ -268,7 +268,7 @@ class Server:
             )
 
         else:
-            logger.info(f"[{conn_id}]: reconnecting")
+            logger.info(f"[{conn_id}] reconnecting")
 
             # Previous connection with the same ID.  First, some sanity checks.
             if info.address != connection.info.address:

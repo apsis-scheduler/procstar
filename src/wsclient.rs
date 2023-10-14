@@ -202,7 +202,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
             match receiver.next().await {
                 Some(Ok(msg)) => match handle(procs.clone(), msg).await {
                     Ok(Some(rsp))
-                        // Handling the incoming message procuced a response;
+                        // Handling the incoming message produced a response;
                         // send it back.
                         => if let Err(err) = send(sender.borrow_mut().as_mut().unwrap(), rsp).await {
                             eprintln!("msg send error: {:?}", err);

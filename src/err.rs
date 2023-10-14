@@ -8,7 +8,7 @@ impl std::fmt::Display for SpecError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             SpecError::DupId(ids) => {
-                f.write_str("duplicate IDs: ")?;
+                f.write_str("duplicate proc IDs: ")?;
                 f.write_str(&ids.join(" "))
             }
         }

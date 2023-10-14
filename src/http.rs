@@ -102,10 +102,13 @@ async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> RspResult {
 /// Handles `POST /procs`.
 async fn procs_post(procs: SharedProcs, input: Input) -> RspResult {
     // FIXME: Check duplicate proc IDs.
-    start_procs(input, procs.clone());
-    Ok(json!({
-        // FIXME
-    }))
+    if let Err(err) = start_procs(&input.specs, procs.clone()) {
+        Err(RspError::bad_request(&err.to_string()))
+    } else {
+        Ok(json!({
+            // FIXME
+        }))
+    }
 }
 
 /// Handles POST /procs/:id/signal/:signum.

@@ -52,8 +52,12 @@ async fn main() {
         // Even though `start_procs` is not async, we have to run it in the
         // LocalSet since it starts other tasks itself.
         local
-            .run_until(async { start_procs(input, running_procs.clone()) })
-            .await;
+            .run_until(async { start_procs(&input.specs, running_procs.clone()) })
+            .await
+            .unwrap_or_else(|err| {
+                eprintln!("failred to start procs: {}", err);
+                std::process::exit(exitcode::DATAERR);
+            });
 
         // Now run one or both servers.
         local
@@ -67,7 +71,11 @@ async fn main() {
         local
             .run_until(async move {
                 // Start specs from the command line.
-                let tasks = start_procs(input, running_procs.clone());
+                let tasks =
+                    start_procs(&input.specs, running_procs.clone()).unwrap_or_else(|err| {
+                        eprintln!("failed to start procs: {}", err);
+                        std::process::exit(exitcode::DATAERR);
+                    });
                 // Wait for tasks to complete.
                 for task in tasks {
                     _ = task.await.unwrap(); // FIXME: unwrap

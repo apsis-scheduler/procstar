@@ -139,7 +139,7 @@ impl Default for OpenFlag {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum CaptureMode {
@@ -171,7 +171,7 @@ fn get_default_mode() -> c_int {
     0o666
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum Fd {
@@ -230,6 +230,8 @@ pub struct Proc {
     pub fds: Vec<(String, Fd)>,
 }
 
+pub type Procs = BTreeMap<ProcId, Proc>;
+
 //------------------------------------------------------------------------------
 // Input spec
 //------------------------------------------------------------------------------
@@ -239,13 +241,13 @@ pub type ProcId = String;
 #[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
-    pub specs: BTreeMap<ProcId, Proc>,
+    pub specs: Procs,
 }
 
 impl Input {
     pub fn new() -> Self {
         Self {
-            specs: BTreeMap::new(),
+            specs: Procs::new(),
         }
     }
 }

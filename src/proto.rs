@@ -114,13 +114,19 @@ pub enum OutgoingMessage {
 
 pub async fn handle_incoming(procs: SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
-        IncomingMessage::ProcStart { specs } => {
-            start_procs(spec::Input { specs }, procs);
-            None
+        IncomingMessage::ProcStart { ref specs } => {
+            if let Err(err) = start_procs(specs, procs) {
+                Some(OutgoingMessage::IncomingMessageError {
+                    msg,
+                    err: err.to_string(),
+                })
+            } else {
+                None
+            }
         }
 
         IncomingMessage::ProcidListRequest {} => {
-            let proc_ids = procs.get_proc_ids();
+            let proc_ids = procs.get_proc_ids::<Vec<_>>();
             Some(OutgoingMessage::ProcidList { proc_ids })
         }
 

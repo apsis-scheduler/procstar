@@ -1,18 +1,20 @@
 use futures_util::future::FutureExt;
 use libc::pid_t;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
 use crate::environ;
+use crate::err::SpecError;
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::SharedFdHandler;
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
-use crate::spec::{Input, ProcId};
+use crate::spec;
+use crate::spec::ProcId;
 use crate::sys::{execve, fork, kill, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
@@ -164,7 +166,10 @@ impl SharedProcs {
         self.0.borrow().procs.len()
     }
 
-    pub fn get_proc_ids(&self) -> Vec<ProcId> {
+    pub fn get_proc_ids<T>(&self) -> T
+    where
+        T: FromIterator<ProcId>,
+    {
         self.0.borrow().procs.keys().map(|s| s.clone()).collect()
     }
 
@@ -269,14 +274,32 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
 
 //------------------------------------------------------------------------------
 
-// FIXME: Check that proc_ids aren't already known; return Error if so.
-pub fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHandle<()>> {
+/// Starts zero or more new processes.  `input` maps new proc IDs to
+/// corresponding process specs.  All proc IDs must be unused.
+///
+/// Because this function starts tasks with `spawn_local`, it must be run within
+/// a `LocalSet`.
+pub fn start_procs(
+    specs: &spec::Procs,
+    procs: SharedProcs,
+) -> Result<Vec<tokio::task::JoinHandle<()>>, SpecError> {
+    // First check that proc IDs aren't already in use.
+    let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
+    let dup_proc_ids = specs
+        .keys()
+        .filter(|&p| old_proc_ids.contains(p))
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>();
+    if !dup_proc_ids.is_empty() {
+        return Err(SpecError::DupId(dup_proc_ids));
+    }
+
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
     let mut tasks = Vec::new();
 
-    for (proc_id, spec) in input.specs.into_iter() {
+    for (proc_id, spec) in specs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
@@ -286,8 +309,8 @@ pub fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHan
 
         let fd_handlers = spec
             .fds
-            .into_iter()
-            .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str, fd_spec))
+            .iter()
+            .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str.clone(), fd_spec.clone()))
             .collect::<Vec<_>>();
 
         // Fork the child process.
@@ -349,6 +372,7 @@ pub fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHan
                 // Let subscribers know when it completes.
                 let fut = {
                     let procs = procs.clone();
+                    let proc_id = proc_id.clone();
                     fut.inspect(move |_| procs.notify(ProcNotification::Complete(proc_id)))
                 };
                 // Start the task.
@@ -359,7 +383,7 @@ pub fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHan
         }
     }
 
-    tasks
+    Ok(tasks)
 }
 
 pub async fn collect_results(procs: SharedProcs) -> res::Res {

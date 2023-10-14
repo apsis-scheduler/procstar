@@ -17,7 +17,7 @@ class ProtocolError(Exception):
 
 @dataclass
 class ProcStart:
-    procs: Dict[str, dict]
+    specs: Dict[str, dict]
 
 
 

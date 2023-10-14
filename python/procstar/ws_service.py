@@ -320,7 +320,7 @@ class Server:
           The connection on which the process starts.
         """
         connection = self.connections.choose_connection(group)
-        await connection.send(proto.ProcStart(procs={proc_id: spec}))
+        await connection.send(proto.ProcStart(specs={proc_id: spec}))
         return Process(connection, proc_id)
 
 

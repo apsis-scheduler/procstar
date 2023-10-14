@@ -46,7 +46,7 @@ class AsyncClient:
         if proc_id is None:
             proc_id = str(uuid.uuid4())
         jso = {
-            "procs": {
+            "specs": {
                 proc_id: spec.to_jso(),
             }
         }

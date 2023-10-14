@@ -239,13 +239,13 @@ pub type ProcId = String;
 #[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
-    pub procs: BTreeMap<ProcId, Proc>,
+    pub specs: BTreeMap<ProcId, Proc>,
 }
 
 impl Input {
     pub fn new() -> Self {
         Self {
-            procs: BTreeMap::new(),
+            specs: BTreeMap::new(),
         }
     }
 }

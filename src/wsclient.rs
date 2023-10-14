@@ -65,7 +65,7 @@ async fn handle(
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json)?;
             eprintln!("msg: {:?}", msg);
-            if let Some(rsp) = proto::handle_incoming(procs, msg).await? {
+            if let Some(rsp) = proto::handle_incoming(procs, msg).await {
                 eprintln!("rsp: {:?}", rsp);
                 Ok(Some(rsp))
             } else {

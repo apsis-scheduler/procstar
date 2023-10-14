@@ -4,7 +4,8 @@ use std::vec::Vec;
 
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
-use crate::spec::{Input, Proc, ProcId};
+use crate::spec;
+use crate::spec::ProcId;
 use crate::sys;
 
 //------------------------------------------------------------------------------
@@ -43,9 +44,19 @@ impl From<serde_json::Error> for Error {
 #[serde(tag = "type")]
 pub enum IncomingMessage {
     // Incomding message types.
-    ProcStart { procs: BTreeMap<ProcId, Proc> },
+
+    /// Requests new processes to be started.  `specs` maps proc IDs to process
+    /// specs.  Proc IDs may not already be in use.
+    ProcStart { specs: BTreeMap<ProcId, spec::Proc> },
+
+    /// Requests a list of current proc IDs.
     ProcidListRequest {},
+
+    /// Requests the current result of a process, which may or may not be
+    /// complete.
     ProcResultRequest { proc_id: ProcId },
+
+    /// Requests deletion of a process's records.  The process must be complete.
     ProcDeleteRequest { proc_id: ProcId },
 }
 
@@ -69,25 +80,43 @@ impl InstanceInfo {
     }
 }
 
+//------------------------------------------------------------------------------
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     // Outgoing message types.
+
+    /// An incoming message could not be processed.
+    IncomingMessageError {
+        msg: IncomingMessage,
+        err: String,
+    },
+
+    /// Registers or re-registers this instance.
     Register {
         conn_id: String,
         group: String,
         info: InstanceInfo,
     },
+
+    /// A new process has been created.
     ProcNew {
         proc_id: ProcId,
     },
+
+    /// The list of current proc IDs.
     ProcidList {
         proc_ids: Vec<ProcId>,
     },
+
+    /// The current result of a process, which may or may not be complete.
     ProcResult {
         proc_id: ProcId,
         res: ProcRes,
     },
+
+    /// A process has been deleted.
     ProcDelete {
         proc_id: ProcId,
     },
@@ -96,37 +125,34 @@ pub enum OutgoingMessage {
 pub async fn handle_incoming(
     procs: SharedProcs,
     msg: IncomingMessage,
-) -> Result<Option<OutgoingMessage>, Error> {
+) -> Option<OutgoingMessage> {
     match msg {
-        IncomingMessage::ProcStart { procs: procs_ } => {
-            start_procs(Input { procs: procs_ }, procs).await;
-            Ok(None)
+        IncomingMessage::ProcStart { specs } => {
+            start_procs(spec::Input { specs }, procs).await;
+            None
         }
 
         IncomingMessage::ProcidListRequest {} => {
             let proc_ids = procs.get_proc_ids();
-            Ok(Some(OutgoingMessage::ProcidList { proc_ids }))
+            Some(OutgoingMessage::ProcidList { proc_ids })
         }
 
-        IncomingMessage::ProcResultRequest { proc_id } => {
+        IncomingMessage::ProcResultRequest { ref proc_id } => {
             if let Some(proc) = procs.get(&proc_id) {
+                let proc_id = proc_id.clone();
                 let res = proc.borrow().to_result();
-                Ok(Some(OutgoingMessage::ProcResult { proc_id, res }))
+                Some(OutgoingMessage::ProcResult { proc_id, res })
             } else {
-                // FIXME: How do we indicate protocol errors??
-                eprintln!("no such proc id: {}", proc_id);
-                Ok(None)
+                let proc_id = proc_id.clone();
+                Some(OutgoingMessage::IncomingMessageError { msg, err: format!("no such proc id: {}", proc_id) })
             }
         }
 
-        IncomingMessage::ProcDeleteRequest { proc_id } => {
-            match procs.remove_if_complete(&proc_id) {
-                Ok(_) => Ok(None),
-                Err(err) => {
-                    // FIXME: How do we indicate protocol errors??
-                    eprintln!("can't delete: {}", err);
-                    Ok(None)
-                }
+        IncomingMessage::ProcDeleteRequest { ref proc_id } => {
+            match procs.remove_if_complete(proc_id) {
+                Ok(_) => None,
+                Err(err) =>
+                    Some(OutgoingMessage::IncomingMessageError { msg, err: err.to_string() })
             }
         }
     }

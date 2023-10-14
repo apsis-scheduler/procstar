@@ -281,7 +281,7 @@ pub async fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::J
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
     let mut tasks = Vec::new();
 
-    for (proc_id, spec) in input.procs.into_iter() {
+    for (proc_id, spec) in input.specs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {

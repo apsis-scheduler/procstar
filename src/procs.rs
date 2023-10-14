@@ -193,7 +193,6 @@ impl SharedProcs {
             if proc.borrow().wait_info.is_some() {
                 let proc = procs.procs.remove(proc_id).unwrap();
                 drop(procs);
-                eprintln!("notify delete");
                 self.notify(ProcNotification::Delete(proc_id.clone()));
                 Ok(proc)
             } else {

@@ -224,10 +224,6 @@ impl SharedProcs {
     }
 
     fn notify(&self, noti: ProcNotification) {
-        // FIXME: For debugging.
-        let n = self.0.borrow().subs.len();
-        eprintln!("notify: {} subs: {:?}", n, noti);
-
         self.0
             .borrow()
             .subs

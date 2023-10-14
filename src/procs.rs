@@ -270,7 +270,7 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
 //------------------------------------------------------------------------------
 
 // FIXME: Check that proc_ids aren't already known; return Error if so.
-pub async fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHandle<()>> {
+pub fn start_procs(input: Input, procs: SharedProcs) -> Vec<tokio::task::JoinHandle<()>> {
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());

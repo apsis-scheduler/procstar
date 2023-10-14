@@ -128,7 +128,7 @@ pub async fn handle_incoming(
 ) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::ProcStart { specs } => {
-            start_procs(spec::Input { specs }, procs).await;
+            start_procs(spec::Input { specs }, procs);
             None
         }
 

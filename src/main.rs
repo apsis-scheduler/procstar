@@ -45,11 +45,14 @@ async fn main() {
 
     if args.serve || args.connect.is_some() {
         // Start specs from the command line.  Discard the tasks.  We
-        // intentionally don't start the HTTP service until the input
-        // processes have started, to avoid races where these procs
-        // don't appear in HTTP results.
+        // intentionally don't start the HTTP service until the input processes
+        // have started, to avoid races where these procs don't appear in HTTP
+        // results.
+        //
+        // Even though `start_procs` is not async, we have to run it in the
+        // LocalSet since it starts other tasks itself.
         local
-            .run_until(start_procs(input, running_procs.clone()))
+            .run_until(async { start_procs(input, running_procs.clone()) })
             .await;
 
         // Now run one or both servers.
@@ -64,7 +67,7 @@ async fn main() {
         local
             .run_until(async move {
                 // Start specs from the command line.
-                let tasks = start_procs(input, running_procs.clone()).await;
+                let tasks = start_procs(input, running_procs.clone());
                 // Wait for tasks to complete.
                 for task in tasks {
                     _ = task.await.unwrap(); // FIXME: unwrap

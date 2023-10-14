@@ -65,6 +65,13 @@ def serialize_message(msg):
 #-------------------------------------------------------------------------------
 
 @dataclass
+class IncomingMessageError:
+    msg: dict
+    err: str
+
+
+
+@dataclass
 class ProcidList:
     proc_ids: List[str]
 
@@ -99,6 +106,7 @@ class Register:
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
+            IncomingMessageError,
             ProcidList,
             ProcNew,
             ProcResult,

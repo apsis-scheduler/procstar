@@ -1,5 +1,5 @@
 {
-  "procs": {
+  "specs": {
     "test": {
       "argv": [
         "/usr/bin/echo",

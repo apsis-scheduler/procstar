@@ -83,7 +83,7 @@ def run1(spec, *, proc_id="test"):
     :raise Errors:
       The process had errors.
     """
-    proc = run({"procs": {proc_id: spec}})[proc_id]
+    proc = run({"specs": {proc_id: spec}})[proc_id]
     if len(proc["errors"]) == 0:
         return proc
     else:

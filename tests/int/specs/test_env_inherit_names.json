@@ -1,5 +1,5 @@
 {
-  "procs": {
+  "specs": {
     "test": {
       "argv": ["/usr/bin/printenv", "PROCSTAR_VAR1", "PROCSTAR_VAR2", "USER", "SHELL"],
       "env": {

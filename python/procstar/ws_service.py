@@ -232,7 +232,7 @@ class Server:
         info = ConnectionInfo(address, port)
 
         try:
-            # Wait for a Connect message.
+            # Wait for a Register message.
             try:
                 async with asyncio.timeout(TIMEOUT_LOGIN):
                     msg = await ws.recv()
@@ -241,7 +241,7 @@ class Server:
             except ConnectionClosedError:
                 raise ProtocolError("closed before register")
 
-            # Only Connect is acceptable.
+            # Only Register is acceptable.
             type, msg = deserialize_message(msg)
             if type != "Register":
                 raise ProtocolError(f"expected register; got {type}")

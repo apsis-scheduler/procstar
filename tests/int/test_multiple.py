@@ -5,7 +5,7 @@ import sys
 
 def test_multiple():
     procs = run({
-        "procs": {
+        "specs": {
             f"{i}": {
                 "argv": ["/bin/echo", f"This is process #{i}."],
                 "fds": [
@@ -27,7 +27,7 @@ def test_subprocs1():
     Runs a bunch of scripts, each of which has a tree of subprocs.
     """
     procs = run({
-        "procs": {
+        "specs": {
             f"{i}": {
                 "argv": [sys.executable, str(SCRIPTS_DIR / "subprocs1.py")],
                 "fds": [
@@ -53,7 +53,7 @@ def test_concurrent_print():
     Runs several scripts that produce large amounts of output, and collects it.
     """
     procs = run({
-        "procs": {
+        "specs": {
             f"{i}": {
                 "argv": [
                     str(SCRIPTS_DIR / "general"),

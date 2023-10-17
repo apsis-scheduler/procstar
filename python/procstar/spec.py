@@ -159,6 +159,10 @@ def make(what, /, *, env_vars={}, fds={}):
     """
     Constructs a process spec.
 
+    Defaults to maximum isolation:
+    - all fds other than stdin/out/err closed
+    - minimal env vars inherited
+
     :param what:
       A string shell command, or an argv iterable.
     :param env_vars:
@@ -175,6 +179,8 @@ def make(what, /, *, env_vars={}, fds={}):
 
     fds = dict(fds)
     fds  = { self.Fd.normalize(n): s for n, s in fds.items() }
+    if "stdin" not in fds:
+        fds["stdin"] = Proc.Fd.Null
     if "stdout" not in fds:
         fds["stdout"] = Proc.Fd.Capture("memory", "text")
     if "stderr" not in fds:

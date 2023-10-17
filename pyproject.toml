@@ -31,7 +31,7 @@ Repository = "https://github.com/alexhsamuel/procstar"
 package-dir = {"" = "python"}
 
 [tool.pytest.ini_options]
-testpaths = "tests/int"
+testpaths = "test/"
 
 [tool.ruff]
 select = ["F", "E999"]

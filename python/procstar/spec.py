@@ -1,9 +1,32 @@
+import functools
+import json
+import os
+from   pathlib import Path
+import subprocess
+import sys
+import uuid
+
+#-------------------------------------------------------------------------------
+
+@functools.cache
+def get_bash_path():
+    try:
+        path = subprocess.check_output("which bash", shell=True, text=True)
+    except subprocess.CalledProcessError:
+        raise RuntimeError("no bash in PATH") from None
+    path = Path(path.strip())
+    assert path.name == "bash"
+    assert os.access(path, os.X_OK)
+    return path
+
 
 #-------------------------------------------------------------------------------
 
 class Proc:
 
     class Env:
+
+        MINIMUM_ENV_VARS = ("HOME", "SHELL", "USER")
 
         def __init__(self, *, inherit=True, vars={}):
             self.__inherit = (
@@ -22,6 +45,30 @@ class Proc:
 
 
     class Fd:
+
+        ALIASES = {
+            "0": "stdin",
+            "1": "stdout",
+            "2": "stderr",
+        }
+
+        def normalize(fd):
+            """
+            Normalizes a fd number or name.
+            """
+            fd = str(fd)
+            try:
+                return Proc.Fd.ALIASES[fd]
+            except KeyError:
+                try:
+                    n = int(fd)
+                except ValueError:
+                    raise ValueError(f"invalid fd: {fd}") from None
+                else:
+                    if n < 0:
+                        raise ValueError(f"invalid fd: {fd}") from None
+                return fd
+
 
         class Inherit:
 
@@ -92,10 +139,11 @@ class Proc:
 
 
 
-    def __init__(self, argv, *, env=Env(), fds=[]):
+
+    def __init__(self, argv, *, env=Env(), fds={}):
         self.__argv = tuple( str(a) for a in argv )
         self.__env  = env
-        self.__fds  = dict(fds)
+        self.__fds = dict(fds)
 
 
     def to_jso(self):
@@ -106,4 +154,51 @@ class Proc:
         }
 
 
+
+def make(what, /, *, env_vars={}, fds={}):
+    """
+    Constructs a process spec.
+
+    :param what:
+      A string shell command, or an argv iterable.
+    :param env_vars:
+      Mapping of env vars to set; an env var with value `True` is inherited.
+    :param fds:
+      Mapping from fd to file descripor spec.  Unless specified, stdin is
+      attached to /dev/null; stdout and stderr are each captured to memory as
+      text, and all other fds are closed.
+    """
+    if isinstance(what, str):
+        argv = [get_bash_path(), "-c", what]
+    else:
+        argv = [ str(a) for a in what ]
+
+    fds = dict(fds)
+    fds  = { self.Fd.normalize(n): s for n, s in fds.items() }
+    if "stdout" not in fds:
+        fds["stdout"] = Proc.Fd.Capture("memory", "text")
+    if "stderr" not in fds:
+        fds["stderr"] = Proc.Fd.Capture("memory", "text")
+    # FIXME: Close the rest.
+
+    env = Proc.Env(inherit=Proc.Env.MINIMUM_ENV_VARS, vars=env_vars)
+
+    return Proc(argv, fds=fds, env=env)
+
+
+def to_jso(*unnamed, **by_name):
+    specs = {
+        str(uuid.uuid4()): s.to_jso()
+        for s in unnamed
+    } | {
+        i: s.to_jso()
+        for i, s in by_name.items()
+    }
+    return {"specs": specs}
+
+
+if __name__ == "__main__":
+    # spec = make("echo 'hello, world'")
+    spec = make(["/usr/bin/printenv"])
+    json.dump(to_jso(spec), sys.stdout)
 

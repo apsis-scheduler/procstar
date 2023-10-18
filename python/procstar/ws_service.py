@@ -3,7 +3,6 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
-import contextlib
 from   dataclasses import dataclass
 import datetime
 import ipaddress
@@ -199,21 +198,16 @@ class Server:
         self.__messages = asyncio.Queue()
 
 
-    def run(self, loc=(None, proto.DEFAULT_PORT)):
+    def run(self, loc=(None, None)):
         """
         Returns an async context manager that runs the websocket server.
 
         :param loc:
           `host, port` pair.  If `host` is none, runs on all interfaces.
+          If `port` is none, chooses an unused port on each interface.
         """
         host, port = loc
-
-        @contextlib.asynccontextmanager
-        async def run(serve_connection):
-            async with websockets.server.serve(serve_connection, host, port):
-                yield
-
-        return run(self.serve_connection)
+        return websockets.server.serve(self.serve_connection, host, port)
 
 
     def __enqueue(self, conn_id, msg):

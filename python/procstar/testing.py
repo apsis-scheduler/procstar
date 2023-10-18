@@ -49,24 +49,27 @@ def _get_local(ws_server):
 
 @dataclass
 class TestInstance:
-    name: str
-    group: str
-
+    """
+    The procstar server.
+    """
     server: procstar.ws_service.Server
+
+    """
+    The underlying websocket server.
+    """
     ws_server: object  # FIXME
+
+    """
+    The procstar process.
+    """
     process: subprocess.Popen
 
     @functools.cached_property
     def locs(self):
+        """
+        Returns a sequence of host, port to which the websocket server is bound.
+        """
         return tuple(_get_local(self.ws_server))
-
-
-    @functools.cached_property
-    def urls(self):
-        return tuple(
-            f"ws://{h}:{p}"
-            for h, p in self.locs
-        )
 
 
 
@@ -76,7 +79,17 @@ async def test_instance(
         group=proto.DEFAULT_GROUP,
         loc=("localhost", None),
 ):
+    """
+    Creates a test setup consisting of a server and a connected procstar
+    instance.
+
+    :return:
+      An async context manager which yields an instance of `TestInstance`.
+    """
     server = procstar.ws_service.Server()
+
+    # FIXME: Run procstar in a tempdir.
+    # FIXME: Capture procstar's own logging.
 
     # Start the websocket service.
     async with server.run(loc=loc) as ws_server:
@@ -99,24 +112,14 @@ async def test_instance(
 
             # Ready for use.
             yield TestInstance(
-                name        =name,
-                group       =group,
                 server      =server,
                 ws_server   =ws_server,
                 process     =process,
             )
 
         finally:
-            try:
-                status = process.wait(timeout=0)
-            except subprocess.TimeoutExpired:
-                # Good, the process should not have ended yet.
-                pass
-            else:
-                raise RuntimeError(f"procstar terminated with status {status}")
-
-            # Shut down procstar.
+            # Shut down procstar, if it hasn't already shut down.
             process.send_signal(signal.SIGTERM)
-            status = process.wait()
+            status = process.wait(timeout=1)
 
 

@@ -246,8 +246,7 @@ class Server:
         try:
             # Wait for a Register message.
             try:
-                async with asyncio.timeout(TIMEOUT_LOGIN):
-                    msg = await ws.recv()
+                msg = await asyncio.wait_for(ws.recv(), TIMEOUT_LOGIN)
             except TimeoutError:
                 raise ProtocolError(f"no register in {TIMEOUT_LOGIN} s")
             except ConnectionClosedError:

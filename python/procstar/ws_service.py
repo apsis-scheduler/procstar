@@ -207,7 +207,7 @@ class Server:
           If `port` is none, chooses an unused port on each interface.
         """
         host, port = loc
-        return websockets.server.serve(self.serve_connection, host, port)
+        return websockets.server.serve(self._serve_connection, host, port)
 
 
     def __enqueue(self, conn_id, msg):
@@ -216,8 +216,8 @@ class Server:
 
     def __aiter__(self):
         """
-        Returns an async iterator of (conn_id, message) from all connections
-        to this server.
+        Returns an async iterator of (conn_id, message) containing messages
+        from all connections to this server.
         """
         # FIXME: At the moment, there is no shutdown procedure.  (And this is
         # why asyncio.Queue doesn't implement __aiter__ directly.)
@@ -228,7 +228,7 @@ class Server:
         return messages(self.__messages)
 
 
-    async def serve_connection(self, ws):
+    async def _serve_connection(self, ws):
         """
         Serves an incoming connection.
 

@@ -1,25 +1,12 @@
 import pytest
 
-from   procstar.testing import test_instance
+from   procstar.testing import make_test_instance
 
 #-------------------------------------------------------------------------------
 
-# FIXME
-# @pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_connect():
-    async with test_instance() as inst:
-        async for msg in inst.server:
-            print(msg)
+    async with make_test_instance() as inst:
+        assert len(inst.server.connections) == 1
 
-
-if __name__ == "__main__":
-    import asyncio
-    import logging
-
-    logging.getLogger().setLevel(logging.INFO)
-
-    try:
-        asyncio.run(test_connect())
-    except KeyboardInterrupt:
-        pass
 

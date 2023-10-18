@@ -7,6 +7,7 @@ from   pathlib import Path
 import signal
 import socket
 import subprocess
+import tempfile
 import urllib.parse
 
 from   procstar import proto
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 def get_procstar_path() -> Path:
     """
     Returns the path to the procstar binary.
+
+    Uses the env var `PROCSTAR`, if set.
     """
     try:
         path = os.environ["PROCSTAR"]
@@ -74,7 +77,7 @@ class TestInstance:
 
 
 @contextlib.asynccontextmanager
-async def test_instance(
+async def make_test_instance(
         name=None,
         group=proto.DEFAULT_GROUP,
         loc=("localhost", None),
@@ -83,6 +86,9 @@ async def test_instance(
     Creates a test setup consisting of a server and a connected procstar
     instance.
 
+    :param loc:
+      The host, port to bind to.  If `host` is none, binds to all interfaces;
+      chooses an arbitrary interface to connect to from procstar.
     :return:
       An async context manager which yields an instance of `TestInstance`.
     """
@@ -92,35 +98,37 @@ async def test_instance(
     # FIXME: Capture procstar's own logging.
 
     # Start the websocket service.
-    async with server.run(loc=loc) as ws_server:
-        # The server may be connected to multiple interfaces.  Choose the first
-        # one and build a URL.
-        ws_loc = next(_get_local(ws_server))
-        url = urllib.parse.urlunsplit(("ws", make_netloc(ws_loc), "", "", ""))
-        # Start procstar, telling it to connect to the the service.
-        process = subprocess.Popen(
-            [get_procstar_path(), "--connect", url],
-            env={"RUST_BACKTRACE": "1"} | os.environ,
-        )
-
-        try:
-            # Wait for the first message, the procstar instance registering.
-            conn_id, msg = await anext(aiter(server))
-            assert isinstance(msg, proto.Register)
-            assert msg.group == group
-            assert msg.conn_id == conn_id
-            logger.info("procstar connected")
-
-            # Ready for use.
-            yield TestInstance(
-                server      =server,
-                ws_server   =ws_server,
-                process     =process,
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        async with server.run(loc=loc) as ws_server:
+            # The server may be connected to multiple interfaces.  Choose the first
+            # one and build a URL.
+            ws_loc = next(_get_local(ws_server))
+            url = urllib.parse.urlunsplit(("ws", make_netloc(ws_loc), "", "", ""))
+            # Start procstar, telling it to connect to the the service.
+            process = subprocess.Popen(
+                [get_procstar_path(), "--connect", url],
+                cwd=tmp_dir,
+                env={"RUST_BACKTRACE": "1"} | os.environ,
             )
 
-        finally:
-            # Shut down procstar, if it hasn't already shut down.
-            process.send_signal(signal.SIGTERM)
-            _ = process.wait(timeout=1)
+            try:
+                # Wait for the first message, the procstar instance registering.
+                conn_id, msg = await anext(aiter(server))
+                assert isinstance(msg, proto.Register)
+                assert msg.group == group
+                assert msg.conn_id == conn_id
+                logger.info("procstar connected")
+
+                # Ready for use.
+                yield TestInstance(
+                    server      =server,
+                    ws_server   =ws_server,
+                    process     =process,
+                )
+
+            finally:
+                # Shut down procstar, if it hasn't already shut down.
+                process.send_signal(signal.SIGTERM)
+                _ = process.wait(timeout=1)
 
 

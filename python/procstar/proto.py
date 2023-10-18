@@ -5,6 +5,7 @@ from   typing import Dict, List
 #-------------------------------------------------------------------------------
 
 DEFAULT_PORT = 18782
+DEFAULT_GROUP = "default"
 
 class ProtocolError(Exception):
     """

@@ -28,7 +28,7 @@ def get_procstar_path() -> Path:
         # FIXME: This is not the right place, or the right way.
         path = Path(__file__).parents[2] / "target" / "debug" / "procstar"
 
-    assert os.access(path, os.X_OK), f"missing exe {PROCSTAR_PATH}"
+    assert os.access(path, os.X_OK), f"missing exe {path}"
     logging.info(f"using {path}")
     return path
 
@@ -109,6 +109,7 @@ async def test_instance(
             assert isinstance(msg, proto.Register)
             assert msg.group == group
             assert msg.conn_id == conn_id
+            logger.info("procstar connected")
 
             # Ready for use.
             yield TestInstance(
@@ -120,6 +121,6 @@ async def test_instance(
         finally:
             # Shut down procstar, if it hasn't already shut down.
             process.send_signal(signal.SIGTERM)
-            status = process.wait(timeout=1)
+            _ = process.wait(timeout=1)
 
 

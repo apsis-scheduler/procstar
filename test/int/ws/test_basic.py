@@ -6,10 +6,10 @@ from   procstar.testing import make_test_instance
 
 #-------------------------------------------------------------------------------
 
-def wait_for(server, msg_type, proc_id, *, timeout=1):
+def wait_for(server, msg_type, proc_id=None, *, timeout=1):
     """
-    Waits for and returns the next message of `msg_type` for `proc_id`,
-    discarding any intervening messages.
+    Waits for and returns the next message of `msg_type`, for `proc_id` if
+    not none, discarding any intervening messages.
 
     :raise asyncio.TimeoutError:
       `timeout` seconds elapsed before receiving such a message.
@@ -18,7 +18,10 @@ def wait_for(server, msg_type, proc_id, *, timeout=1):
 
     async def wait():
         async for _, msg in server:
-            if isinstance(msg, msg_type) and msg.proc_id == proc_id:
+            if (
+                    isinstance(msg, msg_type)
+                    and (proc_id is None or msg.proc_id == proc_id)
+            ):
                 return msg
 
     return asyncio.wait_for(wait(), timeout)
@@ -58,6 +61,24 @@ async def test_run_proc():
         assert msg.res["status"]["exit_code"] == 0
         assert msg.res["fds"]["stdout"]["text"] == "Hello, world!\n"
         assert msg.res["fds"]["stderr"]["text"] == ""
+
+        # Request, receive, and check the list of current proc IDs.
+        conn = next(iter(inst.server.connections.values()))
+        await conn.send(proto.ProcidListRequest())
+        msg = await wait_for(inst.server, proto.ProcidList)
+        assert msg.proc_ids == [proc_id]
+
+        # Delete the proc.
+        # FIXME: API.
+        await conn.send(proto.ProcDeleteRequest(proc_id))
+        msg = await wait_for(inst.server, proto.ProcDelete)
+        assert msg.proc_id == proc_id
+
+        # There should be no more proc IDs.
+        conn = next(iter(inst.server.connections.values()))
+        await conn.send(proto.ProcidListRequest())
+        msg = await wait_for(inst.server, proto.ProcidList)
+        assert msg.proc_ids == []
 
 
     # echo0   = spec.make_proc(["/usr/bin/echo", "Hello, world!"])

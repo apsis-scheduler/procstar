@@ -323,7 +323,13 @@ class Server:
         # Don't forget the connection; the other end may reconnect.
 
 
-    async def start(self, group, proc_id, spec) -> Process:
+    async def start(
+            self,
+            proc_id,
+            spec,
+            *,
+            group=proto.DEFAULT_GROUP,
+    ) -> Process:
         """
         Starts a new process on a connection in `group`.
 

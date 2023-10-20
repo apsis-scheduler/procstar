@@ -99,9 +99,6 @@ pub enum OutgoingMessage {
         info: InstanceInfo,
     },
 
-    /// A new process has been created.
-    ProcNew { proc_id: ProcId },
-
     /// The list of current proc IDs.
     ProcidList { proc_ids: Vec<ProcId> },
 

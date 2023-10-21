@@ -158,12 +158,15 @@ class Process:
 
     # FIXME: What happens when the connection is closed?
 
-    def __init__(self, server, connection, proc_id):
+    def __init__(self, connection, proc_id):
         # FIXME: Make sure reference loops get broken on delete.
-        self.server = server
         self.connection = connection
         self.proc_id = proc_id
         self.__messages = asyncio.Queue()
+
+
+    def _enqueue(self, msg):
+        self.__messages.put_nowait(msg)
 
 
     def __anext__(self):
@@ -224,17 +227,19 @@ class Server:
 
 
     def __enqueue(self, conn_id, msg):
-        # FIXME: Should we be enqueueing messages twice?
-        # FIXME: Maybe we should only have explicit subscriptions, so there's
-        # clear ownership of message queues.
-        self.__messages.put_nowait((conn_id, msg))
-        try:
-            proc_id = msg.proc_id
-        except AttributeError:
-            pass
+        proc_id = getattr(msg, "proc_id", None)
+        if proc_id is None:
+            # Not process-specific.  Put it in the general queue.
+            self.__messages.put_nowait((conn_id, msg))
+
         else:
+            # Specific to a process; enqueue it there.
             proc = self.__processes[conn_id][proc_id]
-            proc._Process__messages.put_nowait(msg)
+            proc._enqueue(msg)
+
+            if isinstance(proc, proto.ProcDelete):
+                # Deleted; remove it from our map.
+                del self.__processes[conn_id][proc_id]
 
 
     def __aiter__(self):
@@ -362,7 +367,7 @@ class Server:
         """
         connection = self.connections.choose_connection(group)
         await connection.send(proto.ProcStart(specs={proc_id: spec}))
-        process = Process(self, connection, proc_id)
+        process = Process(connection, proc_id)
         self.__processes.setdefault(connection.conn_id, {})[proc_id] = process
         return process
 

@@ -65,6 +65,7 @@ class Connection:
     reconnects, it uses the same `Connection` instance.
     """
 
+    conn_id: str
     info: ConnectionInfo
     ws: asyncio.protocols.Protocol
     group: str
@@ -85,10 +86,8 @@ class Connection:
             # FIXME: Don't forget the connection.
             logger.warning(f"{self.info}: connection closed")
             # FIXME: Mark it as closed?  Or is its internal closed flag enough?
+            # FIXME: Think carefully the temporarily dropped connection logic.
             assert self.ws.closed
-            # removed = self.connections.pop(conn_id)
-            # assert removed is self
-
 
 
 
@@ -159,13 +158,18 @@ class Process:
 
     # FIXME: What happens when the connection is closed?
 
-    def __init__(self, connection, proc_id):
+    def __init__(self, server, connection, proc_id):
+        # FIXME: Make sure reference loops get broken on delete.
+        self.server = server
         self.connection = connection
         self.proc_id = proc_id
+        self.__messages = asyncio.Queue()
 
 
-    def __aiter__(self):
-        return self
+    def __anext__(self):
+        # FIXME: Remove this process from the server when a delete messages
+        # arrives?  Or is processed?
+        return self.__messages.get()
 
 
     def request_result(self):
@@ -185,7 +189,14 @@ class Process:
         :return:
           An awaitable.
         """
-        return self.connection.send(proto.ProcResultDelete(self.proc_id))
+        return self.connection.send(proto.ProcDeleteRequest(self.proc_id))
+
+
+    async def wait(self):
+        """
+        Waits for the process to complete.
+        """
+        # FIXME
 
 
 
@@ -194,7 +205,9 @@ class Server:
     def __init__(self):
         # Mapping from connection name to connection.
         self.connections = Connections()
-        # Queue for incoming messages and other notifications.
+        # Mapping from conn_id to mapping from proc_id to Process.
+        self.__processes = {}
+        # Queue for all incoming messages and other notifications.
         self.__messages = asyncio.Queue()
 
 
@@ -211,7 +224,17 @@ class Server:
 
 
     def __enqueue(self, conn_id, msg):
+        # FIXME: Should we be enqueueing messages twice?
+        # FIXME: Maybe we should only have explicit subscriptions, so there's
+        # clear ownership of message queues.
         self.__messages.put_nowait((conn_id, msg))
+        try:
+            proc_id = msg.proc_id
+        except AttributeError:
+            pass
+        else:
+            proc = self.__processes[conn_id][proc_id]
+            proc._Process__messages.put_nowait(msg)
 
 
     def __aiter__(self):
@@ -272,6 +295,7 @@ class Server:
             # A new connection ID.
             logger.info(f"[{conn_id}] connecting from {info} group {msg.group}")
             connection = self.connections[conn_id] = Connection(
+                conn_id     =conn_id,
                 info        =info,
                 ws          =ws,
                 group       =msg.group,
@@ -338,7 +362,9 @@ class Server:
         """
         connection = self.connections.choose_connection(group)
         await connection.send(proto.ProcStart(specs={proc_id: spec}))
-        return Process(connection, proc_id)
+        process = Process(self, connection, proc_id)
+        self.__processes.setdefault(connection.conn_id, {})[proc_id] = process
+        return process
 
 
 

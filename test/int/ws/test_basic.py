@@ -51,11 +51,10 @@ async def test_run_proc():
         assert proc.proc_id == proc_id
 
         # First, a result with no status set.
-        msg = await wait_for(inst.server, proto.ProcResult, proc_id)
-        assert msg.res["status"] is None
+        msg = await anext(proc)
         pid = msg.res["pid"]
 
-        msg = await wait_for(inst.server, proto.ProcResult, proc_id)
+        msg = await anext(proc)
         assert msg.res["pid"] == pid
         assert msg.res["status"] is not None
         assert msg.res["status"]["exit_code"] == 0
@@ -69,9 +68,8 @@ async def test_run_proc():
         assert msg.proc_ids == [proc_id]
 
         # Delete the proc.
-        # FIXME: API.
-        await conn.send(proto.ProcDeleteRequest(proc_id))
-        msg = await wait_for(inst.server, proto.ProcDelete)
+        await proc.request_delete()
+        msg = await anext(proc)
         assert msg.proc_id == proc_id
 
         # There should be no more proc IDs.

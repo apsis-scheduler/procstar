@@ -80,9 +80,31 @@ async def test_run_proc():
         assert len(inst.server.processes) == 0
 
 
-    # echo0   = spec.make_proc(["/usr/bin/echo", "Hello, world!"])
-    # echo1   = spec.make_proc("echo This 'is a test.'")
-    # sleep0  = spec.make_proc(["/usr/bin/sleep", 1])
-    # sleep1  = spec.make_proc("sleep 1")
+@pytest.mark.asyncio
+async def test_run_procs():
+    specs = {
+        "e0": spec.make_proc(["/usr/bin/echo", "Hello, world!"]),
+        "e1": spec.make_proc("echo This 'is a test.'"),
+        "s0": spec.make_proc(["/usr/bin/sleep", 1]),
+        "s1": spec.make_proc("sleep 1"),
+    }
+
+    async with make_test_instance() as inst:
+        procs = { i: await inst.server.start(i, s) for i, s in specs.items() }
+
+        async def wait_for(proc):
+            async for res in proc.results:
+                if res["status"] is not None:
+                    return res
+
+        waits = ( wait_for(p) for p in procs.values() )
+        ress = dict(zip(specs, await asyncio.gather(*waits)))
+
+        assert all( r["status"]["exit_code"] == 0 for r in ress.values() )
+        assert ress["e0"]["fds"]["stdout"]["text"] == "Hello, world!\n"
+        assert ress["e1"]["fds"]["stdout"]["text"] == "This is a test.\n"
+        assert ress["s0"]["fds"]["stdout"]["text"] == ""
+        assert ress["s1"]["fds"]["stdout"]["text"] == ""
+        assert all( r["fds"]["stderr"]["text"] == "" for r in ress.values() )
 
 

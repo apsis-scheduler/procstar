@@ -104,31 +104,32 @@ async def make_test_instance(
             # one and build a URL.
             ws_loc = next(_get_local(ws_server))
             url = urllib.parse.urlunsplit(("ws", make_netloc(ws_loc), "", "", ""))
-            # Start procstar, telling it to connect to the the service.
-            process = subprocess.Popen(
-                [get_procstar_path(), "--connect", url],
-                cwd=tmp_dir,
-                env={"RUST_BACKTRACE": "1"} | os.environ,
-            )
 
-            try:
-                # Wait for the first message, the procstar instance registering.
-                conn_id, msg = await anext(aiter(server))
-                assert isinstance(msg, proto.Register)
-                assert msg.group == group
-                assert msg.conn_id == conn_id
-                logger.info("procstar connected")
-
-                # Ready for use.
-                yield TestInstance(
-                    server      =server,
-                    ws_server   =ws_server,
-                    process     =process,
+            async with server.connections.watching() as events:
+                # Start procstar, telling it to connect to the the service.
+                process = subprocess.Popen(
+                    [get_procstar_path(), "--connect", url],
+                    cwd=tmp_dir,
+                    env={"RUST_BACKTRACE": "1"} | os.environ,
                 )
 
-            finally:
-                # Shut down procstar, if it hasn't already shut down.
-                process.send_signal(signal.SIGTERM)
-                _ = process.wait(timeout=1)
+                try:
+                    conn_id, conn = await anext(events)
+                    assert conn is not None
+                    assert conn.conn_id == conn_id
+                    assert conn.group == group
+                    logger.info("procstar connected")
+
+                    # Ready for use.
+                    yield TestInstance(
+                        server      =server,
+                        ws_server   =ws_server,
+                        process     =process,
+                    )
+
+                finally:
+                    # Shut down procstar, if it hasn't already shut down.
+                    process.send_signal(signal.SIGTERM)
+                    _ = process.wait(timeout=1)
 
 

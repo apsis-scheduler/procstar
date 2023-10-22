@@ -3,8 +3,9 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
+from   collections.abc import Mapping
+from   contextlib import asynccontextmanager
 from   dataclasses import dataclass
-import datetime
 import ipaddress
 import logging
 import random
@@ -12,7 +13,6 @@ import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import proto
-from   .lib.time import now
 from   .proto import ProtocolError, serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
@@ -44,6 +44,8 @@ class NoConnectionError(LookupError):
     """
 
 
+#-------------------------------------------------------------------------------
+
 @dataclass
 class ConnectionInfo:
     address: ipaddress._BaseAddress
@@ -66,10 +68,13 @@ class Connection:
     """
 
     conn_id: str
-    info: ConnectionInfo
-    ws: asyncio.protocols.Protocol
-    group: str
-    connect_time: datetime.datetime
+    info: ConnectionInfo = None
+    ws: asyncio.protocols.Protocol = None
+    group: str = None
+
+    def __hash__(self):
+        return hash(self.conn_id)
+
 
     @property
     def open(self):
@@ -91,43 +96,86 @@ class Connection:
 
 
 
-class Connections(dict):
+class Connections(Mapping):
 
     def __init__(self):
-        super().__init__()
+        self.__conns = {}
         self.__groups = {}
+        self.__waiting = set()
 
 
-    def __setitem__(self, conn_id, connection: Connection):
+    def _add(self, conn):
         """
         Adds a new connection.
-
-        :param conn_id:
-          The new connection ID, which must not already be in use.
         """
-        assert conn_id not in self
-        super().__setitem__(conn_id, connection)
-
+        conn_id = conn.conn_id
+        assert conn_id not in self.__conns
+        self.__conns[conn_id] = conn
         # Add it to the group.
-        group = self.__groups.setdefault(connection.group, set())
+        group = self.__groups.setdefault(conn.group, set())
         group.add(conn_id)
+        self.__event(conn_id, conn)
 
 
-    def __delitem__(self, conn_id):
-        self.pop(conn_id)
-
-
-    def pop(self, conn_id) -> Connection:
-        connection = super().pop(conn_id)
-
+    def _pop(self, conn_id) -> Connection:
+        """
+        Deletes and returns a connection.
+        """
+        conn = self.__conns.pop(conn_id)
         # Remove it from its group.
-        group = self.__groups[connection.group]
+        group = self.__groups[conn.group]
         group.remove(conn_id)
         # If the group is now empty, clean it up.
         if len(group) == 0:
-            del self.__groups[connection.group]
+            del self.__groups[conn.group]
+        self.__event(conn_id, None)
+        return conn
 
-        return connection
+
+    def __event(self, conn_id, conn):
+        for queue in self.__waiting:
+            queue.put_nowait((conn_id, conn))
+
+
+    @asynccontextmanager
+    async def watching(self):
+        queue = asyncio.Queue()
+        self.__waiting.add(queue)
+
+        async def events():
+            while True:
+                yield await queue.get()
+
+        try:
+            yield events()
+        finally:
+            self.__waiting.remove(queue)
+
+
+    # Mapping methods.
+
+    def __contains__(self, conn_id):
+        return self.__conns.__contains__(conn_id)
+
+
+    def __getitem__(self, conn_id):
+        return self.__conns.__getitem__(conn_id)
+
+
+    def __len__(self):
+        return self.__conns.__len__()
+
+
+    def __iter__(self):
+        return self.__conns.__iter__()
+
+
+    def values(self):
+        return self.__conns.values()
+
+
+    def items(self):
+        return self.__conns.items()
 
 
     # Group methods
@@ -154,64 +202,134 @@ class Connections(dict):
 
 
 
+#-------------------------------------------------------------------------------
+
 class Process:
 
     # FIXME: What happens when the connection is closed?
 
-    def __init__(self, connection, proc_id):
-        # FIXME: Make sure reference loops get broken on delete.
-        self.connection = connection
+    def __init__(self, conn_id, proc_id):
         self.proc_id = proc_id
-        self.__messages = asyncio.Queue()
+        self.conn_id = conn_id
+        self.result = None
+        # FIXME: Receive proc-specific errors.
+        self.errors = []
+
+        self.__waiting = set()
 
 
-    def _enqueue(self, msg):
-        self.__messages.put_nowait(msg)
-
-
-    def __anext__(self):
-        # FIXME: Remove this process from the server when a delete messages
-        # arrives?  Or is processed?
-        return self.__messages.get()
-
-
-    def request_result(self):
+    def wait(self):
         """
-        Sends a request for the current process result.
-
-        :return:
-          An awaitable.
+        Returns a future that resolves to a new result, when available, or
+        none if the processes is deleted.
         """
-        return self.connection.send(proto.ProcResultRequest(self.proc_id))
+        fut = asyncio.get_event_loop().create_future()
+        self.__waiting.add(fut)
+        return fut
 
 
-    def request_delete(self):
-        """
-        Sends a request to delete the process.
-
-        :return:
-          An awaitable.
-        """
-        return self.connection.send(proto.ProcDeleteRequest(self.proc_id))
-
-
-    async def wait(self):
-        """
-        Waits for the process to complete.
-        """
-        # FIXME
+    def _awake(self, res):
+        for fut in self.__waiting:
+            fut.set_result(res)
+        self.__waiting.clear()
 
 
 
 class Server:
 
+    class _Processes(Mapping):
+        """
+        Tracks processes.
+        """
+
+        def __init__(self):
+            self.__procs = {}
+
+
+        def create(self, conn_id, proc_id) -> Process:
+            """
+            Creates and returns a new process on `connection` with `proc_id`.
+
+            `proc_id` must be unknown.
+            """
+            assert proc_id not in self.__procs
+            self.__procs[proc_id] = proc = Process(conn_id, proc_id)
+            return proc
+
+
+        def on_message(self, conn_id, msg):
+            """
+            Enqueues `msg` received from `conn_id` to the corresponding
+            process.
+            """
+            def get_proc(proc_id):
+                try:
+                    return self.__procs[proc_id]
+                except KeyError:
+                    logger.info(f"new proc on {conn_id}: {proc_id}")
+                    return self.create(conn_id, proc_id)
+
+            match msg:
+                case proto.ProcidList(proc_ids):
+                    logger.debug(f"msg proc_id list: {proc_ids}")
+                    for proc_id in proc_ids:
+                        _ = get_proc(proc_id)
+
+                case proto.ProcResult(proc_id, res):
+                    proc = get_proc(proc_id)
+                    logger.debug(f"msg proc result: {proc_id}")
+                    proc.result = res
+                    proc._awake(res)
+
+                case proto.ProcDelete(proc_id):
+                    proc = get_proc(proc_id)
+                    logger.debug(f"msg proc delete: {proc_id}")
+                    del self.__procs[proc_id]
+                    proc._awake(None)
+
+                case proto.Register:
+                    # We should receive this only immediately after connection.
+                    logger.error(f"msg unexpected: {msg}")
+
+                case proto.IncomingMessageError():
+                    # FIXME: Implement.
+                    # FIXME: Proc-specific errors.
+                    raise NotImplementedError()
+
+
+        # Mapping methods
+
+        def __contains__(self, proc_id):
+            return self.__procs.__contains__(proc_id)
+
+
+        def __getitem__(self, proc_id):
+            return self.__procs.__getitem__(proc_id)
+
+
+        def __len__(self):
+            return self.__procs.__len__()
+
+
+        def __iter__(self):
+            return self.__procs.__iter__()
+
+
+        def values(self):
+            return self.__procs.values()
+
+
+        def items(self):
+            return self.__procs.items()
+
+
+
     def __init__(self):
-        # Mapping from connection name to connection.
+        # Track connections.
+        # FIXME: Make Connection a nested class.
         self.connections = Connections()
-        # Mapping from conn_id to mapping from proc_id to Process.
-        self.__processes = {}
-        # Queue for all incoming messages and other notifications.
-        self.__messages = asyncio.Queue()
+        # Track processes.
+        self.__processes = self._Processes()
 
 
     def run(self, loc=(None, None)):
@@ -226,36 +344,6 @@ class Server:
         return websockets.server.serve(self._serve_connection, host, port)
 
 
-    def __enqueue(self, conn_id, msg):
-        proc_id = getattr(msg, "proc_id", None)
-        if proc_id is None:
-            # Not process-specific.  Put it in the general queue.
-            self.__messages.put_nowait((conn_id, msg))
-
-        else:
-            # Specific to a process; enqueue it there.
-            proc = self.__processes[conn_id][proc_id]
-            proc._enqueue(msg)
-
-            if isinstance(proc, proto.ProcDelete):
-                # Deleted; remove it from our map.
-                del self.__processes[conn_id][proc_id]
-
-
-    def __aiter__(self):
-        """
-        Returns an async iterator of (conn_id, message) containing messages
-        from all connections to this server.
-        """
-        # FIXME: At the moment, there is no shutdown procedure.  (And this is
-        # why asyncio.Queue doesn't implement __aiter__ directly.)
-        async def messages(queue):
-            while True:
-                yield await queue.get()
-
-        return messages(self.__messages)
-
-
     async def _serve_connection(self, ws):
         """
         Serves an incoming connection.
@@ -263,8 +351,6 @@ class Server:
         Use this bound method with `websockets.server.serve()`.
         """
         assert ws.open
-
-        connect_time = now()
 
         # Collect remote loc.
         address, port, *_ = ws.remote_address
@@ -299,13 +385,13 @@ class Server:
         except KeyError:
             # A new connection ID.
             logger.info(f"[{conn_id}] connecting from {info} group {msg.group}")
-            connection = self.connections[conn_id] = Connection(
+            connection = Connection(
                 conn_id     =conn_id,
                 info        =info,
                 ws          =ws,
                 group       =msg.group,
-                connect_time=connect_time,
             )
+            self.connections._add(connection)
 
         else:
             logger.info(f"[{conn_id}] reconnecting")
@@ -332,10 +418,6 @@ class Server:
             connection.info = info
             connection.ws = ws
             connection.group = msg.group
-            connection.connect_time = connect_time
-
-        # Enqueue the register message we already received.
-        self.__enqueue(conn_id, msg)
 
         # Receive messages.
         while True:
@@ -345,7 +427,8 @@ class Server:
                 logger.info(f"[{conn_id}] connection closed")
                 break
             type, msg = deserialize_message(msg)
-            self.__enqueue(conn_id, msg)
+            # Process the message.
+            self.__processes.on_message(conn_id, msg)
 
         await ws.close()
         assert ws.closed
@@ -365,11 +448,26 @@ class Server:
         :return:
           The connection on which the process starts.
         """
-        connection = self.connections.choose_connection(group)
-        await connection.send(proto.ProcStart(specs={proc_id: spec}))
-        process = Process(connection, proc_id)
-        self.__processes.setdefault(connection.conn_id, {})[proc_id] = process
-        return process
+        conn = self.connections.choose_connection(group)
+        # FIXME: If the connection is closed, choose another.
+        await conn.send(proto.ProcStart(specs={proc_id: spec}))
+        return self.__processes.create(conn.conn_id, proc_id)
+
+
+    async def reconnect(self, conn_id, proc_id) -> Process:
+        # FIXME
+        raise NotImplementedError()
+
+
+    async def delete(self, proc_id):
+        """
+        Deletes a process.
+        """
+        # FIXME: No proc?
+        proc = self.__processes[proc_id]
+        # FIXME: No connection?
+        conn = self.connections[proc.conn_id]
+        await conn.send(proto.ProcDeleteRequest(proc_id))
 
 
 

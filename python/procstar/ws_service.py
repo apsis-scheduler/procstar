@@ -464,6 +464,11 @@ class Server:
         :return:
           The connection on which the process starts.
         """
+        try:
+            spec = spec.to_jso()
+        except AttributeError:
+            pass
+
         conn = self.connections.choose_connection(group)
         # FIXME: If the connection is closed, choose another.
         await conn.send(proto.ProcStart(specs={proc_id: spec}))

@@ -52,36 +52,37 @@ async def test_run_proc():
         assert proc.result is None
 
         # First, a result with no status set.
-        res = await proc.wait()
-        assert res is not None
-        assert res["status"] is None
-        pid = res["pid"]
-        assert pid is not None
+        async with proc.subscription() as results:
+            res = await anext(results)
+            assert res is not None
+            assert res["status"] is None
+            pid = res["pid"]
+            assert pid is not None
 
-        # Now a result when the process completes.
-        res = await proc.wait()
-        assert res["pid"] == pid
-        assert res["status"] is not None
-        assert res["status"]["exit_code"] == 0
-        assert res["fds"]["stdout"]["text"] == "Hello, world!\n"
-        assert res["fds"]["stderr"]["text"] == ""
+            # Now a result when the process completes.
+            res = await anext(results)
+            assert res["pid"] == pid
+            assert res["status"] is not None
+            assert res["status"]["exit_code"] == 0
+            assert res["fds"]["stdout"]["text"] == "Hello, world!\n"
+            assert res["fds"]["stderr"]["text"] == ""
 
-        # # Request, receive, and check the list of current proc IDs.
-        # conn = next(iter(inst.server.connections.values()))
-        # await conn.send(proto.ProcidListRequest())
-        # msg = await wait_for(inst.server, proto.ProcidList)
-        # assert msg.proc_ids == [proc_id]
+            # # Request, receive, and check the list of current proc IDs.
+            # conn = next(iter(inst.server.connections.values()))
+            # await conn.send(proto.ProcidListRequest())
+            # msg = await wait_for(inst.server, proto.ProcidList)
+            # assert msg.proc_ids == [proc_id]
 
-        # Delete the proc.
-        await inst.server.delete(proc_id)
-        res = await proc.wait()
-        assert res is None
+            # Delete the proc.
+            await inst.server.delete(proc_id)
+            res = await anext(results)
+            assert res is None
 
-        # # There should be no more proc IDs.
-        # conn = next(iter(inst.server.connections.values()))
-        # await conn.send(proto.ProcidListRequest())
-        # msg = await wait_for(inst.server, proto.ProcidList)
-        # assert msg.proc_ids == []
+            # # There should be no more proc IDs.
+            # conn = next(iter(inst.server.connections.values()))
+            # await conn.send(proto.ProcidListRequest())
+            # msg = await wait_for(inst.server, proto.ProcidList)
+            # assert msg.proc_ids == []
 
 
     # echo0   = spec.make_proc(["/usr/bin/echo", "Hello, world!"])

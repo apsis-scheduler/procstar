@@ -4,15 +4,16 @@ WebSocket service for incoming connections from procstar instances.
 
 import asyncio
 from   collections.abc import Mapping
-from   contextlib import asynccontextmanager
 from   dataclasses import dataclass
 import ipaddress
 import logging
 import random
+from   typing import Optional
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import proto
+from   .lib.asyn import Subscribeable
 from   .proto import ProtocolError, serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
@@ -96,12 +97,12 @@ class Connection:
 
 
 
-class Connections(Mapping):
+class Connections(Mapping, Subscribeable):
 
     def __init__(self):
+        super().__init__()
         self.__conns = {}
         self.__groups = {}
-        self.__waiting = set()
 
 
     def _add(self, conn):
@@ -114,7 +115,7 @@ class Connections(Mapping):
         # Add it to the group.
         group = self.__groups.setdefault(conn.group, set())
         group.add(conn_id)
-        self.__event(conn_id, conn)
+        self._publish((conn_id, conn))
 
 
     def _pop(self, conn_id) -> Connection:
@@ -128,28 +129,8 @@ class Connections(Mapping):
         # If the group is now empty, clean it up.
         if len(group) == 0:
             del self.__groups[conn.group]
-        self.__event(conn_id, None)
+        self._publish((conn_id, None))
         return conn
-
-
-    def __event(self, conn_id, conn):
-        for queue in self.__waiting:
-            queue.put_nowait((conn_id, conn))
-
-
-    @asynccontextmanager
-    async def watching(self):
-        queue = asyncio.Queue()
-        self.__waiting.add(queue)
-
-        async def events():
-            while True:
-                yield await queue.get()
-
-        try:
-            yield events()
-        finally:
-            self.__waiting.remove(queue)
 
 
     # Mapping methods.
@@ -204,132 +185,139 @@ class Connections(Mapping):
 
 #-------------------------------------------------------------------------------
 
-class Process:
+class Process(Subscribeable):
+    """
+    A process running under a connected procstar instance.
+
+    A subscription yields an async iterable/iterator of process result dicts, as
+    they are received from procstar.
+
+        async with proc.subscription() as results:
+            result = await anext(results)
+            print("updated result:", result)
+
+    """
+
+    proc_id: str
+    conn_id: str
+
+    """
+    The proc result most recently received from procstar.
+    """
+    result: Optional[dict]
+
+    # FIXME
+    errors: list[str]
 
     # FIXME: What happens when the connection is closed?
 
     def __init__(self, conn_id, proc_id):
+        super().__init__()
         self.proc_id = proc_id
         self.conn_id = conn_id
         self.result = None
         # FIXME: Receive proc-specific errors.
         self.errors = []
 
-        self.__waiting = set()
 
 
-    def wait(self):
+class Processes(Mapping):
+    """
+    Tracks processes running under connected procstar instances.
+    """
+
+    def __init__(self):
+        self.__procs = {}
+
+
+    def create(self, conn_id, proc_id) -> Process:
         """
-        Returns a future that resolves to a new result, when available, or
-        none if the processes is deleted.
+        Creates and returns a new process on `connection` with `proc_id`.
+
+        `proc_id` must be unknown.
         """
-        fut = asyncio.get_event_loop().create_future()
-        self.__waiting.add(fut)
-        return fut
+        assert proc_id not in self.__procs
+        self.__procs[proc_id] = proc = Process(conn_id, proc_id)
+        return proc
 
 
-    def _awake(self, res):
-        for fut in self.__waiting:
-            fut.set_result(res)
-        self.__waiting.clear()
+    def on_message(self, conn_id, msg):
+        """
+        Processes `msg` received from `conn_id` to the corresponding
+        process.
+        """
+        def get_proc(proc_id):
+            try:
+                return self.__procs[proc_id]
+            except KeyError:
+                logger.info(f"new proc on {conn_id}: {proc_id}")
+                return self.create(conn_id, proc_id)
+
+        match msg:
+            case proto.ProcidList(proc_ids):
+                logger.debug(f"msg proc_id list: {proc_ids}")
+                for proc_id in proc_ids:
+                    _ = get_proc(proc_id)
+
+            case proto.ProcResult(proc_id, res):
+                proc = get_proc(proc_id)
+                logger.debug(f"msg proc result: {proc_id}")
+                proc.result = res
+                proc._publish(res)
+
+            case proto.ProcDelete(proc_id):
+                proc = get_proc(proc_id)
+                logger.debug(f"msg proc delete: {proc_id}")
+                del self.__procs[proc_id]
+                proc._publish(None)
+
+            case proto.Register:
+                # We should receive this only immediately after connection.
+                logger.error(f"msg unexpected: {msg}")
+
+            case proto.IncomingMessageError():
+                # FIXME: Implement.
+                # FIXME: Proc-specific errors.
+                raise NotImplementedError()
 
 
+    # Mapping methods
+
+    def __contains__(self, proc_id):
+        return self.__procs.__contains__(proc_id)
+
+
+    def __getitem__(self, proc_id):
+        return self.__procs.__getitem__(proc_id)
+
+
+    def __len__(self):
+        return self.__procs.__len__()
+
+
+    def __iter__(self):
+        return self.__procs.__iter__()
+
+
+    def values(self):
+        return self.__procs.values()
+
+
+    def items(self):
+        return self.__procs.items()
+
+
+
+#-------------------------------------------------------------------------------
 
 class Server:
-
-    class _Processes(Mapping):
-        """
-        Tracks processes.
-        """
-
-        def __init__(self):
-            self.__procs = {}
-
-
-        def create(self, conn_id, proc_id) -> Process:
-            """
-            Creates and returns a new process on `connection` with `proc_id`.
-
-            `proc_id` must be unknown.
-            """
-            assert proc_id not in self.__procs
-            self.__procs[proc_id] = proc = Process(conn_id, proc_id)
-            return proc
-
-
-        def on_message(self, conn_id, msg):
-            """
-            Enqueues `msg` received from `conn_id` to the corresponding
-            process.
-            """
-            def get_proc(proc_id):
-                try:
-                    return self.__procs[proc_id]
-                except KeyError:
-                    logger.info(f"new proc on {conn_id}: {proc_id}")
-                    return self.create(conn_id, proc_id)
-
-            match msg:
-                case proto.ProcidList(proc_ids):
-                    logger.debug(f"msg proc_id list: {proc_ids}")
-                    for proc_id in proc_ids:
-                        _ = get_proc(proc_id)
-
-                case proto.ProcResult(proc_id, res):
-                    proc = get_proc(proc_id)
-                    logger.debug(f"msg proc result: {proc_id}")
-                    proc.result = res
-                    proc._awake(res)
-
-                case proto.ProcDelete(proc_id):
-                    proc = get_proc(proc_id)
-                    logger.debug(f"msg proc delete: {proc_id}")
-                    del self.__procs[proc_id]
-                    proc._awake(None)
-
-                case proto.Register:
-                    # We should receive this only immediately after connection.
-                    logger.error(f"msg unexpected: {msg}")
-
-                case proto.IncomingMessageError():
-                    # FIXME: Implement.
-                    # FIXME: Proc-specific errors.
-                    raise NotImplementedError()
-
-
-        # Mapping methods
-
-        def __contains__(self, proc_id):
-            return self.__procs.__contains__(proc_id)
-
-
-        def __getitem__(self, proc_id):
-            return self.__procs.__getitem__(proc_id)
-
-
-        def __len__(self):
-            return self.__procs.__len__()
-
-
-        def __iter__(self):
-            return self.__procs.__iter__()
-
-
-        def values(self):
-            return self.__procs.values()
-
-
-        def items(self):
-            return self.__procs.items()
-
-
 
     def __init__(self):
         # Track connections.
         # FIXME: Make Connection a nested class.
         self.connections = Connections()
         # Track processes.
-        self.__processes = self._Processes()
+        self.__processes = Processes()
 
 
     def run(self, loc=(None, None)):

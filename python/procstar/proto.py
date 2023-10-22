@@ -79,11 +79,6 @@ class ProcidList:
 
 
 @dataclass
-class ProcNew:
-    proc_id: str
-
-
-@dataclass
 class ProcResult:
     proc_id: str
     res: dict
@@ -109,7 +104,6 @@ INCOMING_MESSAGE_TYPES = {
     for c in (
             IncomingMessageError,
             ProcidList,
-            ProcNew,
             ProcResult,
             ProcDelete,
             Register,

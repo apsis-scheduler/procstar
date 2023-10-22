@@ -185,26 +185,48 @@ class Connections(Mapping, Subscribeable):
 
 #-------------------------------------------------------------------------------
 
-class Process(Subscribeable):
+class Process:
     """
     A process running under a connected procstar instance.
-
-    A subscription yields an async iterable/iterator of process result dicts, as
-    they are received from procstar.
-
-        async with proc.subscription() as results:
-            result = await anext(results)
-            print("updated result:", result)
+    """
 
     """
+    Current or completed process state of the process.  JSON-serializable.
+    """
+    Result = dict
+
+    class Results:
+
+        def __init__(self):
+            self.__latest = None
+            self.__updates = asyncio.Queue()
+
+
+        @property
+        def latest(self):
+            """
+            Most recent received process result.
+            """
+            return self.__latest
+
+
+        def __aiter__(self):
+            return self
+
+
+        def __anext__(self):
+            return self.__updates.get()
+
+
+        def _update(self, result):
+            self.__latest = result
+            self.__updates.put_nowait(result)
+
 
     proc_id: str
     conn_id: str
 
-    """
-    The proc result most recently received from procstar.
-    """
-    result: Optional[dict]
+    results: Results
 
     # FIXME
     errors: list[str]
@@ -212,10 +234,9 @@ class Process(Subscribeable):
     # FIXME: What happens when the connection is closed?
 
     def __init__(self, conn_id, proc_id):
-        super().__init__()
         self.proc_id = proc_id
         self.conn_id = conn_id
-        self.result = None
+        self.results = self.Results()
         # FIXME: Receive proc-specific errors.
         self.errors = []
 
@@ -263,13 +284,13 @@ class Processes(Mapping):
                 proc = get_proc(proc_id)
                 logger.debug(f"msg proc result: {proc_id}")
                 proc.result = res
-                proc._publish(res)
+                proc.results._update(res)
 
             case proto.ProcDelete(proc_id):
                 proc = get_proc(proc_id)
                 logger.debug(f"msg proc delete: {proc_id}")
                 del self.__procs[proc_id]
-                proc._publish(None)
+                proc.results._update(None)
 
             case proto.Register:
                 # We should receive this only immediately after connection.
@@ -317,7 +338,7 @@ class Server:
         # FIXME: Make Connection a nested class.
         self.connections = Connections()
         # Track processes.
-        self.__processes = Processes()
+        self.processes = Processes()
 
 
     def run(self, loc=(None, None)):
@@ -416,7 +437,7 @@ class Server:
                 break
             type, msg = deserialize_message(msg)
             # Process the message.
-            self.__processes.on_message(conn_id, msg)
+            self.processes.on_message(conn_id, msg)
 
         await ws.close()
         assert ws.closed
@@ -439,7 +460,7 @@ class Server:
         conn = self.connections.choose_connection(group)
         # FIXME: If the connection is closed, choose another.
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
-        return self.__processes.create(conn.conn_id, proc_id)
+        return self.processes.create(conn.conn_id, proc_id)
 
 
     async def reconnect(self, conn_id, proc_id) -> Process:
@@ -452,7 +473,7 @@ class Server:
         Deletes a process.
         """
         # FIXME: No proc?
-        proc = self.__processes[proc_id]
+        proc = self.processes[proc_id]
         # FIXME: No connection?
         conn = self.connections[proc.conn_id]
         await conn.send(proto.ProcDeleteRequest(proc_id))

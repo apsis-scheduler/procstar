@@ -53,6 +53,10 @@ async def test_run_proc():
         assert proc.proc_id == proc_id
         assert proc.results.latest is None
 
+        assert len(inst.server.processes) == 1
+        assert next(iter(inst.server.processes)) == proc_id
+        assert next(iter(inst.server.processes.values())) is proc
+
         # First, a result with no status set.
         res = await anext(proc.results)
         assert res is not None
@@ -68,22 +72,12 @@ async def test_run_proc():
         assert res["fds"]["stdout"]["text"] == "Hello, world!\n"
         assert res["fds"]["stderr"]["text"] == ""
 
-        # # Request, receive, and check the list of current proc IDs.
-        # conn = next(iter(inst.server.connections.values()))
-        # await conn.send(proto.ProcidListRequest())
-        # msg = await wait_for(inst.server, proto.ProcidList)
-        # assert msg.proc_ids == [proc_id]
-
         # Delete the proc.
         await inst.server.delete(proc_id)
         res = await anext(proc.results)
         assert res is None
 
-        # # There should be no more proc IDs.
-        # conn = next(iter(inst.server.connections.values()))
-        # await conn.send(proto.ProcidListRequest())
-        # msg = await wait_for(inst.server, proto.ProcidList)
-        # assert msg.proc_ids == []
+        assert len(inst.server.processes) == 0
 
 
     # echo0   = spec.make_proc(["/usr/bin/echo", "Hello, world!"])

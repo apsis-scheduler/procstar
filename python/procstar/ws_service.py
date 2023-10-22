@@ -185,17 +185,24 @@ class Connections(Mapping, Subscribeable):
 
 #-------------------------------------------------------------------------------
 
+"""
+Current or completed process state of the process.  JSON-serializable.
+"""
+Result = dict
+
+
 class Process:
     """
     A process running under a connected procstar instance.
     """
 
-    """
-    Current or completed process state of the process.  JSON-serializable.
-    """
-    Result = dict
-
     class Results:
+        """
+        Process result updates.
+
+        Acts as a one-shot async iterable and iterator of result updates.  The
+        `latest` property always returns the most recent, which may be none.
+        """
 
         def __init__(self):
             self.__latest = None
@@ -203,7 +210,7 @@ class Process:
 
 
         @property
-        def latest(self):
+        def latest(self) -> Optional[Result]:
             """
             Most recent received process result.
             """

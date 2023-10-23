@@ -15,6 +15,10 @@
 - [ ] base2048 output format
 - [ ] compress output
 
+### Cleanups
+
+- [ ] if execve fails, return error code to parent for inclusion in result
+
 ### WebSockets connection
 
 - [ ] auth secret to connect

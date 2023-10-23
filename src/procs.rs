@@ -335,10 +335,14 @@ pub fn start_procs(
                     // execve() only returns with an error; on success, the program is
                     // replaced.
                     let err = execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
-                    error_writer.try_write(format!("exec: {}: {}", exe, err));
+                    error_writer.try_write(format!("execve failed: {}: {}", exe, err));
+                    // FIXME: Find a way to pass the error code to the parent
+                    // for inclusion in results.
+                    std::process::exit(63);
+                } else {
+                    std::process::exit(62);
                 }
-                std::process::exit(exitcode::OSERR);
-            }
+           }
 
             Ok(child_pid) => {
                 // Parent process.

@@ -14,6 +14,7 @@ from   websockets.exceptions import ConnectionClosedError
 
 from   . import proto
 from   .lib.asyn import Subscribeable
+from   .lib.json import Jso
 from   .proto import ProtocolError, serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
@@ -185,12 +186,6 @@ class Connections(Mapping, Subscribeable):
 
 #-------------------------------------------------------------------------------
 
-"""
-Current or completed process state of the process.  JSON-serializable.
-"""
-Result = dict
-
-
 class Process:
     """
     A process running under a connected procstar instance.
@@ -210,7 +205,7 @@ class Process:
 
 
         @property
-        def latest(self) -> Optional[Result]:
+        def latest(self) -> Optional[Jso]:
             """
             Most recent received process result.
             """
@@ -226,6 +221,7 @@ class Process:
 
 
         def _update(self, result):
+            result = None if result is None else Jso(result)
             self.__latest = result
             self.__updates.put_nowait(result)
 
@@ -246,6 +242,16 @@ class Process:
         self.results = self.Results()
         # FIXME: Receive proc-specific errors.
         self.errors = []
+
+
+    async def wait_for_completion(self) -> Jso:
+        """
+        Awaits and returns a completed result.
+        """
+        while True:
+            res = await anext(self.results)
+            if res.status is not None:
+                return res
 
 
 
@@ -421,13 +427,13 @@ class Server:
                     f"[{conn_id}] new address: {connection.info.address}")
             if msg.group != connection.group:
                 logger.error(f"[{conn_id}] new group: {msg.group}")
-                ws.close()
+                await ws.close()
                 return
 
             # Is the old connection socket still (purportedly) open?
             if not connection.ws.closed:
                 logger.warning(f"[{conn_id}] closing old connection")
-                connection.ws.close()
+                await connection.ws.close()
                 assert not connection.ws.open
 
             # Use the new socket with the old connection.

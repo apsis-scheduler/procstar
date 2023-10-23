@@ -92,12 +92,7 @@ async def test_run_procs():
     async with make_test_instance() as inst:
         procs = { i: await inst.server.start(i, s) for i, s in specs.items() }
 
-        async def wait_for(proc):
-            async for res in proc.results:
-                if res.status is not None:
-                    return res
-
-        futs = ( wait_for(p) for p in procs.values() )
+        futs = ( p.wait_for_completion() for p in procs.values() )
         ress = dict(zip(specs, await asyncio.gather(*futs)))
 
         assert all( r.status.exit_code == 0 for r in ress.values() )
@@ -121,5 +116,71 @@ async def test_bad_exe():
         # start_procs().
         assert "bad_exe" in res.errors[0]
         assert res.status.exit_code == 63
+
+
+@pytest.mark.asyncio
+async def test_reconnect():
+    """
+    Starts a couple of processes, drops the connection, waits for a
+    websocket reconnection, and confirms that process results are still
+    accessible.
+    """
+    async with make_test_instance() as inst:
+        proc0 = await inst.server.start(
+            "reconnect0",
+            spec.make_proc(["/usr/bin/sleep", "0.2"])
+        )
+        proc1 = await inst.server.start(
+            "reconnect1",
+            spec.make_proc(["/usr/bin/sleep", "0.4"])
+        )
+
+        with inst.server.connections.subscription() as sub:
+            for _ in range(3):
+                # Close the connection.
+                conn, = inst.server.connections.values()
+                await conn.ws.close()
+                assert conn.ws.closed
+                # Wait for reconnect.
+                conn_id, conn = await anext(sub)
+
+        # Results should be available.
+        res0, res1 = await asyncio.gather(
+            proc0.wait_for_completion(),
+            proc1.wait_for_completion()
+        )
+        assert res0.status.exit_code == 0
+        assert res1.status.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_reconnect_nowait():
+    """
+    Starts a couple of processes, drops the connection, and confirms that
+    process results are still accessible, without waiting explicitly for
+    reconnect.
+    """
+    async with make_test_instance() as inst:
+        proc0 = await inst.server.start(
+            "reconnect0",
+            spec.make_proc(["/usr/bin/sleep", "0.2"])
+        )
+        proc1 = await inst.server.start(
+            "reconnect1",
+            spec.make_proc(["/usr/bin/sleep", "0.4"])
+        )
+
+        # Close the connection.
+        conn, = inst.server.connections.values()
+        await conn.ws.close()
+        assert conn.ws.closed
+
+        # Wait for results anyway.  The procstar instance should reconnect.
+        res0, res1 = await asyncio.gather(
+            proc0.wait_for_completion(),
+            proc1.wait_for_completion()
+        )
+        assert res0.status.exit_code == 0
+        assert res1.status.exit_code == 0
 
 

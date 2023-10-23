@@ -57,6 +57,13 @@ class ConnectionInfo:
         return f"{self.address}:{self.port}"
 
 
+    @classmethod
+    def from_ws(cls, ws):
+        address, port, *_ = ws.remote_address
+        address = ipaddress.ip_address(address)
+        return cls(address, port)
+
+
 
 @dataclass
 class Connection:
@@ -70,12 +77,16 @@ class Connection:
     """
 
     conn_id: str
-    info: ConnectionInfo = None
-    ws: asyncio.protocols.Protocol = None
     group: str = None
+    ws: asyncio.protocols.Protocol = None
 
     def __hash__(self):
         return hash(self.conn_id)
+
+
+    @property
+    def info(self):
+        return None if self.ws is None else ConnectionInfo.from_ws(self.ws)
 
 
     @property
@@ -106,17 +117,55 @@ class Connections(Mapping, Subscribeable):
         self.__groups = {}
 
 
-    def _add(self, conn):
+    def _add(self, *, conn_id, group, ws) -> Connection:
         """
-        Adds a new connection.
+        Adds a new connection or readds an existing one.
+
+        :return:
+          The connection object.
+        :raise RuntimeError:
+          The connection could not be added.
         """
-        conn_id = conn.conn_id
-        assert conn_id not in self.__conns
-        self.__conns[conn_id] = conn
-        # Add it to the group.
-        group = self.__groups.setdefault(conn.group, set())
-        group.add(conn_id)
+        conn_id = conn_id
+
+        try:
+            # Look for an existing connection with this ID.
+            old_conn = self.__conns[conn_id]
+
+        except KeyError:
+            # New connection.
+            conn = self.__conns[conn_id] = Connection(
+                conn_id =conn_id,
+                group   =group,
+                ws      =ws,
+            )
+            # Add it to the group.
+            group = self.__groups.setdefault(group, set())
+            group.add(conn_id)
+
+        else:
+            # Previous connection with the same ID.  First, some sanity checks.
+            info = ConnectionInfo.from_ws(ws)
+            if info.address != old_conn.info.address:
+                # Allow the address to change, in case the remote reconnects
+                # through a different interface.  The port may always be
+                # different, of course.
+                logger.warning(f"[{conn_id}] new address: {info.address}")
+            if group != old_conn.group:
+                # The same instance shouldn't connect under a different group.
+                raise RuntimeError(f"[{conn_id}] new group: {group}")
+
+            # If the old connection websocket still open, close it.
+            if not old_conn.ws.closed:
+                logger.warning(f"[{conn_id}] closing old connection")
+                _ = asyncio.create_task(old_conn.ws.close())
+
+            # Use the new websocket with the old connection object.
+            old_conn.ws = ws
+            conn = old_conn
+
         self._publish((conn_id, conn))
+        return conn
 
 
     def _pop(self, conn_id) -> Connection:
@@ -248,6 +297,11 @@ class Process:
         """
         Awaits and returns a completed result.
         """
+        # Is it already completed?
+        res = self.results.latest
+        if res is not None and res.status is not None:
+            return res
+
         while True:
             res = await anext(self.results)
             if res.status is not None:
@@ -374,11 +428,6 @@ class Server:
         """
         assert ws.open
 
-        # Collect remote loc.
-        address, port, *_ = ws.remote_address
-        address = ipaddress.ip_address(address)
-        info = ConnectionInfo(address, port)
-
         try:
             # Wait for a Register message.
             try:
@@ -394,63 +443,31 @@ class Server:
                 raise ProtocolError(f"expected register; got {type}")
 
         except Exception as exc:
-            logger.warning(f"{info}: {exc}")
+            logger.warning(f"{ws}: {exc}")
             await ws.close()
             return
 
-        conn_id = msg.conn_id
-
-        # Do we recognize this connection?
+        # Add or re-add the connection.
         try:
-            connection = self.connections[conn_id]
-
-        except KeyError:
-            # A new connection ID.
-            logger.info(f"[{conn_id}] connecting from {info} group {msg.group}")
-            connection = Connection(
-                conn_id     =conn_id,
-                info        =info,
-                ws          =ws,
-                group       =msg.group,
+            conn = self.connections._add(
+                conn_id =msg.conn_id,
+                group   =msg.group,
+                ws      =ws,
             )
-            self.connections._add(connection)
-
-        else:
-            logger.info(f"[{conn_id}] reconnecting")
-
-            # Previous connection with the same ID.  First, some sanity checks.
-            if info.address != connection.info.address:
-                # Allow the address to change, in case the remote reconnects
-                # through a different interface.  The port may always be
-                # different, of course.
-                logger.warning(
-                    f"[{conn_id}] new address: {connection.info.address}")
-            if msg.group != connection.group:
-                logger.error(f"[{conn_id}] new group: {msg.group}")
-                await ws.close()
-                return
-
-            # Is the old connection socket still (purportedly) open?
-            if not connection.ws.closed:
-                logger.warning(f"[{conn_id}] closing old connection")
-                await connection.ws.close()
-                assert not connection.ws.open
-
-            # Use the new socket with the old connection.
-            connection.info = info
-            connection.ws = ws
-            connection.group = msg.group
+        except RuntimeError as exc:
+            logging.error(str(exc))
+            return
 
         # Receive messages.
         while True:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                logger.info(f"[{conn_id}] connection closed")
+                logger.info(f"[{conn.conn_id}] connection closed")
                 break
             type, msg = deserialize_message(msg)
             # Process the message.
-            self.processes.on_message(conn_id, msg)
+            self.processes.on_message(conn.conn_id, msg)
 
         await ws.close()
         assert ws.closed

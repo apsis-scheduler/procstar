@@ -1,5 +1,6 @@
 ### Cleanups
 
+- [ ] deal with ws ping/pong
 - [ ] if execve fails, return error code to parent for inclusion in result
 
 ### Features

@@ -105,7 +105,7 @@ async def make_test_instance(
             ws_loc = next(_get_local(ws_server))
             url = urllib.parse.urlunsplit(("ws", make_netloc(ws_loc), "", "", ""))
 
-            async with server.connections.subscription() as events:
+            with server.connections.subscription() as events:
                 # Start procstar, telling it to connect to the the service.
                 process = subprocess.Popen(
                     [get_procstar_path(), "--connect", url],

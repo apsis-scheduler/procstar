@@ -1,5 +1,5 @@
 import asyncio
-from   contextlib import asynccontextmanager
+from   contextlib import contextmanager
 
 #-------------------------------------------------------------------------------
 
@@ -30,8 +30,8 @@ class Subscribeable:
             return self.__events.get()
 
 
-    @asynccontextmanager
-    async def subscription(self):
+    @contextmanager
+    def subscription(self):
         # Create a queue for events sent to this subscription.
         events = asyncio.Queue()
         # Register the subscription.

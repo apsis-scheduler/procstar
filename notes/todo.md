@@ -1,3 +1,9 @@
+### Cleanups
+
+- [ ] if execve fails, return error code to parent for inclusion in result
+
+### Features
+
 - [ ] API for retrieving fd text (raw, UTF-8, compressed)
 - [ ] API for including fd text in proc results, or not
 - [ ] API for cleaning up jobs
@@ -14,10 +20,6 @@
 - [ ] make `get_result` async
 - [ ] base2048 output format
 - [ ] compress output
-
-### Cleanups
-
-- [ ] if execve fails, return error code to parent for inclusion in result
 
 ### WebSockets connection
 

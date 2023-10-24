@@ -101,6 +101,3 @@ async def test_proc_reconnect():
         assert res1.status.exit_code == 0
 
 
-if __name__ == "__main__":
-    asyncio.run(test_proc_reconnect())
-

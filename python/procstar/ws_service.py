@@ -344,6 +344,7 @@ class Processes(Mapping):
         match msg:
             case proto.ProcidList(proc_ids):
                 logger.debug(f"msg proc_id list: {proc_ids}")
+                # Make sure we track a proc for each proc ID the instance knows.
                 for proc_id in proc_ids:
                     _ = get_proc(proc_id)
 
@@ -401,10 +402,7 @@ class Processes(Mapping):
 class Server:
 
     def __init__(self):
-        # Track connections.
-        # FIXME: Make Connection a nested class.
         self.connections = Connections()
-        # Track processes.
         self.processes = Processes()
 
 
@@ -418,6 +416,24 @@ class Server:
         """
         host, port = loc
         return websockets.server.serve(self._serve_connection, host, port)
+
+
+    async def _update_connection(self, conn):
+        """
+        Refreshes process state from a connection.
+        """
+        print("_update_connections", conn)
+        if conn is not None:
+            # Ask the procstar instance to tell us all proc IDs it knows
+            # about.
+            await conn.send(proto.ProcidListRequest())
+            # Ask for updates on all processes we think are at this
+            # instance.
+            await asyncio.gather(*(
+                conn.send(proto.ProcResultRequest(p.proc_id))
+                for p in self.processes.values()
+                if p.conn_id == conn.conn_id
+            ))
 
 
     async def _serve_connection(self, ws):
@@ -457,6 +473,7 @@ class Server:
         except RuntimeError as exc:
             logging.error(str(exc))
             return
+        await self._update_connection(conn)
 
         # Receive messages.
         while True:
@@ -467,6 +484,7 @@ class Server:
                 break
             type, msg = deserialize_message(msg)
             # Process the message.
+            logging.info(f"RECV: {msg}")
             self.processes.on_message(conn.conn_id, msg)
 
         await ws.close()
@@ -548,5 +566,6 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.getLogger().setLevel(logging.DEBUG)
     main()
 

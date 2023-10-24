@@ -80,18 +80,15 @@ class Instance:
             # Not started.
             return
 
-        # FIXME: Or should we just close ws_server?  Is that enough?
+        self.ws_server.close()
+        await self.ws_server.wait_closed()
         try:
-            self.ws_task.cancel()
-            try:
-                await self.ws_task
-            except asyncio.CancelledError:
-                pass
-        finally:
-            self.ws_server.close()
-            await self.ws_server.wait_closed()
-            self.ws_server = None
-            self.ws_task = None
+            await self.ws_task
+        except asyncio.CancelledError:
+            pass
+
+        self.ws_server = None
+        self.ws_task = None
 
 
     # @functools.cached_property

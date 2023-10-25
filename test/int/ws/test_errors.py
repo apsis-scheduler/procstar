@@ -1,14 +1,14 @@
 import pytest
 
 from   procstar import spec
-from   procstar.testing import Instance
+from   procstar.testing import Assembly
 
 #-------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_bad_exe():
-    async with Instance.start() as inst:
-        proc = await inst.server.start(
+    async with Assembly.start() as asm:
+        proc = await asm.server.start(
             "bad_exe",
             spec.make_proc(["/dev/null/bad_exe", "Hello, world!"]).to_jso()
         )

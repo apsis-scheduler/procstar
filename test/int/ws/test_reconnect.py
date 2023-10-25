@@ -2,7 +2,7 @@ import asyncio
 import pytest
 
 from   procstar import spec
-from   procstar.testing import Instance
+from   procstar.testing import Assembly
 
 #-------------------------------------------------------------------------------
 
@@ -12,20 +12,20 @@ async def test_ws_reconnect():
     Starts a couple of processes, drops the websocket connection, waits for
     reconnection, and confirms that process results are still accessible.
     """
-    async with Instance.start() as inst:
-        proc0 = await inst.server.start(
+    async with Assembly.start() as asm:
+        proc0 = await asm.server.start(
             "reconnect0",
             spec.make_proc(["/usr/bin/sleep", "0.2"])
         )
-        proc1 = await inst.server.start(
+        proc1 = await asm.server.start(
             "reconnect1",
             spec.make_proc(["/usr/bin/sleep", "0.4"])
         )
 
-        with inst.server.connections.subscription() as sub:
+        with asm.server.connections.subscription() as sub:
             for _ in range(3):
                 # Close the connection.
-                conn, = inst.server.connections.values()
+                conn, = asm.server.connections.values()
                 await conn.ws.close()
                 assert conn.ws.closed
                 # Wait for reconnect.
@@ -47,22 +47,22 @@ async def test_ws_reconnect_nowait():
     confirms that process results are still accessible, without waiting
     explicitly for reconnect.
     """
-    async with Instance.start() as inst:
-        proc0 = await inst.server.start(
+    async with Assembly.start() as asm:
+        proc0 = await asm.server.start(
             "reconnect0",
             spec.make_proc(["/usr/bin/sleep", "0.2"])
         )
-        proc1 = await inst.server.start(
+        proc1 = await asm.server.start(
             "reconnect1",
             spec.make_proc(["/usr/bin/sleep", "0.4"])
         )
 
         # Close the connection.
-        conn, = inst.server.connections.values()
+        conn, = asm.server.connections.values()
         await conn.ws.close()
         assert conn.ws.closed
 
-        # Wait for results anyway.  The procstar instance should reconnect.
+        # Wait for results anyway.  The procstar asmance should reconnect.
         res0, res1 = await asyncio.gather(
             proc0.wait_for_completion(),
             proc1.wait_for_completion()
@@ -74,23 +74,23 @@ async def test_ws_reconnect_nowait():
 @pytest.mark.asyncio
 async def test_proc_reconnect():
     """
-    Reconnects both the ws and `Process` instances, simulating restart.
+    Reconnects both the ws and `Process` asmances, simulating restart.
     """
-    async with Instance.start() as inst:
-        proc0 = await inst.server.start(
+    async with Assembly.start() as asm:
+        proc0 = await asm.server.start(
             "reconnect0",
             spec.make_proc(["/usr/bin/sleep", "0.2"])
         )
-        proc1 = await inst.server.start(
+        proc1 = await asm.server.start(
             "reconnect1",
             spec.make_proc(["/usr/bin/sleep", "0.4"])
         )
 
         # Restart server.
         print("stopping")
-        await inst.stop_server()
+        await asm.stop_server()
         print("starting")
-        await inst.start_server()
+        await asm.start_server()
 
         print("waiting")
         res0, res1 = await asyncio.gather(

@@ -50,19 +50,41 @@ def _get_local(ws_server):
     )
 
 
-class Instance:
+class Assembly:
+    """
+    Integration test assembly consisting of a websocket server and multiple
+    procstar instances connecting to it.
+    """
 
     BIND_ADDR = "127.0.0.1"
 
     def __init__(self):
-        self.port = None
+        """
+        Does not start the websocket server or any procstar instances.
+        """
+        # The procstar server.
         self.server = procstar.ws_service.Server()
+
+        # The port on which the websocket server is running.  Automatically
+        # assigned the first time the server starts.
+        self.port = None
+        # The websocket server.
         self.ws_server = None
+        # The task running the websocket server.
         self.ws_task = None
-        self.processes = {}
+
+        # Async (OS) process objects for the procstar instance processes, keyed
+        # by conn_id.
+        self.conn_procs = {}
 
 
     async def start_server(self):
+        """
+        Starts the websocket server.
+
+        :precondition:
+          The server is not started.
+        """
         assert self.ws_server is None
         assert self.ws_task is None
         # Create the websockets server, that runs our protocol server.  Choose a
@@ -76,6 +98,11 @@ class Instance:
 
 
     async def stop_server(self):
+        """
+        Stops the websocket server.
+
+        Idempotent.
+        """
         if self.ws_server is None and self.ws_task is None:
             # Not started.
             return
@@ -91,16 +118,14 @@ class Instance:
         self.ws_task = None
 
 
-    # @functools.cached_property
     @property
     def locs(self):
         """
-        Returns a sequence of host, port to which the websocket server is bound.
+        A sequence of host, port to which the websocket server is bound.
         """
         return tuple(_get_local(self.ws_server))
 
 
-    # @functools.cached_property
     @property
     def urls(self):
         return tuple(
@@ -126,7 +151,7 @@ class Instance:
         with self.server.connections.subscription() as events:
             # Start the processes.
             for group, conn_id in conns:
-                self.processes[conn_id] = await asyncio.create_subprocess_exec(
+                self.conn_procs[conn_id] = await asyncio.create_subprocess_exec(
                     # FIXME: s/--name/--conn-id/
                     get_procstar_path(),
                     "--connect", url,
@@ -148,17 +173,26 @@ class Instance:
 
 
     def start_instance(self, *, group=proto.DEFAULT_GROUP):
+        """
+        Starts a single procstar instance.
+        """
         return self.start_instances({group: 1})
 
 
     async def stop_instance(self, conn_id):
-        process = self.processes.pop(conn_id)
+        """
+        Stops a procstar instance.
+        """
+        process = self.conn_procs.pop(conn_id)
         process.send_signal(signal.SIGTERM)
         await process.wait()
 
 
     def stop_instances(self):
-        conn_ids = tuple(self.processes.keys())
+        """
+        Stops all procstar instances.
+        """
+        conn_ids = tuple(self.conn_procs.keys())
         return asyncio.gather(*(
             self.stop_instance(c)
             for c in conn_ids
@@ -166,6 +200,9 @@ class Instance:
 
 
     async def close(self):
+        """
+        Shuts everything down.
+        """
         await self.stop_instances()
         await self.stop_server()
 
@@ -173,6 +210,12 @@ class Instance:
     @classmethod
     @asynccontextmanager
     async def start(cls, *, counts={"default": 1}):
+        """
+        Async context manager for a ready-to-go assembly.
+
+        Yields an assembley with procstar instances and the websocket server
+        already started.  Shuts them down on exit.
+        """
         inst = cls()
         await inst.start_server()
         await inst.start_instances(counts)

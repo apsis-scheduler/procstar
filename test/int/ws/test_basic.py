@@ -1,9 +1,10 @@
 import asyncio
 from   collections import Counter
+import itertools
 import pytest
 
 from   procstar import spec
-from   procstar.testing import Instance
+from   procstar.testing import Assembly
 
 #-------------------------------------------------------------------------------
 
@@ -12,20 +13,20 @@ async def test_connect():
     """
     Basic connection tests.
     """
-    async with Instance.start() as inst:
-        assert len(inst.server.connections) == 1
-        conn = next(iter(inst.server.connections.values()))
+    async with Assembly.start() as asm:
+        assert len(asm.server.connections) == 1
+        conn = next(iter(asm.server.connections.values()))
         assert conn.group == "default"
 
 
 @pytest.mark.asyncio
 async def test_connect_multi():
     """
-    Tests multiple procstar instances in more than one group.
+    Tests multiple procstar asmances in more than one group.
     """
     counts = {"red": 1, "green": 3, "blue": 2}
-    async with Instance.start(counts=counts) as inst:
-        conns = inst.server.connections
+    async with Assembly.start(counts=counts) as asm:
+        conns = asm.server.connections
         assert len(conns) == 6
         assert dict(Counter( c.group for c in conns.values() )) == counts
 
@@ -34,17 +35,17 @@ async def test_connect_multi():
 async def test_run_proc():
     proc_id = "testproc"
 
-    async with Instance.start() as inst:
-        proc = await inst.server.start(
+    async with Assembly.start() as asm:
+        proc = await asm.server.start(
             proc_id,
             spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
         )
         assert proc.proc_id == proc_id
         assert proc.results.latest is None
 
-        assert len(inst.server.processes) == 1
-        assert next(iter(inst.server.processes)) == proc_id
-        assert next(iter(inst.server.processes.values())) is proc
+        assert len(asm.server.processes) == 1
+        assert next(iter(asm.server.processes)) == proc_id
+        assert next(iter(asm.server.processes.values())) is proc
 
         # First, a result with no status set.
         res = await anext(proc.results)
@@ -62,11 +63,11 @@ async def test_run_proc():
         assert res.fds.stderr.text == ""
 
         # Delete the proc.
-        await inst.server.delete(proc_id)
+        await asm.server.delete(proc_id)
         res = await anext(proc.results)
         assert res is None
 
-        assert len(inst.server.processes) == 0
+        assert len(asm.server.processes) == 0
 
 
 @pytest.mark.asyncio
@@ -81,8 +82,8 @@ async def test_run_procs():
         "s1": spec.make_proc("sleep 1"),
     }
 
-    async with Instance.start() as inst:
-        procs = { i: await inst.server.start(i, s) for i, s in specs.items() }
+    async with Assembly.start() as asm:
+        procs = { i: await asm.server.start(i, s) for i, s in specs.items() }
 
         futs = ( p.wait_for_completion() for p in procs.values() )
         ress = dict(zip(specs, await asyncio.gather(*futs)))
@@ -95,3 +96,40 @@ async def test_run_procs():
         assert all( r.fds.stderr.text == "" for r in ress.values() )
 
 
+@pytest.mark.asyncio
+async def test_run_multi():
+    """
+    Runs multiple processes on multiple asmances.
+    """
+    counts = {"red": 1, "green": 3, "blue": 2}
+    groups = itertools.cycle(counts.keys())
+
+    async with Assembly.start(counts=counts) as asm:
+        # Start a bunch of processes in various groups.
+        procs = await asyncio.gather(*(
+            asm.server.start(
+                f"proc{i}-{(g := next(groups))}",
+                spec.make_proc(["/usr/bin/echo", "group", g]),
+                group=g,
+            )
+            for i in range(64)
+        ))
+
+        # Each should have been assigned to the right group.
+        for proc in procs:
+            group = proc.proc_id.split("-", 1)[1]
+            assert asm.server.connections[proc.conn_id].group == group
+
+        # Each should complete successfully.
+        ress = await asyncio.gather(*( p.wait_for_completion() for p in procs ))
+        for proc, res in zip(procs, ress):
+            group = proc.proc_id.split("-", 1)[1]
+            assert res.status.exit_code == 0
+            assert res.fds.stdout.text == f"group {group}\n"
+            # FIXME: Check procstar process pid, once this is available in results.
+
+
+# if __name__ == "__main__":
+#     import logging
+#     logging.getLogger().setLevel(logging.INFO)
+#     asyncio.run(test_connect_multi())

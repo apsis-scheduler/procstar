@@ -421,7 +421,6 @@ class Server:
         """
         Refreshes process state from a connection.
         """
-        print("_update_connections", conn)
         if conn is not None:
             # Ask the procstar instance to tell us all proc IDs it knows
             # about.

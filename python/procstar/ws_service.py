@@ -100,12 +100,11 @@ class Connection:
         try:
             await self.ws.send(data)
         except ConnectionClosedError:
-            # Connection closed; drop it.
-            # FIXME: Don't forget the connection.
+            assert self.ws.closed
+            # Connection closed.  Don't forget about it; it may reconnect.
             logger.warning(f"{self.info}: connection closed")
             # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             # FIXME: Think carefully the temporarily dropped connection logic.
-            assert self.ws.closed
 
 
 

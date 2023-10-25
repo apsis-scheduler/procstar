@@ -109,57 +109,73 @@ class Instance:
         )
 
 
-    async def start_procstar_instance(self, *, group=proto.DEFAULT_GROUP):
+    async def start_instances(self, counts):
+        """
+        Starts procstar instances and waits for them to connect.
+
+        :param counts:
+          Mapping from group name to instance count.
+        """
         url = self.urls[0]
+        conns = set(
+            (g, str(uuid.uuid4()))
+            for g, n in counts.items()
+            for _ in range(n)
+        )
+
         with self.server.connections.subscription() as events:
-            conn_id = str(uuid.uuid4())
-            process = await asyncio.create_subprocess_exec(
-                # FIXME: s/--name/--conn-id/
-                get_procstar_path(), "--connect", url, "--name", conn_id,
-                # FIXME: cwd=tmp_dir
-                env={"RUST_BACKTRACE": "1"} | os.environ,
-            )
+            # Start the processes.
+            for group, conn_id in conns:
+                self.processes[conn_id] = await asyncio.create_subprocess_exec(
+                    # FIXME: s/--name/--conn-id/
+                    get_procstar_path(),
+                    "--connect", url,
+                    "--group", group,
+                    "--name", conn_id,
+                    # FIXME: cwd=tmp_dir
+                    env={"RUST_BACKTRACE": "1"} | os.environ,
+                )
 
+            # Wait for them to connect.
+            connected = set()
             async for _, conn in events:
-                if conn is not None and conn.conn_id == conn_id:
-                    assert conn.group == group
-                    logger.info(f"procstar connected: {conn_id}")
-                    self.processes[conn_id] = process
-                    return conn_id
+                if conn is not None:
+                    logger.info(f"instance connected: {conn_id}")
+                    connected.add((conn.group, conn.conn_id))
+                    if len(connected) == len(conns):
+                        assert connected == conns
+                        return
 
 
-    async def stop_procstar_instance(self, conn_id):
+    def start_instance(self, *, group=proto.DEFAULT_GROUP):
+        return self.start_instances({group: 1})
+
+
+    async def stop_instance(self, conn_id):
         process = self.processes.pop(conn_id)
         process.send_signal(signal.SIGTERM)
         await process.wait()
 
 
-    def stop_procstar_instances(self):
+    def stop_instances(self):
         conn_ids = tuple(self.processes.keys())
         return asyncio.gather(*(
-            self.stop_procstar_instance(c)
+            self.stop_instance(c)
             for c in conn_ids
         ))
 
 
     async def close(self):
-        await self.stop_procstar_instances()
+        await self.stop_instances()
         await self.stop_server()
 
 
     @classmethod
     @asynccontextmanager
-    async def start(cls, *, instances={"default": 1}):
+    async def start(cls, *, counts={"default": 1}):
         inst = cls()
         await inst.start_server()
-        await asyncio.gather(
-            *(
-                inst.start_procstar_instance(group=g)
-                for g, c in instances.items()
-                for _ in range(c)
-            )
-        )
-
+        await inst.start_instances(counts)
         try:
             yield inst
         finally:

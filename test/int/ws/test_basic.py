@@ -1,4 +1,5 @@
 import asyncio
+from   collections import Counter
 import pytest
 
 from   procstar import spec
@@ -15,6 +16,18 @@ async def test_connect():
         assert len(inst.server.connections) == 1
         conn = next(iter(inst.server.connections.values()))
         assert conn.group == "default"
+
+
+@pytest.mark.asyncio
+async def test_connect_multi():
+    """
+    Tests multiple procstar instances in more than one group.
+    """
+    counts = {"red": 1, "green": 3, "blue": 2}
+    async with Instance.start(counts=counts) as inst:
+        conns = inst.server.connections
+        assert len(conns) == 6
+        assert dict(Counter( c.group for c in conns.values() )) == counts
 
 
 @pytest.mark.asyncio

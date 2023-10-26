@@ -133,16 +133,10 @@ async def test_run_multi():
             assert res.status.exit_code == 0
             assert res.fds.stdout.text == f"group {group}\n"
 
-            # FIXME: Check procstar process pid, once this is available in results.
+            # Check that it ran in the right instance.
             assert res.procstar.conn.group_id == group
             conn_id = res.procstar.conn.conn_id
             assert res.procstar.proc.pid == asm.conn_procs[conn_id].pid
             assert res.procstar.proc.ppid == os.getpid()
 
-
-# FIXME
-if __name__ == "__main__":
-    import logging
-    logging.getLogger().setLevel(logging.INFO)
-    asyncio.run(test_run_proc())
 

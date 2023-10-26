@@ -33,10 +33,10 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(url: &Url, conn_id: Option<&str>, group: Option<&str>) -> Self {
+    pub fn new(url: &Url, conn_id: Option<&str>, group_id: Option<&str>) -> Self {
         let url = url.clone();
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
-        let group_id = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
+        let group_id = group_id.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
         let conn = proto::ConnectionInfo { conn_id, group_id };
         let proc = ProcessInfo::new_self();
         Connection { url, conn, proc }

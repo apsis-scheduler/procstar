@@ -5,8 +5,8 @@
 
 ### Features
 
-- [ ] include proc ID and group ID in results
-- [ ] include info about procstar instance in results: pid host user
+- [x] include proc ID and group ID in results
+- [x] include info about procstar instance in results: pid host user
 - [ ] include rusage or similar (from /proc) in results before completion
 - [ ] add starting CWD to result
 - [ ] add env to result

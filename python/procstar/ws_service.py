@@ -123,7 +123,7 @@ class Connections(Mapping, Subscribeable):
         self.__groups = {}
 
 
-    def _add(self, *, conn_info, proc_info, ws) -> Connection:
+    def _add(self, procstar_info: ProcstarInfo, ws) -> Connection:
         """
         Adds a new connection or readds an existing one.
 
@@ -132,7 +132,8 @@ class Connections(Mapping, Subscribeable):
         :raise RuntimeError:
           The connection could not be added.
         """
-        conn_id = conn_info.conn_id
+        conn_id = procstar_info.conn.conn_id
+        group_id = procstar_info.conn.group_id
         socket_info = SocketInfo.from_ws(ws)
 
         try:
@@ -141,14 +142,9 @@ class Connections(Mapping, Subscribeable):
 
         except KeyError:
             # New connection.
-            info = ProcstarInfo(
-                conn    =conn_info,
-                socket  =socket_info,
-                proc    =proc_info,
-            )
-            conn = self.__conns[conn_id] = Connection(info=info, ws=ws)
+            conn = self.__conns[conn_id] = Connection(info=procstar_info, ws=ws)
             # Add it to the group.
-            group = self.__groups.setdefault(conn_info.group_id, set())
+            group = self.__groups.setdefault(group_id, set())
             group.add(conn_id)
 
         else:
@@ -158,7 +154,7 @@ class Connections(Mapping, Subscribeable):
                 # through a different interface.  The port may always be
                 # different, of course.
                 logger.warning(f"[{conn_id}] new address: {socket_info.address}")
-            if conn_info.group_id != old_conn.info.conn.group_id:
+            if group_id != old_conn.info.conn.group_id:
                 # The same instance shouldn't connect under a different group.
                 raise RuntimeError(f"[{conn_id}] new group: {group}")
 
@@ -474,11 +470,12 @@ class Server:
 
         # Add or re-add the connection.
         try:
-            conn = self.connections._add(
-                conn_info   =register_msg.conn,
-                proc_info   =register_msg.proc,
-                ws          =ws,
+            procstar_info = ProcstarInfo(
+                conn        =register_msg.conn,
+                socket      =SocketInfo.from_ws(ws),
+                proc        =register_msg.proc,
             )
+            conn = self.connections._add(procstar_info, ws)
         except RuntimeError as exc:
             logging.error(str(exc))
             return
@@ -494,7 +491,7 @@ class Server:
             type, msg = deserialize_message(msg)
             # Process the message.
             logging.info(f"recv: {msg}")
-            self.processes.on_message(conn.info.conn.conn_id, msg)
+            self.processes.on_message(conn.info, msg)
 
         await ws.close()
         assert ws.closed

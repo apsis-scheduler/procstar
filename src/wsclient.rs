@@ -17,9 +17,6 @@ use crate::proto;
 
 //------------------------------------------------------------------------------
 
-/// Wait time before reconnection attempts.
-const RECONNECT_INTERVAL: Duration = Duration::new(5, 0);
-
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
@@ -156,6 +153,11 @@ async fn send_notifications(
     }
 }
 
+/// Wait time before reconnection attempts.
+const RECONNECT_INTERVAL_START: Duration = Duration::from_millis(10);
+const RECONNECT_INTERVAL_MULT: f64 = 2.;
+const RECONNECT_INTERVAL_MAX: Duration = Duration::from_secs(30);
+
 pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), proto::Error> {
     // Create a shared websocket sender, which is shared between the
     // notification sender and the main message loop.
@@ -172,6 +174,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
         sender.clone(),
     ));
 
+    let mut interval = RECONNECT_INTERVAL_START;
     'connect: loop {
         // (Re)connect to the service.
         let (new_sender, mut receiver) = match connect(&mut connection).await {
@@ -180,7 +183,11 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                 eprintln!("error: {:?}", err);
                 // Reconnect, after a moment.
                 // FIXME: Is this the right policy?
-                sleep(RECONNECT_INTERVAL).await;
+                sleep(interval).await;
+                interval = interval.mul_f64(RECONNECT_INTERVAL_MULT);
+                if RECONNECT_INTERVAL_MAX < interval {
+                    interval = RECONNECT_INTERVAL_MAX;
+                }
                 continue;
             }
         };

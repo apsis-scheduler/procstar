@@ -33,4 +33,8 @@ class Jso:
         return self.__jso_dict.keys()
 
 
+    def to_jso(self):
+        return self.__jso_dict
+
+
 

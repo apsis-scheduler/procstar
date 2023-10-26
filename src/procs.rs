@@ -1,9 +1,11 @@
+use chrono::{DateTime, Utc};
 use futures_util::future::FutureExt;
 use libc::pid_t;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::environ;
@@ -53,15 +55,23 @@ pub struct Proc {
     pub errors: Vec<String>,
     pub wait_info: Option<WaitInfo>,
     pub fd_handlers: FdHandlers,
+    pub start_time: DateTime<Utc>,
+    pub stop_time: Option<DateTime<Utc>>,
+    pub start_instant: Instant,
+    pub elapsed: Option<Duration>,
 }
 
 impl Proc {
-    pub fn new(pid: pid_t, fd_handlers: FdHandlers) -> Self {
+    pub fn new(pid: pid_t, start_time: DateTime<Utc>, start_instant: Instant, fd_handlers: FdHandlers) -> Self {
         Self {
             pid,
             errors: Vec::new(),
             wait_info: None,
             fd_handlers,
+            start_time,
+            stop_time: None,
+            start_instant,
+            elapsed: None,
         }
     }
 
@@ -97,9 +107,16 @@ impl Proc {
             })
             .collect::<BTreeMap<_, _>>();
 
+        let times = res::Times {
+            start: self.start_time.to_rfc3339(),
+            stop: self.stop_time.map(|t| t.to_rfc3339()),
+            elapsed: self.elapsed.map(|d| d.as_secs_f64()),
+        };
+
         res::ProcRes {
-            pid: self.pid,
             errors: self.errors.clone(),
+            pid: self.pid,
+            times,
             status,
             rusage,
             fds,
@@ -245,10 +262,16 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
+            // Take timestamps right away.
+            let stop_time = Utc::now();
+            let stop_instant = Instant::now();
+
+            // Process terminated; update its stuff.
             let mut proc = proc.borrow_mut();
             assert!(proc.wait_info.is_none());
-            // Process terminated.
             proc.wait_info = Some(wait_info);
+            proc.stop_time = Some(stop_time);
+            proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
         }
     }
@@ -335,13 +358,20 @@ pub fn start_procs(
                     // execve() only returns with an error; on success, the program is
                     // replaced.
                     let err = execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
-                    error_writer.try_write(format!("exec: {}: {}", exe, err));
+                    error_writer.try_write(format!("execve failed: {}: {}", exe, err));
+                    // FIXME: Find a way to pass the error code to the parent
+                    // for inclusion in results.
+                    std::process::exit(63);
+                } else {
+                    std::process::exit(62);
                 }
-                std::process::exit(exitcode::OSERR);
             }
 
             Ok(child_pid) => {
                 // Parent process.
+
+                let start_time = Utc::now();
+                let start_instant = Instant::now();
 
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();
@@ -357,7 +387,7 @@ pub fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, fd_handlers);
+                let mut proc = Proc::new(child_pid, start_time, start_instant, fd_handlers);
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);

@@ -155,7 +155,7 @@ class Proc:
 
 
 
-def make(what, /, *, env_vars={}, fds={}):
+def make_proc(what, /, *, env_vars={}, fds={}):
     """
     Constructs a process spec.
 
@@ -178,9 +178,9 @@ def make(what, /, *, env_vars={}, fds={}):
         argv = [ str(a) for a in what ]
 
     fds = dict(fds)
-    fds  = { self.Fd.normalize(n): s for n, s in fds.items() }
+    fds  = { Proc.Fd.normalize(n): s for n, s in fds.items() }
     if "stdin" not in fds:
-        fds["stdin"] = Proc.Fd.Null
+        fds["stdin"] = Proc.Fd.Null()
     if "stdout" not in fds:
         fds["stdout"] = Proc.Fd.Capture("memory", "text")
     if "stderr" not in fds:

@@ -19,7 +19,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "orjson >=3",
-    "websockets >=11",
+    "websockets >=10",
 ]
 
 optional-dependencies = {dev = ["pytest", "pytest-asyncio", "bump2version"]}

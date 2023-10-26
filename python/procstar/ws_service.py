@@ -3,17 +3,20 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
+from   collections.abc import Mapping
 from   dataclasses import dataclass
-import datetime
 import ipaddress
 import logging
 import random
+from   typing import Optional
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import proto
-from   .lib.time import now
-from   .proto import ProtocolError, serialize_message, deserialize_message
+from   .lib.asyn import Subscribeable
+from   .lib.json import Jso
+from   .proto import ConnectionInfo, ProcessInfo, ProtocolError
+from   .proto import serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
@@ -44,13 +47,34 @@ class NoConnectionError(LookupError):
     """
 
 
+#-------------------------------------------------------------------------------
+
 @dataclass
-class ConnectionInfo:
+class SocketInfo:
     address: ipaddress._BaseAddress
     port: int
 
     def __str__(self):
         return f"{self.address}:{self.port}"
+
+
+    @classmethod
+    def from_ws(cls, ws):
+        address, port, *_ = ws.remote_address
+        address = ipaddress.ip_address(address)
+        return cls(address, port)
+
+
+
+@dataclass
+class ProcstarInfo:
+    """
+    Information about a procstar instance and the connection to it.
+    """
+
+    conn: ConnectionInfo
+    socket: SocketInfo
+    proc: ProcessInfo
 
 
 
@@ -65,10 +89,12 @@ class Connection:
     reconnects, it uses the same `Connection` instance.
     """
 
-    info: ConnectionInfo
-    ws: asyncio.protocols.Protocol
-    group: str
-    connect_time: datetime.datetime
+    info: ProcstarInfo
+    ws: asyncio.protocols.Protocol = None
+
+    def __hash__(self):
+        return hash(self.info.conn.conn_id)
+
 
     @property
     def open(self):
@@ -81,66 +107,123 @@ class Connection:
         try:
             await self.ws.send(data)
         except ConnectionClosedError:
-            # Connection closed; drop it.
-            # FIXME: Don't forget the connection.
-            logger.warning(f"{self.info}: connection closed")
-            # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             assert self.ws.closed
-            # removed = self.connections.pop(conn_id)
-            # assert removed is self
+            # Connection closed.  Don't forget about it; it may reconnect.
+            logger.warning(f"{self.info.socket}: connection closed")
+            # FIXME: Mark it as closed?  Or is its internal closed flag enough?
+            # FIXME: Think carefully the temporarily dropped connection logic.
 
 
 
-
-class Connections(dict):
+class Connections(Mapping, Subscribeable):
 
     def __init__(self):
         super().__init__()
+        self.__conns = {}
         self.__groups = {}
 
 
-    def __setitem__(self, conn_id, connection: Connection):
+    def _add(self, procstar_info: ProcstarInfo, ws) -> Connection:
         """
-        Adds a new connection.
+        Adds a new connection or readds an existing one.
 
-        :param conn_id:
-          The new connection ID, which must not already be in use.
+        :return:
+          The connection object.
+        :raise RuntimeError:
+          The connection could not be added.
         """
-        assert conn_id not in self
-        super().__setitem__(conn_id, connection)
+        conn_id = procstar_info.conn.conn_id
+        group_id = procstar_info.conn.group_id
+        socket_info = SocketInfo.from_ws(ws)
 
-        # Add it to the group.
-        group = self.__groups.setdefault(connection.group, set())
-        group.add(conn_id)
+        try:
+            # Look for an existing connection with this ID.
+            old_conn = self.__conns[conn_id]
+
+        except KeyError:
+            # New connection.
+            conn = self.__conns[conn_id] = Connection(info=procstar_info, ws=ws)
+            # Add it to the group.
+            group = self.__groups.setdefault(group_id, set())
+            group.add(conn_id)
+
+        else:
+            # Previous connection with the same ID.  First, some sanity checks.
+            if socket_info.address != old_conn.info.socket.address:
+                # Allow the address to change, in case the remote reconnects
+                # through a different interface.  The port may always be
+                # different, of course.
+                logger.warning(f"[{conn_id}] new address: {socket_info.address}")
+            if group_id != old_conn.info.conn.group_id:
+                # The same instance shouldn't connect under a different group.
+                raise RuntimeError(f"[{conn_id}] new group: {group}")
+
+            # If the old connection websocket still open, close it.
+            if not old_conn.ws.closed:
+                logger.warning(f"[{conn_id}] closing old connection")
+                _ = asyncio.create_task(old_conn.ws.close())
+
+            # Use the new websocket with the old connection object.
+            old_conn.ws = ws
+            old_conn.info.socket = socket_info
+            conn = old_conn
+
+        self._publish((conn_id, conn))
+        return conn
 
 
-    def __delitem__(self, conn_id):
-        self.pop(conn_id)
-
-
-    def pop(self, conn_id) -> Connection:
-        connection = super().pop(conn_id)
-
+    def _pop(self, conn_id) -> Connection:
+        """
+        Deletes and returns a connection.
+        """
+        conn = self.__conns.pop(conn_id)
+        group_id = conn.info.conn.group_id
         # Remove it from its group.
-        group = self.__groups[connection.group]
+        group = self.__groups[group_id]
         group.remove(conn_id)
         # If the group is now empty, clean it up.
         if len(group) == 0:
-            del self.__groups[connection.group]
+            del self.__groups[group_id]
+        self._publish((conn_id, None))
+        return conn
 
-        return connection
+
+    # Mapping methods.
+
+    def __contains__(self, conn_id):
+        return self.__conns.__contains__(conn_id)
+
+
+    def __getitem__(self, conn_id):
+        return self.__conns.__getitem__(conn_id)
+
+
+    def __len__(self):
+        return self.__conns.__len__()
+
+
+    def __iter__(self):
+        return self.__conns.__iter__()
+
+
+    def values(self):
+        return self.__conns.values()
+
+
+    def items(self):
+        return self.__conns.items()
 
 
     # Group methods
 
-    def choose_connection(self, group) -> Connection:
+    def choose_connection(self, group_id) -> Connection:
         """
         Chooses an open connection in 'group'.
         """
         try:
-            conn_ids = self.__groups[group]
+            conn_ids = self.__groups[group_id]
         except KeyError:
-            raise NoGroupError(group) from None
+            raise NoGroupError(group_id) from None
 
         connections = [
             c
@@ -148,75 +231,219 @@ class Connections(dict):
             if (c := self[i]).open
         ]
         if len(connections) == 0:
-            raise NoOpenConnectionInGroup(group)
+            raise NoOpenConnectionInGroup(group_id)
 
         # FIXME: Better choice mechanism.
         return random.choice(connections)
 
 
 
+#-------------------------------------------------------------------------------
+
 class Process:
+    """
+    A process running under a connected procstar instance.
+    """
+
+    class Results:
+        """
+        Process result updates.
+
+        Acts as a one-shot async iterable and iterator of result updates.  The
+        `latest` property always returns the most recent, which may be none.
+        """
+
+        def __init__(self):
+            self.__latest = None
+            self.__updates = asyncio.Queue()
+
+
+        @property
+        def latest(self) -> Optional[Jso]:
+            """
+            Most recent received process result.
+            """
+            return self.__latest
+
+
+        def __aiter__(self):
+            return self
+
+
+        def __anext__(self):
+            return self.__updates.get()
+
+
+        def _update(self, result):
+            self.__latest = result
+            self.__updates.put_nowait(result)
+
+
+    proc_id: str
+    conn_id: str
+
+    results: Results
+
+    # FIXME
+    errors: list[str]
 
     # FIXME: What happens when the connection is closed?
 
-    def __init__(self, connection, proc_id):
-        self.connection = connection
+    def __init__(self, conn_id, proc_id):
         self.proc_id = proc_id
+        self.conn_id = conn_id
+        self.results = self.Results()
+        # FIXME: Receive proc-specific errors.
+        self.errors = []
 
 
-    def __aiter__(self):
-        return self
-
-
-    def request_result(self):
+    async def wait_for_completion(self) -> Jso:
         """
-        Sends a request for the current process result.
-
-        :return:
-          An awaitable.
+        Awaits and returns a completed result.
         """
-        return self.connection.send(proto.ProcResultRequest(self.proc_id))
+        # Is it already completed?
+        res = self.results.latest
+        if res is not None and res.status is not None:
+            return res
+
+        while True:
+            res = await anext(self.results)
+            if res.status is not None:
+                return res
 
 
-    def request_delete(self):
+
+class Processes(Mapping):
+    """
+    Tracks processes running under connected procstar instances.
+    """
+
+    def __init__(self):
+        self.__procs = {}
+
+
+    def create(self, conn_id, proc_id) -> Process:
         """
-        Sends a request to delete the process.
+        Creates and returns a new process on `connection` with `proc_id`.
 
-        :return:
-          An awaitable.
+        `proc_id` must be unknown.
         """
-        return self.connection.send(proto.ProcResultDelete(self.proc_id))
+        assert proc_id not in self.__procs
+        self.__procs[proc_id] = proc = Process(conn_id, proc_id)
+        return proc
 
 
+    def on_message(self, procstar_info, msg):
+        """
+        Processes `msg` received from `conn_id` to the corresponding
+        process.
+        """
+        def get_proc(proc_id):
+            try:
+                return self.__procs[proc_id]
+            except KeyError:
+                conn_id = procstar_info.conn.conn_id
+                logger.info(f"new proc on {conn_id}: {proc_id}")
+                return self.create(conn_id, proc_id)
+
+        match msg:
+            case proto.ProcidList(proc_ids):
+                logger.debug(f"msg proc_id list: {proc_ids}")
+                # Make sure we track a proc for each proc ID the instance knows.
+                for proc_id in proc_ids:
+                    _ = get_proc(proc_id)
+
+            case proto.ProcResult(proc_id, res):
+                proc = get_proc(proc_id)
+                logger.debug(f"msg proc result: {proc_id}")
+                # Attach procstar info to the result.
+                result = Jso(res)
+                result.procstar = procstar_info
+                proc.result = result
+                proc.results._update(result)
+
+            case proto.ProcDelete(proc_id):
+                proc = get_proc(proc_id)
+                logger.debug(f"msg proc delete: {proc_id}")
+                del self.__procs[proc_id]
+                proc.results._update(None)
+
+            case proto.Register:
+                # We should receive this only immediately after connection.
+                logger.error(f"msg unexpected: {msg}")
+
+            case proto.IncomingMessageError():
+                # FIXME: Implement.
+                # FIXME: Proc-specific errors.
+                raise NotImplementedError()
+
+
+    # Mapping methods
+
+    def __contains__(self, proc_id):
+        return self.__procs.__contains__(proc_id)
+
+
+    def __getitem__(self, proc_id):
+        return self.__procs.__getitem__(proc_id)
+
+
+    def __len__(self):
+        return self.__procs.__len__()
+
+
+    def __iter__(self):
+        return self.__procs.__iter__()
+
+
+    def values(self):
+        return self.__procs.values()
+
+
+    def items(self):
+        return self.__procs.items()
+
+
+
+#-------------------------------------------------------------------------------
 
 class Server:
 
     def __init__(self):
-        # Mapping from connection name to connection.
         self.connections = Connections()
-        # Queue for incoming messages and other notifications.
-        self.__messages = asyncio.Queue()
+        self.processes = Processes()
 
 
-    def __enqueue(self, conn_id, msg):
-        self.__messages.put_nowait((conn_id, msg))
-
-
-    def __aiter__(self):
+    def run(self, loc=(None, None)):
         """
-        Returns an async iterator of (conn_id, message) from all connections
-        to this server.
+        Returns an async context manager that runs the websocket server.
+
+        :param loc:
+          `host, port` pair.  If `host` is none, runs on all interfaces.
+          If `port` is none, chooses an unused port on each interface.
         """
-        # FIXME: At the moment, there is no shutdown procedure.  (And this is
-        # why asyncio.Queue doesn't implement __aiter__ directly.)
-        async def messages(queue):
-            while True:
-                yield await queue.get()
-
-        return messages(self.__messages)
+        host, port = loc
+        return websockets.server.serve(self._serve_connection, host, port)
 
 
-    async def serve_connection(self, ws):
+    async def _update_connection(self, conn):
+        """
+        Refreshes process state from a connection.
+        """
+        if conn is not None:
+            # Ask the procstar instance to tell us all proc IDs it knows
+            # about.
+            await conn.send(proto.ProcidListRequest())
+            # Ask for updates on all processes we think are at this
+            # instance.
+            await asyncio.gather(*(
+                conn.send(proto.ProcResultRequest(p.proc_id))
+                for p in self.processes.values()
+                if p.conn_id == conn.info.conn.conn_id
+            ))
+
+
+    async def _serve_connection(self, ws):
         """
         Serves an incoming connection.
 
@@ -224,104 +451,94 @@ class Server:
         """
         assert ws.open
 
-        connect_time = now()
-
-        # Collect remote loc.
-        address, port, *_ = ws.remote_address
-        address = ipaddress.ip_address(address)
-        info = ConnectionInfo(address, port)
-
         try:
             # Wait for a Register message.
             try:
-                async with asyncio.timeout(TIMEOUT_LOGIN):
-                    msg = await ws.recv()
+                msg = await asyncio.wait_for(ws.recv(), TIMEOUT_LOGIN)
             except TimeoutError:
                 raise ProtocolError(f"no register in {TIMEOUT_LOGIN} s")
             except ConnectionClosedError:
                 raise ProtocolError("closed before register")
 
             # Only Register is acceptable.
-            type, msg = deserialize_message(msg)
+            type, register_msg = deserialize_message(msg)
+            logging.info(f"recv: {msg}")
             if type != "Register":
                 raise ProtocolError(f"expected register; got {type}")
 
         except Exception as exc:
-            logger.warning(f"{info}: {exc}")
+            logger.warning(f"{ws}: {exc}")
             await ws.close()
             return
 
-        conn_id = msg.conn_id
-
-        # Do we recognize this connection?
+        # Add or re-add the connection.
         try:
-            connection = self.connections[conn_id]
-
-        except KeyError:
-            # A new connection ID.
-            logger.info(f"[{conn_id}] connecting from {info} group {msg.group}")
-            connection = self.connections[conn_id] = Connection(
-                info        =info,
-                ws          =ws,
-                group       =msg.group,
-                connect_time=connect_time,
+            procstar_info = ProcstarInfo(
+                conn        =register_msg.conn,
+                socket      =SocketInfo.from_ws(ws),
+                proc        =register_msg.proc,
             )
-
-        else:
-            logger.info(f"[{conn_id}] reconnecting")
-
-            # Previous connection with the same ID.  First, some sanity checks.
-            if info.address != connection.info.address:
-                # Allow the address to change, in case the remote reconnects
-                # through a different interface.  The port may always be
-                # different, of course.
-                logger.warning(
-                    f"[{conn_id}] new address: {connection.info.address}")
-            if msg.group != connection.group:
-                logger.error(f"[{conn_id}] new group: {msg.group}")
-                ws.close()
-                return
-
-            # Is the old connection socket still (purportedly) open?
-            if not connection.ws.closed:
-                logger.warning(f"[{conn_id}] closing old connection")
-                connection.ws.close()
-                assert not connection.ws.open
-
-            # Use the new socket with the old connection.
-            connection.info = info
-            connection.ws = ws
-            connection.group = msg.group
-            connection.connect_time = connect_time
-
-        # Enqueue the register message we already received.
-        self.__enqueue(conn_id, msg)
+            conn = self.connections._add(procstar_info, ws)
+        except RuntimeError as exc:
+            logging.error(str(exc))
+            return
+        await self._update_connection(conn)
 
         # Receive messages.
         while True:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                logger.info(f"[{conn_id}] connection closed")
+                logger.info(f"[{conn.info.conn.conn_id}] connection closed")
                 break
             type, msg = deserialize_message(msg)
-            self.__enqueue(conn_id, msg)
+            # Process the message.
+            logging.info(f"recv: {msg}")
+            self.processes.on_message(conn.info, msg)
 
         await ws.close()
         assert ws.closed
         # Don't forget the connection; the other end may reconnect.
 
 
-    async def start(self, group, proc_id, spec) -> Process:
+    async def start(
+            self,
+            proc_id,
+            spec,
+            *,
+            group=proto.DEFAULT_GROUP,
+    ) -> Process:
         """
         Starts a new process on a connection in `group`.
 
         :return:
           The connection on which the process starts.
         """
-        connection = self.connections.choose_connection(group)
-        await connection.send(proto.ProcStart(specs={proc_id: spec}))
-        return Process(connection, proc_id)
+        try:
+            spec = spec.to_jso()
+        except AttributeError:
+            pass
+
+        conn = self.connections.choose_connection(group)
+        # FIXME: If the connection is closed, choose another.
+        await conn.send(proto.ProcStart(specs={proc_id: spec}))
+        return self.processes.create(conn.info.conn.conn_id, proc_id)
+
+
+    async def reconnect(self, conn_id, proc_id) -> Process:
+        # FIXME
+        raise NotImplementedError()
+
+
+    async def delete(self, proc_id):
+        """
+        Deletes a process.
+        """
+        # FIXME: No proc?
+        proc = self.processes[proc_id]
+        # FIXME: No connection?
+        conn = self.connections[proc.conn_id]
+        await conn.send(proto.ProcDeleteRequest(proc_id))
 
 
 
@@ -339,20 +556,18 @@ def main():
         help=f"serve from PORT [def: {proto.DEFAULT_PORT}]")
     args = parser.parse_args()
 
-    async def run(server, loc=(None, proto.DEFAULT_PORT)):
-        """
-        Creates a WebSockets server at `loc` and accepts connections to it with
-        `server`.
+    async def run(server, loc):
+        async with server.run(loc):
+            # Wait for a connection.
+            with server.connections.subscription() as conn_events:
+                await anext(conn_events)
 
-        :param loc:
-          The (host, port) on which to run.
-        """
-        host, port = loc
-
-        async with websockets.server.serve(server.serve_connection, host, port):
+            # Start a process.
+            proc = await server.start("proc0", {"argv": ["/usr/bin/sleep", "1"]})
+            # Show result updates.
             while True:
-                async for conn_id, msg in server:
-                    logger.info(f"[{conn_id}] received {msg}")
+                async for msg in proc.results:
+                    pass
 
 
     logging.basicConfig(
@@ -367,5 +582,6 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.getLogger().setLevel(logging.DEBUG)
     main()
 

@@ -9,15 +9,13 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
+use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
 
 // FIXME: Replace `eprintln` for errors with something more appropriate.
 
 //------------------------------------------------------------------------------
-
-/// Wait time before reconnection attempts.
-const RECONNECT_INTERVAL: Duration = Duration::new(5, 0);
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -28,31 +26,20 @@ pub type SocketSender = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Me
 pub struct Connection {
     /// The remote server URL to which we connect.
     url: Url,
-
-    /// A unique ID which identifies this instance to the server URL.  This ID
-    /// should change for each procstar process, even on the same host.
-    conn_id: String,
-
-    /// The group to which this instance belongs.  A processes may be run on
-    /// a group, in which case one instance in the group is used.
-    group: String,
-
-    /// Process information about this instance.
-    info: proto::InstanceInfo,
+    /// Information about the connection.
+    conn: proto::ConnectionInfo,
+    /// Information about this process running procstar.
+    proc: ProcessInfo,
 }
 
 impl Connection {
     pub fn new(url: &Url, conn_id: Option<&str>, group: Option<&str>) -> Self {
         let url = url.clone();
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
-        let group = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
-        let info = proto::InstanceInfo::new();
-        Connection {
-            url,
-            conn_id,
-            group,
-            info,
-        }
+        let group_id = group.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
+        let conn = proto::ConnectionInfo { conn_id, group_id };
+        let proc = ProcessInfo::new_self();
+        Connection { url, conn, proc }
     }
 }
 
@@ -96,9 +83,8 @@ async fn connect(
 
     // Send a register message.
     let register = proto::OutgoingMessage::Register {
-        conn_id: connection.conn_id.clone(),
-        group: connection.group.clone(),
-        info: connection.info.clone(),
+        conn: connection.conn.clone(),
+        proc: connection.proc.clone(),
     };
     send(&mut sender, register).await?;
 
@@ -167,6 +153,11 @@ async fn send_notifications(
     }
 }
 
+/// Wait time before reconnection attempts.
+const RECONNECT_INTERVAL_START: Duration = Duration::from_millis(100);
+const RECONNECT_INTERVAL_MULT: f64 = 2.;
+const RECONNECT_INTERVAL_MAX: Duration = Duration::from_secs(30);
+
 pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), proto::Error> {
     // Create a shared websocket sender, which is shared between the
     // notification sender and the main message loop.
@@ -183,6 +174,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
         sender.clone(),
     ));
 
+    let mut interval = RECONNECT_INTERVAL_START;
     'connect: loop {
         // (Re)connect to the service.
         let (new_sender, mut receiver) = match connect(&mut connection).await {
@@ -191,7 +183,11 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                 eprintln!("error: {:?}", err);
                 // Reconnect, after a moment.
                 // FIXME: Is this the right policy?
-                sleep(RECONNECT_INTERVAL).await;
+                sleep(interval).await;
+                interval = interval.mul_f64(RECONNECT_INTERVAL_MULT);
+                if RECONNECT_INTERVAL_MAX < interval {
+                    interval = RECONNECT_INTERVAL_MAX;
+                }
                 continue;
             }
         };

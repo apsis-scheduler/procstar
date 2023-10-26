@@ -5,6 +5,7 @@ from   typing import Dict, List
 #-------------------------------------------------------------------------------
 
 DEFAULT_PORT = 18782
+DEFAULT_GROUP = "default"
 
 class ProtocolError(Exception):
     """
@@ -65,6 +66,39 @@ def serialize_message(msg):
 #-------------------------------------------------------------------------------
 
 @dataclass
+class ConnectionInfo:
+    conn_id: str
+    group_id: str
+
+
+@dataclass
+class ProcessInfo:
+    pid: int
+    ppid: int
+    uid: int
+    euid: int
+    username: str
+    gid: int
+    egid: int
+    groupname: str
+    hostname: str
+
+
+@dataclass
+class Register:
+    conn: ConnectionInfo
+    proc: ProcessInfo
+
+    @classmethod
+    def from_jso(cls, jso):
+        return cls(
+            conn=ConnectionInfo(**jso["conn"]),
+            proc=ProcessInfo(**jso["proc"]),
+        )
+
+
+
+@dataclass
 class IncomingMessageError:
     msg: dict
     err: str
@@ -75,11 +109,6 @@ class IncomingMessageError:
 class ProcidList:
     proc_ids: List[str]
 
-
-
-@dataclass
-class ProcNew:
-    proc_id: str
 
 
 @dataclass
@@ -95,20 +124,11 @@ class ProcDelete:
 
 
 
-@dataclass
-class Register:
-    conn_id: str
-    group: str
-    info: dict
-
-
-
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             IncomingMessageError,
             ProcidList,
-            ProcNew,
             ProcResult,
             ProcDelete,
             Register,
@@ -129,14 +149,14 @@ def deserialize_message(msg):
         raise ProtocolError(f"wrong ws msg type: {type(msg)}")
     # Parse JSON.
     try:
-        msg = orjson.loads(msg)
+        jso = orjson.loads(msg)
     except orjson.JSONDecodeError as err:
         raise ProtocolError(f"ws msg JSON error: {err}") from None
-    if not isinstance(msg, dict):
+    if not isinstance(jso, dict):
         raise ProtocolError("msg not a dict")
     # All messages are tagged.
     try:
-        type_name = msg.pop("type")
+        type_name = jso.pop("type")
     except KeyError:
         raise ProtocolError("msg missing type") from None
     # Look up the corresponding class.
@@ -146,8 +166,12 @@ def deserialize_message(msg):
         raise ProtocolError(f"unknown msg type: {type_name}") from None
     # Convert to an instance of the message class.
     try:
-        obj = cls(**msg)
-    except TypeError as exc:
+        from_jso = cls.from_jso
+    except AttributeError:
+        from_jso = lambda o: cls(**o)
+    try:
+        obj = from_jso(jso)
+    except (TypeError, ValueError) as exc:
         raise ProtocolError(f"invalid {type_name} msg: {exc}") from None
 
     return type_name, obj

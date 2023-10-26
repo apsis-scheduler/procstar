@@ -166,7 +166,7 @@ class Assembly:
             async for _, conn in events:
                 if conn is not None:
                     logger.info(f"instance connected: {conn_id}")
-                    connected.add((conn.conn_info.group_id, conn.conn_info.conn_id))
+                    connected.add((conn.info.conn.group_id, conn.info.conn.conn_id))
                     if len(connected) == len(conns):
                         assert connected == conns
                         return

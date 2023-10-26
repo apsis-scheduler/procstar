@@ -18,11 +18,11 @@ async def test_connect():
     async with Assembly.start() as asm:
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
-        assert conn.conn_info.group_id == "default"
-        conn_proc = asm.conn_procs[conn.conn_info.conn_id]
-        assert conn.proc_info.pid == conn_proc.pid
-        assert conn.proc_info.euid == os.geteuid()
-        assert conn.proc_info.hostname == socket.gethostname()
+        assert conn.info.conn.group_id == "default"
+        conn_proc = asm.conn_procs[conn.info.conn.conn_id]
+        assert conn.info.proc.pid == conn_proc.pid
+        assert conn.info.proc.euid == os.geteuid()
+        assert conn.info.proc.hostname == socket.gethostname()
 
 
 @pytest.mark.asyncio
@@ -34,7 +34,7 @@ async def test_connect_multi():
     async with Assembly.start(counts=counts) as asm:
         conns = asm.server.connections
         assert len(conns) == 6
-        assert dict(Counter( c.conn_info.group_id for c in conns.values() )) == counts
+        assert dict(Counter( c.info.conn.group_id for c in conns.values() )) == counts
 
 
 @pytest.mark.asyncio
@@ -124,7 +124,7 @@ async def test_run_multi():
         # Each should have been assigned to the right group.
         for proc in procs:
             group = proc.proc_id.split("-", 1)[1]
-            assert asm.server.connections[proc.conn_id].conn_info.group_id == group
+            assert asm.server.connections[proc.conn_id].info.conn.group_id == group
 
         # Each should complete successfully.
         ress = await asyncio.gather(*( p.wait_for_completion() for p in procs ))
@@ -132,11 +132,13 @@ async def test_run_multi():
             group = proc.proc_id.split("-", 1)[1]
             assert res.status.exit_code == 0
             assert res.fds.stdout.text == f"group {group}\n"
+
             # FIXME: Check procstar process pid, once this is available in results.
 
 
-# if __name__ == "__main__":
-#     import logging
-#     logging.getLogger().setLevel(logging.INFO)
-#     asyncio.run(test_connect())
+# FIXME
+if __name__ == "__main__":
+    import logging
+    logging.getLogger().setLevel(logging.INFO)
+    asyncio.run(test_connect())
 

@@ -67,6 +67,18 @@ class SocketInfo:
 
 
 @dataclass
+class ProcstarInfo:
+    """
+    Information about a procstar instance and the connection to it.
+    """
+
+    conn: ConnectionInfo
+    socket: SocketInfo
+    proc: ProcessInfo
+
+
+
+@dataclass
 class Connection:
     """
     A connection to a single procstar instance.
@@ -77,18 +89,11 @@ class Connection:
     reconnects, it uses the same `Connection` instance.
     """
 
-    conn_info: ConnectionInfo
-    socket_info: SocketInfo
-    proc_info: ProcessInfo
+    info: ProcstarInfo
     ws: asyncio.protocols.Protocol = None
 
     def __hash__(self):
-        return hash(self.conn_info.conn_id)
-
-
-    @property
-    def info(self):
-        return None if self.ws is None else SocketInfo.from_ws(self.ws)
+        return hash(self.info.conn.conn_id)
 
 
     @property
@@ -104,7 +109,7 @@ class Connection:
         except ConnectionClosedError:
             assert self.ws.closed
             # Connection closed.  Don't forget about it; it may reconnect.
-            logger.warning(f"{self.info}: connection closed")
+            logger.warning(f"{self.info.socket}: connection closed")
             # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             # FIXME: Think carefully the temporarily dropped connection logic.
 
@@ -136,24 +141,24 @@ class Connections(Mapping, Subscribeable):
 
         except KeyError:
             # New connection.
-            conn = self.__conns[conn_id] = Connection(
-                conn_info   =conn_info,
-                socket_info =socket_info,
-                proc_info   =proc_info,
-                ws          =ws,
+            info = ProcstarInfo(
+                conn    =conn_info,
+                socket  =socket_info,
+                proc    =proc_info,
             )
+            conn = self.__conns[conn_id] = Connection(info=info, ws=ws)
             # Add it to the group.
             group = self.__groups.setdefault(conn_info.group_id, set())
             group.add(conn_id)
 
         else:
             # Previous connection with the same ID.  First, some sanity checks.
-            if socket_info.address != old_conn.socket_info.address:
+            if socket_info.address != old_conn.info.socket.address:
                 # Allow the address to change, in case the remote reconnects
                 # through a different interface.  The port may always be
                 # different, of course.
                 logger.warning(f"[{conn_id}] new address: {socket_info.address}")
-            if conn_info.group_id != old_conn.conn_info.group_id:
+            if conn_info.group_id != old_conn.info.conn.group_id:
                 # The same instance shouldn't connect under a different group.
                 raise RuntimeError(f"[{conn_id}] new group: {group}")
 
@@ -164,7 +169,7 @@ class Connections(Mapping, Subscribeable):
 
             # Use the new websocket with the old connection object.
             old_conn.ws = ws
-            old_conn.socket_info = socket_info
+            old_conn.info.socket = socket_info
             conn = old_conn
 
         self._publish((conn_id, conn))
@@ -176,7 +181,7 @@ class Connections(Mapping, Subscribeable):
         Deletes and returns a connection.
         """
         conn = self.__conns.pop(conn_id)
-        group_id = conn.conn_info.group_id
+        group_id = conn.info.conn.group_id
         # Remove it from its group.
         group = self.__groups[group_id]
         group.remove(conn_id)
@@ -435,7 +440,7 @@ class Server:
             await asyncio.gather(*(
                 conn.send(proto.ProcResultRequest(p.proc_id))
                 for p in self.processes.values()
-                if p.conn_id == conn.conn_info.conn_id
+                if p.conn_id == conn.info.conn.conn_id
             ))
 
 
@@ -484,12 +489,12 @@ class Server:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                logger.info(f"[{conn.conn_info.conn_id}] connection closed")
+                logger.info(f"[{conn.info.conn.conn_id}] connection closed")
                 break
             type, msg = deserialize_message(msg)
             # Process the message.
             logging.info(f"recv: {msg}")
-            self.processes.on_message(conn.conn_info.conn_id, msg)
+            self.processes.on_message(conn.info.conn.conn_id, msg)
 
         await ws.close()
         assert ws.closed
@@ -517,7 +522,7 @@ class Server:
         conn = self.connections.choose_connection(group)
         # FIXME: If the connection is closed, choose another.
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
-        return self.processes.create(conn.conn_info.conn_id, proc_id)
+        return self.processes.create(conn.info.conn.conn_id, proc_id)
 
 
     async def reconnect(self, conn_id, proc_id) -> Process:

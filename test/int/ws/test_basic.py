@@ -1,6 +1,7 @@
 import asyncio
 from   collections import Counter
 import itertools
+import os
 import pytest
 import socket
 
@@ -18,13 +19,16 @@ async def test_connect():
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
         assert conn.conn_info.group_id == "default"
+        conn_proc = asm.conn_procs[conn.conn_info.conn_id]
+        assert conn.proc_info.pid == conn_proc.pid
+        assert conn.proc_info.euid == os.geteuid()
         assert conn.proc_info.hostname == socket.gethostname()
 
 
 @pytest.mark.asyncio
 async def test_connect_multi():
     """
-    Tests multiple procstar asmances in more than one group.
+    Tests multiple procstar instances in more than one group.
     """
     counts = {"red": 1, "green": 3, "blue": 2}
     async with Assembly.start(counts=counts) as asm:

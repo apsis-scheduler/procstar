@@ -154,7 +154,7 @@ async fn send_notifications(
 }
 
 /// Wait time before reconnection attempts.
-const RECONNECT_INTERVAL_START: Duration = Duration::from_millis(10);
+const RECONNECT_INTERVAL_START: Duration = Duration::from_millis(100);
 const RECONNECT_INTERVAL_MULT: f64 = 2.;
 const RECONNECT_INTERVAL_MAX: Duration = Duration::from_secs(30);
 

@@ -1,3 +1,7 @@
+"""
+Incoming connections to the websocket service.
+"""
+
 import asyncio
 from   collections.abc import Mapping
 from   dataclasses import dataclass
@@ -12,6 +16,8 @@ from   procstar.proto import ConnectionInfo, ProcessInfo
 from   procstar.proto import serialize_message
 
 logger = logging.getLogger(__name__)
+
+# FIXME: Age out old connections.
 
 #-------------------------------------------------------------------------------
 
@@ -44,10 +50,12 @@ class ProcstarInfo:
 
 
 
+#-------------------------------------------------------------------------------
+
 @dataclass
 class Connection:
     """
-    A connection to a single procstar instance.
+    A current or recent connection to a single procstar instance.
 
     The connection object survives disconnection and reconnection from the
     procstar instance.  Thus, the websocket may be closed, and the remote
@@ -81,7 +89,14 @@ class Connection:
 
 
 
+#-------------------------------------------------------------------------------
+
 class Connections(Mapping, Subscribeable):
+    """
+    Tracks current and recent connections.
+
+    Maps connetion ID to `Connection` instances.
+    """
 
     def __init__(self):
         super().__init__()

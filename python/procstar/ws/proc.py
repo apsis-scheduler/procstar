@@ -1,3 +1,7 @@
+"""
+Processes on connected procstar instances.
+"""
+
 import asyncio
 from   collections.abc import Mapping
 import logging
@@ -85,7 +89,9 @@ class Process:
 
 class Processes(Mapping):
     """
-    Tracks processes running under connected procstar instances.
+    Processes running under connected procstar instances.
+
+    Maps proc ID to `Process` instances.
     """
 
     def __init__(self):
@@ -105,10 +111,15 @@ class Processes(Mapping):
 
     def on_message(self, procstar_info, msg):
         """
-        Processes `msg` received from `conn_id` to the corresponding
-        process.
+        Processes `msg` to the corresponding process.
+
+        :param procstar_info:
+          About the procstar instance from which the message was received.
         """
         def get_proc(proc_id):
+            """
+            Looks up or creates, if necessary, the `Process` object.
+            """
             try:
                 return self.__procs[proc_id]
             except KeyError:

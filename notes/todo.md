@@ -1,6 +1,13 @@
-### Cleanups
+### Worklist
 
 - [ ] deal with ws ping/pong
+- [ ] token-based security
+- [ ] specify exe explicitly
+- [ ] command-line exe whitelist
+- [ ] Apsis program type
+
+### Cleanups
+
 - [ ] if execve fails, return error code to parent for inclusion in result
 - [ ] age out old connections
 
@@ -12,8 +19,6 @@
 - [ ] add starting CWD to result
 - [ ] add env to result
 - [x] measure start, stop, elapsed time and add to result
-- [ ] specify exe explicitly
-- [ ] command-line exe whitelist
 - [ ] manage umask
 - [ ] pdeath_sig
 - [ ] signal disposition

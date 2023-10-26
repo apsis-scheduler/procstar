@@ -84,8 +84,8 @@ async def test_run_procs():
     specs = {
         "e0": spec.make_proc(["/usr/bin/echo", "Hello, world!"]),
         "e1": spec.make_proc("echo This 'is a test.'"),
-        "s0": spec.make_proc(["/usr/bin/sleep", 1]),
-        "s1": spec.make_proc("sleep 1"),
+        "s0": spec.make_proc(["/usr/bin/sleep", 0.25]),
+        "s1": spec.make_proc("sleep 0.75"),
     }
 
     async with Assembly.start() as asm:
@@ -99,6 +99,8 @@ async def test_run_procs():
         assert ress["e1"].fds.stdout.text == "This is a test.\n"
         assert ress["s0"].fds.stdout.text == ""
         assert ress["s1"].fds.stdout.text == ""
+        assert 0.25 < ress["s0"].times.elapsed < 0.5
+        assert 0.75 < ress["s1"].times.elapsed < 1.0
         assert all( r.fds.stderr.text == "" for r in ress.values() )
 
 

@@ -1,5 +1,6 @@
 /// Named "Res" to avoid confusion with the `Result` types.
 use base64::Engine;
+use chrono::prelude::{DateTime, Utc};
 use libc::{c_int, pid_t, rusage};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -131,11 +132,27 @@ impl Status {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct Times {
+    /// System time when the process started.
+    pub start: String,
+    /// System time when the process completed.
+    pub stop: Option<String>,
+    /// Duration of the process.  This is not necessarily `stop - start`, as it
+    /// is computed from a monotonic clock.
+    pub elapsed: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProcRes {
     /// Errors starting the process.
     pub errors: Vec<String>,
+
     /// The pid with which the process ran.
+    // FIXME: ProcessInfo instead.
     pub pid: pid_t,
+
+    /// Process timing.
+    pub times: Times,
 
     /// Process status, if it has completed.
     pub status: Option<Status>,
@@ -149,9 +166,10 @@ pub struct ProcRes {
 }
 
 impl ProcRes {
-    pub fn new(errors: Vec<String>, pid: pid_t, status: c_int, rusage: rusage) -> Self {
+    pub fn new(errors: Vec<String>, pid: pid_t, start_time: DateTime<Utc>, status: c_int, rusage: rusage) -> Self {
         Self {
             errors,
+            times: Times { start: start_time.to_rfc3339(), stop: None, elapsed: None },
             pid,
             status: Some(Status::new(status)),
             rusage: Some(ResourceUsage::new(&rusage)),

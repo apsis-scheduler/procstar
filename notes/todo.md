@@ -10,7 +10,7 @@
 - [ ] include rusage or similar (from /proc) in results before completion
 - [ ] add starting CWD to result
 - [ ] add env to result
-- [ ] measure start, stop, elapsed time and add to result
+- [x] measure start, stop, elapsed time and add to result
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] manage umask

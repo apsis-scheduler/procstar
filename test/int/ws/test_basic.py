@@ -108,13 +108,13 @@ async def test_run_multi():
     Runs multiple processes on multiple asmances.
     """
     counts = {"red": 1, "green": 3, "blue": 2}
-    groups = itertools.cycle(counts.keys())
+    group_ids = itertools.cycle(counts.keys())
 
     async with Assembly.start(counts=counts) as asm:
         # Start a bunch of processes in various groups.
         procs = await asyncio.gather(*(
             asm.server.start(
-                f"proc{i}-{(g := next(groups))}",
+                f"proc{i}-{(g := next(group_ids))}",
                 spec.make_proc(["/usr/bin/echo", "group", g]),
                 group=g,
             )
@@ -134,11 +134,15 @@ async def test_run_multi():
             assert res.fds.stdout.text == f"group {group}\n"
 
             # FIXME: Check procstar process pid, once this is available in results.
+            assert res.procstar.conn.group_id == group
+            conn_id = res.procstar.conn.conn_id
+            assert res.procstar.proc.pid == asm.conn_procs[conn_id].pid
+            assert res.procstar.proc.ppid == os.getpid()
 
 
 # FIXME
 if __name__ == "__main__":
     import logging
     logging.getLogger().setLevel(logging.INFO)
-    asyncio.run(test_connect())
+    asyncio.run(test_run_proc())
 

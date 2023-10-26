@@ -275,7 +275,6 @@ class Process:
 
 
         def _update(self, result):
-            result = None if result is None else Jso(result)
             self.__latest = result
             self.__updates.put_nowait(result)
 
@@ -334,7 +333,7 @@ class Processes(Mapping):
         return proc
 
 
-    def on_message(self, conn_id, msg):
+    def on_message(self, procstar_info, msg):
         """
         Processes `msg` received from `conn_id` to the corresponding
         process.
@@ -343,6 +342,7 @@ class Processes(Mapping):
             try:
                 return self.__procs[proc_id]
             except KeyError:
+                conn_id = procstar_info.conn.conn_id
                 logger.info(f"new proc on {conn_id}: {proc_id}")
                 return self.create(conn_id, proc_id)
 
@@ -356,8 +356,11 @@ class Processes(Mapping):
             case proto.ProcResult(proc_id, res):
                 proc = get_proc(proc_id)
                 logger.debug(f"msg proc result: {proc_id}")
-                proc.result = res
-                proc.results._update(res)
+                # Attach procstar info to the result.
+                result = Jso(res)
+                result.procstar = procstar_info
+                proc.result = result
+                proc.results._update(result)
 
             case proto.ProcDelete(proc_id):
                 proc = get_proc(proc_id)

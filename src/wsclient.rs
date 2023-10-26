@@ -175,7 +175,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
     ));
 
     let mut interval = RECONNECT_INTERVAL_START;
-    'connect: loop {
+    loop {
         // (Re)connect to the service.
         let (new_sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => pair,
@@ -229,6 +229,5 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
         sender.replace(None);
 
         // Go back and reconnect.
-        continue 'connect;
     }
 }

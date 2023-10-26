@@ -92,7 +92,7 @@ class Assembly:
         # instances can reconnect.
         self.ws_server = await self.server.run(loc=(self.BIND_ADDR, self.port))
         self.port = self.locs[0][1]
-        print(f"started on port {self.port}")
+        logger.info(f"started on port {self.port}")
         # Start it up in a task.
         self.ws_task = asyncio.create_task(self.ws_server.serve_forever())
 

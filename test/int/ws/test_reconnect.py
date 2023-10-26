@@ -87,12 +87,9 @@ async def test_proc_reconnect():
         )
 
         # Restart server.
-        print("stopping")
         await asm.stop_server()
-        print("starting")
         await asm.start_server()
 
-        print("waiting")
         res0, res1 = await asyncio.gather(
             proc0.wait_for_completion(),
             proc1.wait_for_completion(),
@@ -100,4 +97,9 @@ async def test_proc_reconnect():
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
 
+
+if __name__ == "__main__":
+    import logging
+    logging.getLogger().setLevel(logging.INFO)
+    asyncio.run(test_proc_reconnect())
 

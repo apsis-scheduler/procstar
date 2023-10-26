@@ -2,6 +2,7 @@ import asyncio
 from   collections import Counter
 import itertools
 import pytest
+import socket
 
 from   procstar import spec
 from   procstar.testing import Assembly
@@ -17,6 +18,7 @@ async def test_connect():
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
         assert conn.conn_info.group_id == "default"
+        assert conn.proc_info.hostname == socket.gethostname()
 
 
 @pytest.mark.asyncio

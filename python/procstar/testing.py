@@ -12,7 +12,7 @@ import uuid
 
 from   procstar import proto
 from   procstar.lib.net import make_netloc
-import procstar.ws_service
+import procstar.ws.server
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class Assembly:
         Does not start the websocket server or any procstar instances.
         """
         # The procstar server.
-        self.server = procstar.ws_service.Server()
+        self.server = procstar.ws.server.Server()
 
         # The port on which the websocket server is running.  Automatically
         # assigned the first time the server starts.

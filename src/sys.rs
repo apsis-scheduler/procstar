@@ -1,6 +1,6 @@
 extern crate libc;
 
-use libc::{c_int, pid_t, rusage, ssize_t};
+use libc::{c_int, gid_t, pid_t, rusage, ssize_t, uid_t};
 use std::ffi::CString;
 use std::io;
 use std::mem::MaybeUninit;
@@ -118,6 +118,22 @@ pub fn fork() -> io::Result<pid_t> {
 
 pub fn getpid() -> pid_t {
     unsafe { libc::getpid() }
+}
+
+pub fn getuid() -> uid_t {
+    unsafe { libc::getuid() }
+}
+
+pub fn geteuid() -> uid_t {
+    unsafe { libc::geteuid() }
+}
+
+pub fn getgid() -> gid_t {
+    unsafe { libc::getgid() }
+}
+
+pub fn getegid() -> gid_t {
+    unsafe { libc::getegid() }
 }
 
 pub fn mkstemp(template: &str) -> io::Result<(PathBuf, fd_t)> {
@@ -260,18 +276,21 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
 //------------------------------------------------------------------------------
 
 // FIXME: Don't use nix.
-pub fn get_username() -> String {
-    if let Ok(user) = std::env::var("USER") {
-        user
-    } else {
-        let euid = nix::unistd::Uid::effective();
-        if let Some(user) = nix::unistd::User::from_uid(euid).unwrap() {
-            user.name
-        } else {
-            // Fall back to stringified UID.
-            euid.to_string()
-        }
-    }
+pub fn get_username() -> Option<String> {
+    let euid = nix::unistd::Uid::effective();
+    nix::unistd::User::from_uid(euid).unwrap().map(|u| u.name)
+}
+
+/// Returns the username of the effective UID, or the stringified effective UID
+/// if this is not available.
+pub fn get_username_safe() -> String {
+    get_username().unwrap_or_else(|| geteuid().to_string())
+}
+
+// FIXME: Don't use nix.
+pub fn get_groupname() -> Option<String> {
+    let egid = nix::unistd::Gid::effective();
+    nix::unistd::Group::from_gid(egid).unwrap().map(|g| g.name)
 }
 
 const HOST_NAME_MAX: usize = 64;

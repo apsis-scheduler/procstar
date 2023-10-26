@@ -342,7 +342,7 @@ pub fn start_procs(
                 } else {
                     std::process::exit(62);
                 }
-           }
+            }
 
             Ok(child_pid) => {
                 // Parent process.

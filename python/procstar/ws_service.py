@@ -15,7 +15,8 @@ from   websockets.exceptions import ConnectionClosedError
 from   . import proto
 from   .lib.asyn import Subscribeable
 from   .lib.json import Jso
-from   .proto import ProtocolError, serialize_message, deserialize_message
+from   .proto import ConnectionInfo, ProcessInfo, ProtocolError
+from   .proto import serialize_message, deserialize_message
 
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
@@ -49,7 +50,7 @@ class NoConnectionError(LookupError):
 #-------------------------------------------------------------------------------
 
 @dataclass
-class ConnectionInfo:
+class SocketInfo:
     address: ipaddress._BaseAddress
     port: int
 
@@ -76,17 +77,18 @@ class Connection:
     reconnects, it uses the same `Connection` instance.
     """
 
-    conn_id: str
-    group: str = None
+    conn_info: ConnectionInfo
+    socket_info: SocketInfo
+    proc_info: ProcessInfo
     ws: asyncio.protocols.Protocol = None
 
     def __hash__(self):
-        return hash(self.conn_id)
+        return hash(self.conn_info.conn_id)
 
 
     @property
     def info(self):
-        return None if self.ws is None else ConnectionInfo.from_ws(self.ws)
+        return None if self.ws is None else SocketInfo.from_ws(self.ws)
 
 
     @property
@@ -116,7 +118,7 @@ class Connections(Mapping, Subscribeable):
         self.__groups = {}
 
 
-    def _add(self, *, conn_id, group, ws) -> Connection:
+    def _add(self, *, conn_info, proc_info, ws) -> Connection:
         """
         Adds a new connection or readds an existing one.
 
@@ -125,7 +127,8 @@ class Connections(Mapping, Subscribeable):
         :raise RuntimeError:
           The connection could not be added.
         """
-        conn_id = conn_id
+        conn_id = conn_info.conn_id
+        socket_info = SocketInfo.from_ws(ws)
 
         try:
             # Look for an existing connection with this ID.
@@ -134,23 +137,23 @@ class Connections(Mapping, Subscribeable):
         except KeyError:
             # New connection.
             conn = self.__conns[conn_id] = Connection(
-                conn_id =conn_id,
-                group   =group,
-                ws      =ws,
+                conn_info   =conn_info,
+                socket_info =socket_info,
+                proc_info   =proc_info,
+                ws          =ws,
             )
             # Add it to the group.
-            group = self.__groups.setdefault(group, set())
+            group = self.__groups.setdefault(conn_info.group_id, set())
             group.add(conn_id)
 
         else:
             # Previous connection with the same ID.  First, some sanity checks.
-            info = ConnectionInfo.from_ws(ws)
-            if info.address != old_conn.info.address:
+            if socket_info.address != old_conn.socket_info.address:
                 # Allow the address to change, in case the remote reconnects
                 # through a different interface.  The port may always be
                 # different, of course.
-                logger.warning(f"[{conn_id}] new address: {info.address}")
-            if group != old_conn.group:
+                logger.warning(f"[{conn_id}] new address: {socket_info.address}")
+            if conn_info.group_id != old_conn.conn_info.group_id:
                 # The same instance shouldn't connect under a different group.
                 raise RuntimeError(f"[{conn_id}] new group: {group}")
 
@@ -161,6 +164,7 @@ class Connections(Mapping, Subscribeable):
 
             # Use the new websocket with the old connection object.
             old_conn.ws = ws
+            old_conn.socket_info = socket_info
             conn = old_conn
 
         self._publish((conn_id, conn))
@@ -172,12 +176,13 @@ class Connections(Mapping, Subscribeable):
         Deletes and returns a connection.
         """
         conn = self.__conns.pop(conn_id)
+        group_id = conn.conn_info.group_id
         # Remove it from its group.
-        group = self.__groups[conn.group]
+        group = self.__groups[group_id]
         group.remove(conn_id)
         # If the group is now empty, clean it up.
         if len(group) == 0:
-            del self.__groups[conn.group]
+            del self.__groups[group_id]
         self._publish((conn_id, None))
         return conn
 
@@ -210,14 +215,14 @@ class Connections(Mapping, Subscribeable):
 
     # Group methods
 
-    def choose_connection(self, group) -> Connection:
+    def choose_connection(self, group_id) -> Connection:
         """
         Chooses an open connection in 'group'.
         """
         try:
-            conn_ids = self.__groups[group]
+            conn_ids = self.__groups[group_id]
         except KeyError:
-            raise NoGroupError(group) from None
+            raise NoGroupError(group_id) from None
 
         connections = [
             c
@@ -225,7 +230,7 @@ class Connections(Mapping, Subscribeable):
             if (c := self[i]).open
         ]
         if len(connections) == 0:
-            raise NoOpenConnectionInGroup(group)
+            raise NoOpenConnectionInGroup(group_id)
 
         # FIXME: Better choice mechanism.
         return random.choice(connections)
@@ -430,7 +435,7 @@ class Server:
             await asyncio.gather(*(
                 conn.send(proto.ProcResultRequest(p.proc_id))
                 for p in self.processes.values()
-                if p.conn_id == conn.conn_id
+                if p.conn_id == conn.conn_info.conn_id
             ))
 
 
@@ -452,7 +457,8 @@ class Server:
                 raise ProtocolError("closed before register")
 
             # Only Register is acceptable.
-            type, msg = deserialize_message(msg)
+            type, register_msg = deserialize_message(msg)
+            logging.info(f"recv: {msg}")
             if type != "Register":
                 raise ProtocolError(f"expected register; got {type}")
 
@@ -464,9 +470,9 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                conn_id =msg.conn_id,
-                group   =msg.group,
-                ws      =ws,
+                conn_info   =register_msg.conn,
+                proc_info   =register_msg.proc,
+                ws          =ws,
             )
         except RuntimeError as exc:
             logging.error(str(exc))
@@ -478,12 +484,12 @@ class Server:
             try:
                 msg = await ws.recv()
             except ConnectionClosedError:
-                logger.info(f"[{conn.conn_id}] connection closed")
+                logger.info(f"[{conn.conn_info.conn_id}] connection closed")
                 break
             type, msg = deserialize_message(msg)
             # Process the message.
-            logging.info(f"RECV: {msg}")
-            self.processes.on_message(conn.conn_id, msg)
+            logging.info(f"recv: {msg}")
+            self.processes.on_message(conn.conn_info.conn_id, msg)
 
         await ws.close()
         assert ws.closed
@@ -511,7 +517,7 @@ class Server:
         conn = self.connections.choose_connection(group)
         # FIXME: If the connection is closed, choose another.
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
-        return self.processes.create(conn.conn_id, proc_id)
+        return self.processes.create(conn.conn_info.conn_id, proc_id)
 
 
     async def reconnect(self, conn_id, proc_id) -> Process:

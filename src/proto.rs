@@ -2,11 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
+use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::spec;
 use crate::spec::ProcId;
-use crate::sys;
+
+//------------------------------------------------------------------------------
+
+/// Information about the procstar instance.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnectionInfo {
+    /// Connection ID.
+    pub conn_id: String,
+    /// Procstar group ID.
+    pub group_id: String,
+}
 
 //------------------------------------------------------------------------------
 
@@ -61,26 +72,6 @@ pub enum IncomingMessage {
     ProcDeleteRequest { proc_id: ProcId },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct InstanceInfo {
-    hostname: String,
-    username: String,
-    pid: u32,
-}
-
-impl InstanceInfo {
-    pub fn new() -> Self {
-        let hostname = sys::get_hostname();
-        let username = sys::get_username();
-        let pid = sys::getpid() as u32;
-        Self {
-            hostname,
-            username,
-            pid,
-        }
-    }
-}
-
 //------------------------------------------------------------------------------
 
 /// Outgoing messages, originating here and sent to the websocket server.
@@ -94,9 +85,8 @@ pub enum OutgoingMessage {
 
     /// Registers or re-registers this instance.
     Register {
-        conn_id: String,
-        group: String,
-        info: InstanceInfo,
+        conn: ConnectionInfo,
+        proc: ProcessInfo,
     },
 
     /// The list of current proc IDs.

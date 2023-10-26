@@ -16,7 +16,7 @@ async def test_connect():
     async with Assembly.start() as asm:
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
-        assert conn.group == "default"
+        assert conn.conn_info.group_id == "default"
 
 
 @pytest.mark.asyncio
@@ -28,7 +28,7 @@ async def test_connect_multi():
     async with Assembly.start(counts=counts) as asm:
         conns = asm.server.connections
         assert len(conns) == 6
-        assert dict(Counter( c.group for c in conns.values() )) == counts
+        assert dict(Counter( c.conn_info.group_id for c in conns.values() )) == counts
 
 
 @pytest.mark.asyncio
@@ -118,7 +118,7 @@ async def test_run_multi():
         # Each should have been assigned to the right group.
         for proc in procs:
             group = proc.proc_id.split("-", 1)[1]
-            assert asm.server.connections[proc.conn_id].group == group
+            assert asm.server.connections[proc.conn_id].conn_info.group_id == group
 
         # Each should complete successfully.
         ress = await asyncio.gather(*( p.wait_for_completion() for p in procs ))
@@ -132,4 +132,5 @@ async def test_run_multi():
 # if __name__ == "__main__":
 #     import logging
 #     logging.getLogger().setLevel(logging.INFO)
-#     asyncio.run(test_connect_multi())
+#     asyncio.run(test_connect())
+

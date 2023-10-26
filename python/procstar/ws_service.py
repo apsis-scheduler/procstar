@@ -558,9 +558,16 @@ def main():
 
     async def run(server, loc):
         async with server.run(loc):
+            # Wait for a connection.
+            with server.connections.subscription() as conn_events:
+                await anext(conn_events)
+
+            # Start a process.
+            proc = await server.start("proc0", {"argv": ["/usr/bin/sleep", "1"]})
+            # Show result updates.
             while True:
-                async for conn_id, msg in server:
-                    logger.info(f"[{conn_id}] received {msg}")
+                async for msg in proc.results:
+                    pass
 
 
     logging.basicConfig(

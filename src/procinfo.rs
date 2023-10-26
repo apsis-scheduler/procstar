@@ -2,7 +2,7 @@ use libc::{gid_t, pid_t, uid_t};
 use serde::{Deserialize, Serialize};
 
 use crate::sys::{
-    get_groupname, get_hostname, get_username, getegid, geteuid, getgid, getpid, getuid,
+    get_groupname, get_hostname, get_username, getegid, geteuid, getgid, getpid, getppid, getuid,
 };
 
 // FIXME: Use getpwuid and getgrgid to implement username and groupname.
@@ -14,6 +14,8 @@ use crate::sys::{
 pub struct ProcessInfo {
     /// Process ID.
     pub pid: pid_t,
+    /// Parent process ID.
+    pub ppid: pid_t,
     /// User ID.
     pub uid: uid_t,
     /// Effective user ID.
@@ -35,6 +37,7 @@ impl ProcessInfo {
     /// Populates for the current process.
     pub fn new_self() -> Self {
         let pid = getpid();
+        let ppid = getppid();
         let uid = getuid();
         let euid = geteuid();
         let username = get_username();
@@ -44,6 +47,7 @@ impl ProcessInfo {
         let hostname = get_hostname();
         Self {
             pid,
+            ppid,
             uid,
             euid,
             username,

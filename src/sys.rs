@@ -120,6 +120,10 @@ pub fn getpid() -> pid_t {
     unsafe { libc::getpid() }
 }
 
+pub fn getppid() -> pid_t {
+    unsafe { libc::getppid() }
+}
+
 pub fn getuid() -> uid_t {
     unsafe { libc::getuid() }
 }

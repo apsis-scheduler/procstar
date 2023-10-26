@@ -74,6 +74,7 @@ class ConnectionInfo:
 @dataclass
 class ProcessInfo:
     pid: int
+    ppid: int
     uid: int
     euid: int
     username: str

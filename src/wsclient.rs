@@ -44,20 +44,22 @@ impl Connection {
 }
 
 /// Handler for incoming messages on a websocket client connection.
-async fn handle(
-    procs: SharedProcs,
-    msg: Message,
-) -> Result<Option<proto::OutgoingMessage>, proto::Error> {
+async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, proto::Error> {
     match msg {
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json)?;
             eprintln!("msg: {:?}", msg);
             if let Some(rsp) = proto::handle_incoming(procs, msg).await {
                 eprintln!("rsp: {:?}", rsp);
-                Ok(Some(rsp))
+                let json = serde_json::to_vec(&rsp)?;
+                Ok(Some(Message::Binary(json)))
             } else {
                 Ok(None)
             }
+        }
+        Message::Ping(payload) => {
+            eprintln!("pong: {:?}", payload);
+            Ok(Some(Message::Pong(payload)))
         }
         Message::Close(_) => Err(proto::Error::Close),
         _ => Err(proto::Error::WrongMessageType(format!(
@@ -200,7 +202,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                     Ok(Some(rsp))
                         // Handling the incoming message produced a response;
                         // send it back.
-                        => if let Err(err) = send(sender.borrow_mut().as_mut().unwrap(), rsp).await {
+                        => if let Err(err) = sender.borrow_mut().as_mut().unwrap().send(rsp).await {
                             eprintln!("msg send error: {:?}", err);
                             break;
                         },

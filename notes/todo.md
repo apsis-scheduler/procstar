@@ -1,6 +1,6 @@
 ### Worklist
 
-- [ ] deal with ws ping/pong
+- [x] deal with ws ping/pong
 - [ ] token-based security
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
@@ -10,6 +10,7 @@
 
 - [ ] if execve fails, return error code to parent for inclusion in result
 - [ ] age out old connections
+- [ ] should procstar ping the ws server?
 
 ### Features
 

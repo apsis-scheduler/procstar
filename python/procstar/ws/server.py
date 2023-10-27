@@ -4,6 +4,7 @@ WebSocket service for incoming connections from procstar instances.
 
 import asyncio
 import logging
+import ssl
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
@@ -36,7 +37,14 @@ class Server:
           If `port` is none, chooses an unused port on each interface.
         """
         host, port = loc
-        return websockets.server.serve(self._serve_connection, host, port)
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.verify_mode = ssl.VerifyMode.CERT_NONE
+        # ssl_context.load_default_certs()
+        return websockets.server.serve(
+            self._serve_connection,
+            host, port,
+            ssl=ssl_context,
+        )
 
 
     async def _update_connection(self, conn):

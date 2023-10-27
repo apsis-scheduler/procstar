@@ -139,7 +139,7 @@ class Assembly:
         Starts procstar instances and waits for them to connect.
 
         :param counts:
-          Mapping from group name to instance count.
+          Mapping from group ID to instance count.
         """
         url = self.urls[0]
         conns = set(
@@ -150,12 +150,12 @@ class Assembly:
 
         with self.server.connections.subscription() as events:
             # Start the processes.
-            for group, conn_id in conns:
+            for group_id, conn_id in conns:
                 self.conn_procs[conn_id] = await asyncio.create_subprocess_exec(
                     # FIXME: s/--name/--conn-id/
                     get_procstar_path(),
                     "--connect", url,
-                    "--group", group,
+                    "--group-id", group_id,
                     "--name", conn_id,
                     # FIXME: cwd=tmp_dir
                     env={"RUST_BACKTRACE": "1"} | os.environ,
@@ -172,11 +172,11 @@ class Assembly:
                         return
 
 
-    def start_instance(self, *, group=proto.DEFAULT_GROUP):
+    def start_instance(self, *, group_id=proto.DEFAULT_GROUP):
         """
         Starts a single procstar instance.
         """
-        return self.start_instances({group: 1})
+        return self.start_instances({group_id: 1})
 
 
     async def stop_instance(self, conn_id):

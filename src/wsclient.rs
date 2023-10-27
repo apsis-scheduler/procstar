@@ -57,10 +57,7 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, pro
                 Ok(None)
             }
         }
-        Message::Ping(payload) => {
-            eprintln!("pong: {:?}", payload);
-            Ok(Some(Message::Pong(payload)))
-        }
+        Message::Ping(payload) => Ok(Some(Message::Pong(payload))),
         Message::Close(_) => Err(proto::Error::Close),
         _ => Err(proto::Error::WrongMessageType(format!(
             "unexpected ws msg: {:?}",

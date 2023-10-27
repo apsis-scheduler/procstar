@@ -62,7 +62,12 @@ pub struct Proc {
 }
 
 impl Proc {
-    pub fn new(pid: pid_t, start_time: DateTime<Utc>, start_instant: Instant, fd_handlers: FdHandlers) -> Self {
+    pub fn new(
+        pid: pid_t,
+        start_time: DateTime<Utc>,
+        start_instant: Instant,
+        fd_handlers: FdHandlers,
+    ) -> Self {
         Self {
             pid,
             errors: Vec::new(),

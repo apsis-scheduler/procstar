@@ -166,10 +166,20 @@ pub struct ProcRes {
 }
 
 impl ProcRes {
-    pub fn new(errors: Vec<String>, pid: pid_t, start_time: DateTime<Utc>, status: c_int, rusage: rusage) -> Self {
+    pub fn new(
+        errors: Vec<String>,
+        pid: pid_t,
+        start_time: DateTime<Utc>,
+        status: c_int,
+        rusage: rusage,
+    ) -> Self {
         Self {
             errors,
-            times: Times { start: start_time.to_rfc3339(), stop: None, elapsed: None },
+            times: Times {
+                start: start_time.to_rfc3339(),
+                stop: None,
+                elapsed: None,
+            },
             pid,
             status: Some(Status::new(status)),
             rusage: Some(ResourceUsage::new(&rusage)),

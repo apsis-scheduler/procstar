@@ -29,12 +29,16 @@ def get_procstar_path() -> Path:
         path = os.environ["PROCSTAR"]
     except KeyError:
         # FIXME: This is not the right place, or the right way.
-        path = Path(__file__).parents[2] / "target" / "debug" / "procstar"
+        path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
 
     assert os.access(path, os.X_OK), f"missing exe {path}"
     logging.info(f"using {path}")
     return path
 
+
+# Use a self-signed cert for localhost for integration tests.
+TLS_CERT_PATH = Path(__file__).parent / "localhost.crt"
+TLS_KEY_PATH = TLS_CERT_PATH.with_suffix(".key")
 
 #-------------------------------------------------------------------------------
 
@@ -55,8 +59,6 @@ class Assembly:
     Integration test assembly consisting of a websocket server and multiple
     procstar instances connecting to it.
     """
-
-    BIND_ADDR = "127.0.0.1"
 
     def __init__(self):
         """
@@ -90,7 +92,10 @@ class Assembly:
         # Create the websockets server, that runs our protocol server.  Choose a
         # new port the first time, then keep using the same port, so procstar
         # instances can reconnect.
-        self.ws_server = await self.server.run(loc=(self.BIND_ADDR, self.port))
+        self.ws_server = await self.server.run(
+            loc=("localhost", self.port),
+            tls_cert=(TLS_CERT_PATH, TLS_KEY_PATH),
+        )
         self.port = self.locs[0][1]
         logger.info(f"started on port {self.port}")
         # Start it up in a task.
@@ -126,14 +131,6 @@ class Assembly:
         return tuple(_get_local(self.ws_server))
 
 
-    @property
-    def urls(self):
-        return tuple(
-            urllib.parse.urlunsplit(("ws", make_netloc(l), "", "", ""))
-            for l in self.locs
-        )
-
-
     async def start_instances(self, counts):
         """
         Starts procstar instances and waits for them to connect.
@@ -141,7 +138,7 @@ class Assembly:
         :param counts:
           Mapping from group ID to instance count.
         """
-        url = self.urls[0]
+        url = f"wss://localhost:{self.port}"
         conns = set(
             (g, str(uuid.uuid4()))
             for g, n in counts.items()
@@ -158,10 +155,14 @@ class Assembly:
                     "--group-id", group_id,
                     "--name", conn_id,
                     # FIXME: cwd=tmp_dir
-                    env={"RUST_BACKTRACE": "1"} | os.environ,
+                    env={
+                        "RUST_BACKTRACE": "1",
+                        "PROCSTAR_CERT": str(TLS_CERT_PATH),
+                    } | os.environ,
                 )
 
             # Wait for them to connect.
+            # FIXME: Timeout.
             connected = set()
             async for _, conn in events:
                 if conn is not None:

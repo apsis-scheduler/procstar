@@ -7,11 +7,9 @@ from   pathlib import Path
 import signal
 import socket
 import tempfile
-import urllib.parse
 import uuid
 
 from   procstar import proto
-from   procstar.lib.net import make_netloc
 import procstar.ws.server
 
 logger = logging.getLogger(__name__)

@@ -11,6 +11,7 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
+use crate::net::get_tls_connector;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
@@ -79,13 +80,7 @@ async fn connect(
 ) -> Result<(SocketSender, SocketReceiver), proto::Error> {
     eprintln!("connecting to {}", connection.url);
 
-    let mut builder = native_tls::TlsConnector::builder();
-    let cert = std::fs::read_to_string("/home/alex/dev/procstar/python/procstar/ws/localhost.crt").unwrap();
-    let cert = native_tls::Certificate::from_pem(&cert.as_bytes()).unwrap();
-    builder.add_root_certificate(cert);
-
-    let connector = Connector::NativeTls(builder.build().unwrap()); // FIXME: Unwrap.
-
+    let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await.unwrap();
     eprintln!("connected");
@@ -198,8 +193,7 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
                 if RECONNECT_INTERVAL_MAX < interval {
                     interval = RECONNECT_INTERVAL_MAX;
                 }
-                std::process::exit(1);
-                // continue;
+                continue;
             }
         };
         // Connected.  There's now a websocket sender available.

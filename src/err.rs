@@ -24,6 +24,7 @@ pub enum Error {
     Eof,
     Io(std::io::Error),
     ParseInt(std::num::ParseIntError),
+    NativeTlsError(native_tls::Error),
 }
 
 impl Error {
@@ -38,6 +39,7 @@ impl std::fmt::Display for Error {
             Error::Eof => f.write_str("EOF"),
             Error::Io(ref err) => err.fmt(f),
             Error::ParseInt(ref err) => err.fmt(f),
+            Error::NativeTlsError(ref err) => err.fmt(f),
         }
     }
 }
@@ -51,6 +53,12 @@ impl From<std::io::Error> for Error {
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Error {
         Error::ParseInt(err)
+    }
+}
+
+impl From<native_tls::Error> for Error {
+    fn from(err: native_tls::Error) -> Error {
+        Error::NativeTlsError(err)
     }
 }
 

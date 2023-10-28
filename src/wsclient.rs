@@ -80,9 +80,10 @@ async fn connect(
     eprintln!("connecting to {}", connection.url);
 
     let mut builder = native_tls::TlsConnector::builder();
-    builder.danger_accept_invalid_certs(true);
-    builder.danger_accept_invalid_hostnames(true);
-    builder.min_protocol_version(Some(native_tls::Protocol::Tlsv12));
+    let cert = std::fs::read_to_string("/home/alex/dev/procstar/python/procstar/ws/localhost.crt").unwrap();
+    let cert = native_tls::Certificate::from_pem(&cert.as_bytes()).unwrap();
+    builder.add_root_certificate(cert);
+
     let connector = Connector::NativeTls(builder.build().unwrap()); // FIXME: Unwrap.
 
     let (ws_stream, _) =

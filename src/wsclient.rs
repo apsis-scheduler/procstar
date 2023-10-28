@@ -6,9 +6,12 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::protocol::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 
+use crate::net::get_tls_connector;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
@@ -68,7 +71,7 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, pro
 
 async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), proto::Error> {
     let json = serde_json::to_vec(&msg)?;
-    sender.send(Message::Binary(json)).await?;
+    sender.send(Message::Binary(json)).await.unwrap();
     Ok(())
 }
 
@@ -76,7 +79,10 @@ async fn connect(
     connection: &mut Connection,
 ) -> Result<(SocketSender, SocketReceiver), proto::Error> {
     eprintln!("connecting to {}", connection.url);
-    let (ws_stream, _) = connect_async(&connection.url).await?;
+
+    let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
+    let (ws_stream, _) =
+        connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await.unwrap();
     eprintln!("connected");
     let (mut sender, receiver) = ws_stream.split();
 

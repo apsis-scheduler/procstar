@@ -4,6 +4,8 @@ WebSocket service for incoming connections from procstar instances.
 
 import asyncio
 import logging
+from   pathlib import Path
+import ssl
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
@@ -27,16 +29,34 @@ class Server:
         self.processes = Processes()
 
 
-    def run(self, loc=(None, None)):
+    def run(self, *, loc=(None, None), tls_cert=None):
         """
         Returns an async context manager that runs the websocket server.
 
         :param loc:
           `host, port` pair.  If `host` is none, runs on all interfaces.
           If `port` is none, chooses an unused port on each interface.
+        :param cert:
+          If not none, a (cert file path, key file path) pair to use for TLS.
         """
         host, port = loc
-        return websockets.server.serve(self._serve_connection, host, port)
+
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        if tls_cert is not None:
+            cert_path, key_path = tls_cert
+            ssl_context.load_cert_chain(cert_path, key_path)
+
+        # For debugging TLS handshake.
+        if False:
+            def msg_callback(*args):
+                logger.debug(f"TLS: {args}")
+            ssl_context._msg_callback = msg_callback
+
+        return websockets.server.serve(
+            self._serve_connection,
+            host, port,
+            ssl=ssl_context,
+        )
 
 
     async def _update_connection(self, conn):

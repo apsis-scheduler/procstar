@@ -6,7 +6,7 @@ import pytest
 import socket
 
 from   procstar import spec
-from   procstar.testing import Assembly
+from   procstar.ws.testing import Assembly
 
 #-------------------------------------------------------------------------------
 
@@ -142,3 +142,7 @@ async def test_run_multi():
             assert res.procstar.proc.ppid == os.getpid()
 
 
+if __name__ == "__main__":
+    import logging
+    logging.getLogger().setLevel(logging.INFO)
+    asyncio.run(test_connect())

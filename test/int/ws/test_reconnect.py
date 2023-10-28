@@ -2,7 +2,7 @@ import asyncio
 import pytest
 
 from   procstar import spec
-from   procstar.testing import Assembly
+from   procstar.ws.testing import Assembly
 
 #-------------------------------------------------------------------------------
 

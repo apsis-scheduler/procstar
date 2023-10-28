@@ -4,6 +4,7 @@ WebSocket service for incoming connections from procstar instances.
 
 import asyncio
 import logging
+from   pathlib import Path
 
 from   .server import Server
 from   procstar import proto
@@ -27,10 +28,16 @@ def main():
     parser.add_argument(
         "--port", metavar="PORT", type=int, default=proto.DEFAULT_PORT,
         help=f"serve from PORT [def: {proto.DEFAULT_PORT}]")
+    parser.add_argument(
+        "--tls-cert", metavar="PATH", type=lambda p: Path(p).absolute(),
+        help="use TLS cert from PATH")
+    parser.add_argument(
+        "--tls-key", metavar="PATH", type=lambda p: Path(p).absolute(),
+        help="use TLS key from PATH [def: cert path with .key]")
     args = parser.parse_args()
 
-    async def run(server, loc):
-        async with server.run(loc):
+    async def run(server, loc, tls_cert):
+        async with server.run(loc=loc, tls_cert=tls_cert):
             # Wait for a connection.
             with server.connections.subscription() as conn_events:
                 await anext(conn_events)
@@ -42,19 +49,30 @@ def main():
                 async for msg in proc.results:
                     pass
 
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s [%(levelname)-7s] %(message)s",
+    tls_cert = None if args.tls_cert is None else (
+        args.tls_cert,
+        # If the key path wasn't given, assume the same path as the cert, except
+        # with suffix '.key'.
+        args.tls_cert.with_suffix(".key") if args.tls_key is None
+        else args.tls_key
     )
-    logging.getLogger("websockets.server").setLevel(logging.INFO)
+
     try:
-        asyncio.run(run(Server(), loc=(args.host, args.port)))
+        asyncio.run(run(
+            Server(),
+            loc=(args.host, args.port),
+            tls_cert=tls_cert,
+        ))
     except KeyboardInterrupt:
         pass
 
 
 if __name__ == "__main__":
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)-7s] %(message)s",
+    )
+    logging.getLogger("websockets.server").setLevel(logging.INFO)
+
     main()
 

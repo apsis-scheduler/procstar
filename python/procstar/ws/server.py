@@ -29,25 +29,27 @@ class Server:
         self.processes = Processes()
 
 
-    def run(self, loc=(None, None)):
+    def run(self, *, loc=(None, None), tls_cert=None):
         """
         Returns an async context manager that runs the websocket server.
 
         :param loc:
           `host, port` pair.  If `host` is none, runs on all interfaces.
           If `port` is none, chooses an unused port on each interface.
+        :param cert:
+          If not none, a (cert file path, key file path) pair to use for TLS.
         """
         host, port = loc
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        cert_dir = Path(__file__).parent
-        ssl_context.load_cert_chain(cert_dir / "localhost.crt", cert_dir / "localhost.key")
+        if tls_cert is not None:
+            cert_path, key_path = tls_cert
+            ssl_context.load_cert_chain(cert_path, key_path)
 
+        # For debugging TLS handshake.
         if False:
-            # For debugging TLS handshake.
             def msg_callback(*args):
-                print(f"TLS: {args}")
-
+                logger.debug(f"TLS: {args}")
             ssl_context._msg_callback = msg_callback
 
         return websockets.server.serve(

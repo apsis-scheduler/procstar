@@ -82,7 +82,9 @@ async fn connect(
 
     let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
     let (ws_stream, _) =
-        connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await.unwrap();
+        connect_async_tls_with_config(&connection.url, None, false, Some(connector))
+            .await
+            .unwrap();
     eprintln!("connected");
     let (mut sender, receiver) = ws_stream.split();
 

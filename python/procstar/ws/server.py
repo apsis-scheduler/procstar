@@ -165,7 +165,7 @@ class Server:
             proc_id,
             spec,
             *,
-            group=proto.DEFAULT_GROUP,
+            group_id=proto.DEFAULT_GROUP,
     ) -> Process:
         """
         Starts a new process on a connection in `group`.
@@ -178,7 +178,7 @@ class Server:
         except AttributeError:
             pass
 
-        conn = self.connections.choose_connection(group)
+        conn = self.connections.choose_connection(group_id)
         # FIXME: If the connection is closed, choose another.
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
         return self.processes.create(conn.info.conn.conn_id, proc_id)

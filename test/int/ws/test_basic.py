@@ -130,7 +130,7 @@ async def test_run_multi():
             asm.server.start(
                 f"proc{i}-{(g := next(group_ids))}",
                 spec.make_proc(["/usr/bin/echo", "group", g]),
-                group=g,
+                group_id=g,
             )
             for i in range(64)
         ))

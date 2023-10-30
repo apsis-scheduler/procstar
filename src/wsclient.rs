@@ -1,5 +1,6 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use log::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -16,8 +17,6 @@ use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
-
-// FIXME: Replace `eprintln` for errors with something more appropriate.
 
 //------------------------------------------------------------------------------
 
@@ -52,9 +51,9 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, pro
     match msg {
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json)?;
-            eprintln!("msg: {:?}", msg);
+            trace!("msg: {:?}", msg);
             if let Some(rsp) = proto::handle_incoming(procs, msg).await {
-                eprintln!("rsp: {:?}", rsp);
+                trace!("rsp: {:?}", rsp);
                 let json = serde_json::to_vec(&rsp)?;
                 Ok(Some(Message::Binary(json)))
             } else {
@@ -76,16 +75,10 @@ async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<
     Ok(())
 }
 
-async fn connect(
-    connection: &mut Connection,
-) -> Result<(SocketSender, SocketReceiver), Error> {
-    eprintln!("connecting to {}", connection.url);
-
+async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
     let (ws_stream, _) =
-        connect_async_tls_with_config(&connection.url, None, false, Some(connector))
-            .await?;
-    eprintln!("connected");
+        connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
     let (mut sender, receiver) = ws_stream.split();
 
     // Send a register message.
@@ -140,10 +133,10 @@ async fn send_notifications(
                     if let Some(msg) = notification_to_message(&procs, noti) {
                         // Send the outgoing message.
                         if let Err(err) = send(sender, msg).await {
-                            eprintln!("msg send error: {:?}", err);
+                            warn!("msg send error: {:?}", err);
                             // Close the websocket.
                             if let Err(err) = sender.close().await {
-                                eprintln!("websocket close error: {:?}", err);
+                                warn!("websocket close error: {:?}", err);
                             }
                         }
                     } else {
@@ -209,9 +202,15 @@ pub async fn run(
     let mut count = 0;
     loop {
         // (Re)connect to the service.
+        info!("connecting: {}", connection.url);
         let (new_sender, mut receiver) = match connect(&mut connection).await {
-            Ok(pair) => pair,
+            Ok(pair) => {
+                info!("connected: {}", connection.url);
+                pair
+            }
             Err(err) => {
+                warn!("connection failed: {}: {}", connection.url, err);
+
                 count += 1;
                 if cfg.count_max <= count {
                     return Err(err);
@@ -243,7 +242,7 @@ pub async fn run(
                         // Handling the incoming message produced a response;
                         // send it back.
                         => if let Err(err) = sender.borrow_mut().as_mut().unwrap().send(rsp).await {
-                            eprintln!("msg send error: {:?}", err);
+                            warn!("msg send error: {:?}", err);
                             break;
                         },
                     Ok(None)
@@ -252,16 +251,16 @@ pub async fn run(
                     Err(err)
                         // Error while handling the message.
                         => {
-                            eprintln!("msg handle error: {:?}", err);
+                            warn!("msg handle error: {:?}", err);
                             break;
                         },
                 },
                 Some(Err(err)) => {
-                    eprintln!("msg receive error: {:?}", err);
+                    warn!("msg receive error: {:?}", err);
                     break;
                 }
                 None => {
-                    eprintln!("msg stream end");
+                    warn!("msg stream end");
                     break;
                 }
             }

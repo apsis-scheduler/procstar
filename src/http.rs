@@ -2,6 +2,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
+use log::*;
 use serde_json::json;
 use std::rc::Rc;
 
@@ -206,7 +207,7 @@ pub async fn run_http(procs: SharedProcs) -> Result<(), Box<dyn std::error::Erro
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    eprintln!("Listening on http://{}", addr);
+    info!("Listening on http://{}", addr);
 
     // We match the URI path to (internal) route numbers, and dispatch below on
     // these.  It's a bit cumbersome to maintain, but quite efficient, and gives

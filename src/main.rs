@@ -3,6 +3,7 @@ extern crate exitcode;
 mod argv;
 
 use futures::future::join;
+use log::*;
 // use procstar::fd::parse_fd;
 use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedProcs};
@@ -25,7 +26,7 @@ async fn maybe_run_ws(args: &argv::Args, running_procs: SharedProcs) {
             wsclient::Connection::new(&url, args.name.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
         if let Err(err) = wsclient::run(connection, running_procs, &cfg).await {
-            eprintln!("websocket connection failed: {err}");
+            error!("websocket connection failed: {err}");
             std::process::exit(1);
         }
     }
@@ -35,16 +36,32 @@ async fn maybe_run_ws(args: &argv::Args, running_procs: SharedProcs) {
 async fn main() {
     let args = argv::parse();
 
+    // Configure logging.
+    let log_level = if let Some(l) = args.log_level.clone() {
+        argv::parse_log_level(&l).unwrap()
+    } else {
+        log::Level::Warn
+    };
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(log_level)
+        .timestamp(stderrlog::Timestamp::Millisecond)
+        .init()
+        .unwrap();
+
+    // Set up the collection of processes to run.
     let running_procs = SharedProcs::new();
+    // If specs were given on the command line, start those processes now.
     let input = if let Some(p) = args.input.as_deref() {
         spec::load_file(&p).unwrap_or_else(|err| {
             eprintln!("failed to load {}: {}", p, err);
-            std::process::exit(exitcode::OSFILE);
+            std::process::exit(2);
         })
     } else {
         spec::Input::new()
     };
 
+    // We run tokio in single-threaded mode.
     let local = tokio::task::LocalSet::new();
 
     if args.serve || args.connect.is_some() {
@@ -59,7 +76,7 @@ async fn main() {
             .run_until(async { start_procs(&input.specs, running_procs.clone()) })
             .await
             .unwrap_or_else(|err| {
-                eprintln!("failred to start procs: {}", err);
+                error!("failred to start procs: {}", err);
                 std::process::exit(exitcode::DATAERR);
             });
 
@@ -77,7 +94,7 @@ async fn main() {
                 // Start specs from the command line.
                 let tasks =
                     start_procs(&input.specs, running_procs.clone()).unwrap_or_else(|err| {
-                        eprintln!("failed to start procs: {}", err);
+                        error!("failed to start procs: {}", err);
                         std::process::exit(exitcode::DATAERR);
                     });
                 // Wait for tasks to complete.
@@ -89,12 +106,12 @@ async fn main() {
                 // Print them.
                 if let Some(path) = args.output {
                     res::dump_file(&result, &path).unwrap_or_else(|err| {
-                        eprintln!("failed to write output {}: {}", path, err);
+                        error!("failed to write output {}: {}", path, err);
                         std::process::exit(exitcode::OSFILE);
                     });
                 } else {
                     res::print(&result).unwrap_or_else(|err| {
-                        eprintln!("failed to print output: {}", err);
+                        error!("failed to print output: {}", err);
                         std::process::exit(exitcode::OSFILE);
                     });
                     println!("");

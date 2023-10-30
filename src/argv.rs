@@ -5,9 +5,27 @@ use crate::wsclient;
 
 //------------------------------------------------------------------------------
 
+pub fn parse_log_level(level: &str) -> Result<log::Level, ()> {
+    match level {
+        "trace" => Ok(log::Level::Trace),
+        "debug" => Ok(log::Level::Debug),
+        "info" => Ok(log::Level::Info),
+        "warn" => Ok(log::Level::Warn),
+        "error" => Ok(log::Level::Error),
+        _ => Err(()),
+    }
+}
+
 /// Run and manage processes.
 #[derive(Parser, Debug)]
 pub struct Args {
+    /// log at LEVEL
+    #[arg(
+        long, value_name = "LEVEL",
+        value_parser = clap::builder::PossibleValuesParser::new(["trace", "debug", "info", "warn", "error"])
+    )]
+    pub log_level: Option<String>,
+
     /// run an HTTP service
     #[arg(short, long)]
     pub serve: bool,
@@ -47,7 +65,6 @@ pub fn parse() -> Args {
 }
 
 pub fn get_connect_config(args: &Args) -> wsclient::ConnectConfig {
-    eprintln!("argv: {:?}", args);
     // Defaults.
     let df = wsclient::ConnectConfig::new();
     // Apply options.

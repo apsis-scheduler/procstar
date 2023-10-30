@@ -1,4 +1,5 @@
 use libc::c_int;
+use log::*;
 use std::cell::RefCell;
 use std::fs;
 use std::io::{Read, Seek};
@@ -307,13 +308,13 @@ impl SharedFdHandler {
 pub fn make_fd_handler(fd_str: String, spec: spec::Fd) -> (RawFd, SharedFdHandler) {
     // FIXME: Parse, or at least check, when deserializing.
     let fd_num = parse_fd(&fd_str).unwrap_or_else(|err| {
-        eprintln!("failed to parse fd {}: {}", fd_str, err);
-        std::process::exit(exitcode::OSERR);
+        error!("failed to parse fd {}: {}", fd_str, err);
+        std::process::exit(2);
     });
 
     let handler = SharedFdHandler::new(fd_num, spec).unwrap_or_else(|err| {
-        eprintln!("failed to set up fd {}: {}", fd_num, err);
-        std::process::exit(exitcode::OSERR);
+        error!("failed to set up fd {}: {}", fd_num, err);
+        std::process::exit(2);
     });
 
     (fd_num, handler)

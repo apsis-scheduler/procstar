@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use futures_util::future::FutureExt;
 use libc::pid_t;
+use log::*;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
@@ -331,8 +332,8 @@ pub fn start_procs(
         let env = environ::build(std::env::vars(), &spec.env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
-            eprintln!("failed to create pipe: {}", err);
-            std::process::exit(exitcode::OSFILE);
+            error!("failed to create pipe: {}", err);
+            std::process::exit(1);
         });
 
         let fd_handlers = spec

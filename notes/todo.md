@@ -7,7 +7,7 @@
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] Apsis program type
-- [ ] proper logging from procstar
+- [x] proper logging from procstar
 
 ### Cleanups
 

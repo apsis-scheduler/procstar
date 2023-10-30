@@ -26,6 +26,16 @@ async def test_connect():
 
 
 @pytest.mark.asyncio
+async def test_connect_no_token():
+    """
+    Tests connection without access token.
+    """
+    async with Assembly.start(access_token=None) as asm:
+        assert len(asm.server.connections) == 1
+
+
+# @pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_connect_multi():
     """
     Tests multiple procstar instances in more than one group.

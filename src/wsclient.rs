@@ -11,7 +11,7 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
-use crate::net::get_tls_connector;
+use crate::net::{get_tls_connector, get_access_token};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
@@ -92,6 +92,7 @@ async fn connect(
     let register = proto::OutgoingMessage::Register {
         conn: connection.conn.clone(),
         proc: connection.proc.clone(),
+        access_token: get_access_token(),
     };
     send(&mut sender, register).await?;
 

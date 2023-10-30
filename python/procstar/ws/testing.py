@@ -4,6 +4,7 @@ import functools
 import logging
 import os
 from   pathlib import Path
+import secrets
 import signal
 import socket
 import tempfile
@@ -13,6 +14,8 @@ from   procstar import proto
 import procstar.ws.server
 
 logger = logging.getLogger(__name__)
+
+DEFAULT = object()
 
 #-------------------------------------------------------------------------------
 
@@ -58,12 +61,15 @@ class Assembly:
     procstar instances connecting to it.
     """
 
-    def __init__(self):
+    def __init__(self, *, access_token=DEFAULT):
         """
         Does not start the websocket server or any procstar instances.
         """
+        if access_token is DEFAULT:
+            access_token = secrets.token_urlsafe(32)
+
         # The procstar server.
-        self.server = procstar.ws.server.Server()
+        self.server = procstar.ws.server.Server(access_token=access_token)
 
         # The port on which the websocket server is running.  Automatically
         # assigned the first time the server starts.
@@ -129,7 +135,7 @@ class Assembly:
         return tuple(_get_local(self.ws_server))
 
 
-    async def start_instances(self, counts):
+    async def start_instances(self, counts, *, access_token=DEFAULT):
         """
         Starts procstar instances and waits for them to connect.
 
@@ -141,6 +147,10 @@ class Assembly:
             (g, str(uuid.uuid4()))
             for g, n in counts.items()
             for _ in range(n)
+        )
+        token = (
+            self.server.access_token if access_token is DEFAULT
+            else access_token
         )
 
         with self.server.connections.subscription() as events:
@@ -156,7 +166,9 @@ class Assembly:
                     env={
                         "RUST_BACKTRACE": "1",
                         "PROCSTAR_CERT": str(TLS_CERT_PATH),
-                    } | os.environ,
+                    }
+                    | ({"PROCSTAR_TOKEN": token} if token else {})
+                    | os.environ,
                 )
 
             # Wait for them to connect.
@@ -208,14 +220,14 @@ class Assembly:
 
     @classmethod
     @asynccontextmanager
-    async def start(cls, *, counts={"default": 1}):
+    async def start(cls, *, counts={"default": 1}, access_token=DEFAULT):
         """
         Async context manager for a ready-to-go assembly.
 
         Yields an assembley with procstar instances and the websocket server
         already started.  Shuts them down on exit.
         """
-        inst = cls()
+        inst = cls(access_token=access_token)
         await inst.start_server()
         await inst.start_instances(counts)
         try:

@@ -1,7 +1,8 @@
 ### Worklist
 
 - [x] deal with ws ping/pong
-- [x] HTTPS
+- [x] TLS
+- [ ] connect timeout and max retries
 - [ ] token-based security
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist

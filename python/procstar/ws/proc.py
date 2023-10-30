@@ -140,7 +140,6 @@ class Processes(Mapping):
                 # Attach procstar info to the result.
                 result = Jso(res)
                 result.procstar = procstar_info
-                proc.result = result
                 proc.results._update(result)
 
             case proto.ProcDelete(proc_id):
@@ -156,7 +155,7 @@ class Processes(Mapping):
             case proto.IncomingMessageError():
                 # FIXME: Implement.
                 # FIXME: Proc-specific errors.
-                raise NotImplementedError()
+                logger.error(f"msg error: {msg.err}")
 
 
     # Mapping methods

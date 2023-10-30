@@ -57,6 +57,8 @@ class Proc:
             Normalizes a fd number or name.
             """
             fd = str(fd)
+            if fd in Proc.Fd.ALIASES.values():
+                return fd
             try:
                 return Proc.Fd.ALIASES[fd]
             except KeyError:
@@ -67,7 +69,7 @@ class Proc:
                 else:
                     if n < 0:
                         raise ValueError(f"invalid fd: {fd}") from None
-                return fd
+                return str(n)
 
 
         class Inherit:
@@ -202,9 +204,4 @@ def to_jso(*unnamed, **by_name):
     }
     return {"specs": specs}
 
-
-if __name__ == "__main__":
-    # spec = make("echo 'hello, world'")
-    spec = make(["/usr/bin/printenv"])
-    json.dump(to_jso(spec), sys.stdout)
 

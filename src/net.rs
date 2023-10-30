@@ -18,3 +18,14 @@ pub fn get_tls_connector() -> Result<TlsConnector, Error> {
 
     Ok(builder.build().unwrap())
 }
+
+pub fn get_access_token() -> Option<String> {
+    if let Some((_, token)) = std::env::vars()
+        .filter(|(n, _)| n == "PROCSTAR_TOKEN")
+        .next()
+    {
+        Some(token)
+    } else {
+        None
+    }
+}

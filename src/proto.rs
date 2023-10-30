@@ -31,21 +31,24 @@ pub fn get_default_conn_id() -> String {
 
 #[derive(Debug)]
 pub enum Error {
-    Connection(tungstenite::error::Error),
     Close,
     Json(serde_json::Error),
     WrongMessageType(String),
 }
 
-impl From<tungstenite::error::Error> for Error {
-    fn from(err: tungstenite::error::Error) -> Error {
-        Error::Connection(err)
-    }
-}
-
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Error {
         Error::Json(err)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            Error::Close => f.write_str("closed"),
+            Error::Json(ref err) => err.fmt(f),
+            Error::WrongMessageType(ref _type) => f.write_str("wrong message type"),
+        }
     }
 }
 
@@ -87,6 +90,7 @@ pub enum OutgoingMessage {
     Register {
         conn: ConnectionInfo,
         proc: ProcessInfo,
+        access_token: Option<String>,
     },
 
     /// The list of current proc IDs.

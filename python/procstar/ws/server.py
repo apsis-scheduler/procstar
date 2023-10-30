@@ -4,6 +4,7 @@ WebSocket service for incoming connections from procstar instances.
 
 import asyncio
 import logging
+import os
 from   pathlib import Path
 import ssl
 import websockets.server
@@ -12,6 +13,8 @@ from   websockets.exceptions import ConnectionClosedError
 from   .conn import Connections, ProcstarInfo, SocketInfo
 from   .proc import Processes, Process
 from   procstar import proto
+
+DEFAULT = object()
 
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
@@ -24,9 +27,13 @@ logger = logging.getLogger(__name__)
 
 class Server:
 
-    def __init__(self):
+    def __init__(self, *, access_token=DEFAULT):
         self.connections = Connections()
         self.processes = Processes()
+        self.access_token = (
+            os.environ.get("PROCSTAR_TOKEN", None) if access_token is DEFAULT
+            else access_token
+        )
 
 
     def run(self, *, loc=(None, None), tls_cert=None):
@@ -98,6 +105,10 @@ class Server:
             logging.info(f"recv: {msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
+
+            # Check the access token.
+            if register_msg.access_token != self.access_token:
+                raise proto.ProtocolError("permission denied")
 
         except Exception as exc:
             logger.warning(f"{ws}: {exc}")

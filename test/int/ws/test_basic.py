@@ -16,6 +16,7 @@ async def test_connect():
     Basic connection tests.
     """
     async with Assembly.start() as asm:
+        assert asm.server.access_token is not None
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
         assert conn.info.conn.group_id == "default"
@@ -25,6 +26,17 @@ async def test_connect():
         assert conn.info.proc.hostname == socket.gethostname()
 
 
+@pytest.mark.asyncio
+async def test_connect_no_token():
+    """
+    Tests connection without access token.
+    """
+    async with Assembly.start(access_token=None) as asm:
+        assert asm.server.access_token is None
+        assert len(asm.server.connections) == 1
+
+
+# @pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_connect_multi():
     """

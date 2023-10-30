@@ -50,9 +50,17 @@ impl Connection {
 async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, proto::Error> {
     match msg {
         Message::Binary(json) => {
-            let msg = serde_json::from_slice::<proto::IncomingMessage>(&json)?;
-            trace!("msg: {:?}", msg);
-            if let Some(rsp) = proto::handle_incoming(procs, msg).await {
+            let msg = serde_json::from_slice::<proto::IncomingMessage>(&json);
+            if let Ok(ref msg) = msg {
+                trace!("msg: {:?}", msg);
+            } else {
+                if let Ok(json) = std::str::from_utf8(json.as_slice()) {
+                    trace!("msg: {}", json);
+                } else {
+                    trace!("msg: {:?}", msg);
+                }
+            }
+            if let Some(rsp) = proto::handle_incoming(procs, msg?).await {
                 trace!("rsp: {:?}", rsp);
                 let json = serde_json::to_vec(&rsp)?;
                 Ok(Some(Message::Binary(json)))

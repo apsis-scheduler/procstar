@@ -1,3 +1,7 @@
+use crate::proto;
+
+//------------------------------------------------------------------------------
+
 /// An error in the specification of a process.
 #[derive(Debug)]
 pub enum SpecError {
@@ -23,8 +27,10 @@ impl std::fmt::Display for SpecError {
 pub enum Error {
     Eof,
     Io(std::io::Error),
-    ParseInt(std::num::ParseIntError),
     NativeTlsError(native_tls::Error),
+    ParseInt(std::num::ParseIntError),
+    Proto(proto::Error),
+    Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
 
 impl Error {
@@ -38,8 +44,10 @@ impl std::fmt::Display for Error {
         match *self {
             Error::Eof => f.write_str("EOF"),
             Error::Io(ref err) => err.fmt(f),
-            Error::ParseInt(ref err) => err.fmt(f),
             Error::NativeTlsError(ref err) => err.fmt(f),
+            Error::ParseInt(ref err) => err.fmt(f),
+            Error::Proto(ref err) => err.fmt(f),
+            Error::Websocket(ref err) => err.fmt(f),
         }
     }
 }
@@ -50,15 +58,27 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<native_tls::Error> for Error {
+    fn from(err: native_tls::Error) -> Error {
+        Error::NativeTlsError(err)
+    }
+}
+
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Error {
         Error::ParseInt(err)
     }
 }
 
-impl From<native_tls::Error> for Error {
-    fn from(err: native_tls::Error) -> Error {
-        Error::NativeTlsError(err)
+impl From<proto::Error> for Error {
+    fn from(err: proto::Error) -> Error {
+        Error::Proto(err)
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(err: tokio_tungstenite::tungstenite::Error) -> Error {
+        Error::Websocket(err)
     }
 }
 

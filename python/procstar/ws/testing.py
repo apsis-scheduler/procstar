@@ -1,5 +1,5 @@
 import asyncio
-from   contextlib import asynccontextmanager
+from   contextlib import asynccontextmanager, suppress
 import functools
 import logging
 import os
@@ -53,6 +53,12 @@ def _get_local(ws_server):
         if s.type == socket.SOCK_STREAM
         and s.family in (socket.AF_INET, socket.AF_INET6)
     )
+
+
+class ProcstarError(RuntimeError):
+    """
+    A procstar process terminated unexpectedly.
+    """
 
 
 class Assembly:
@@ -135,59 +141,97 @@ class Assembly:
         return tuple(_get_local(self.ws_server))
 
 
-    async def start_instances(self, counts, *, access_token=DEFAULT):
+    def _build(self, conn_id, group_id, access_token, args):
+        """
+        Returns argv and env to start a procstar process.
+        """
+        url = f"wss://localhost:{self.port}"
+        token = (
+            self.server.access_token if access_token is DEFAULT
+            else access_token
+        )
+        return (
+            [
+                # FIXME: s/--name/--conn-id/
+                get_procstar_path(),
+                "--connect", url,
+                "--group-id", group_id,
+                "--name", conn_id,
+                "--connect-count-max", "1",
+                *args,
+            ],
+            {
+                "RUST_BACKTRACE": "1",
+                "PROCSTAR_CERT": str(TLS_CERT_PATH),
+            }
+            | ({"PROCSTAR_TOKEN": token} if token else {})
+            | os.environ
+        )
+
+
+    # FIXME: Rename to `start_procstars()`.
+    async def start_instances(self, counts, *, access_token=DEFAULT, args=[]):
         """
         Starts procstar instances and waits for them to connect.
 
         :param counts:
           Mapping from group ID to instance count.
+        :param args:
+          Additional command line args to pass to procstar.
         """
-        url = f"wss://localhost:{self.port}"
         conns = set(
             (g, str(uuid.uuid4()))
             for g, n in counts.items()
             for _ in range(n)
         )
-        token = (
-            self.server.access_token if access_token is DEFAULT
-            else access_token
-        )
+        procs = set()
 
         with self.server.connections.subscription() as events:
             # Start the processes.
             for group_id, conn_id in conns:
-                self.conn_procs[conn_id] = await asyncio.create_subprocess_exec(
-                    # FIXME: s/--name/--conn-id/
-                    get_procstar_path(),
-                    "--connect", url,
-                    "--group-id", group_id,
-                    "--name", conn_id,
-                    # FIXME: cwd=tmp_dir
-                    env={
-                        "RUST_BACKTRACE": "1",
-                        "PROCSTAR_CERT": str(TLS_CERT_PATH),
-                    }
-                    | ({"PROCSTAR_TOKEN": token} if token else {})
-                    | os.environ,
-                )
+                argv, env = self._build(conn_id, group_id, access_token, args)
+                # FIXME: cwd=tmp_dir
+                proc = await asyncio.create_subprocess_exec(*argv, env=env)
+                procs.add(proc)
+                self.conn_procs[conn_id] = proc
 
-            # Wait for them to connect.
-            # FIXME: Timeout.
-            connected = set()
-            async for _, conn in events:
-                if conn is not None:
-                    logger.info(f"instance connected: {conn_id}")
-                    connected.add((conn.info.conn.group_id, conn.info.conn.conn_id))
-                    if len(connected) == len(conns):
-                        assert connected == conns
-                        return
+            async def wait_for_connect(conns):
+                """
+                Waits for procstar processes to connect.
+                """
+                connected = set()
+                async for _, conn in events:
+                    if conn is not None:
+                        logger.info(f"instance connected: {conn_id}")
+                        connected.add(
+                            (conn.info.conn.group_id, conn.info.conn.conn_id)
+                        )
+                        if len(connected) == len(conns):
+                            assert connected == conns
+                            return None
+
+            # Create a task to await incoming connections from all procstar
+            # processes, and one task awaiting each procstar processes.
+            aws = [wait_for_connect(conns)] + [ p.wait() for p in procs ]
+            tasks = [ asyncio.create_task(a) for a in aws ]
+            try:
+                # Wait for a task to complete.  We expect it to be the task
+                # awaiting incoming connections.
+                res = await next(iter(asyncio.as_completed(tasks)))
+                if res is not None:
+                    # A procstar process failed before connecting.
+                    raise ProcstarError(
+                        f"procstar process failed with {res} before connecting")
+            finally:
+                for task in tasks:
+                    task.cancel()
 
 
-    def start_instance(self, *, group_id=proto.DEFAULT_GROUP):
+    def start_instance(self, *, group_id=proto.DEFAULT_GROUP, args=[]):
         """
         Starts a single procstar instance.
         """
-        return self.start_instances({group_id: 1})
+        return self.start_instances({group_id: 1}, args=args)
 
 
     async def stop_instance(self, conn_id):
@@ -195,7 +239,8 @@ class Assembly:
         Stops a procstar instance.
         """
         process = self.conn_procs.pop(conn_id)
-        process.send_signal(signal.SIGTERM)
+        with suppress(ProcessLookupError):
+            process.send_signal(signal.SIGTERM)
         await process.wait()
 
 
@@ -210,7 +255,7 @@ class Assembly:
         ))
 
 
-    async def close(self):
+    async def aclose(self):
         """
         Shuts everything down.
         """
@@ -227,13 +272,13 @@ class Assembly:
         Yields an assembley with procstar instances and the websocket server
         already started.  Shuts them down on exit.
         """
-        inst = cls(access_token=access_token)
-        await inst.start_server()
-        await inst.start_instances(counts)
+        asm = cls(access_token=access_token)
+        await asm.start_server()
+        await asm.start_instances(counts)
         try:
-            yield inst
+            yield asm
         finally:
-            await inst.close()
+            await asm.aclose()
 
 
 

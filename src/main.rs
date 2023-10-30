@@ -23,7 +23,11 @@ async fn maybe_run_ws(args: &argv::Args, running_procs: SharedProcs) {
         let url = url::Url::parse(&url).unwrap(); // FIXME: unwrap
         let connection =
             wsclient::Connection::new(&url, args.name.as_deref(), args.group_id.as_deref());
-        wsclient::run(connection, running_procs).await.unwrap(); // FIXME: unwrap
+        let cfg = argv::get_connect_config(args);
+        if let Err(err) = wsclient::run(connection, running_procs, &cfg).await {
+            eprintln!("websocket connection failed: {err}");
+            std::process::exit(1);
+        }
     }
 }
 

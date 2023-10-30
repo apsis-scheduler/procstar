@@ -2,11 +2,12 @@
 
 - [x] deal with ws ping/pong
 - [x] TLS
-- [ ] connect timeout and max retries
-- [ ] token-based security
+- [x] connect max tries
+- [x] token-based security
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] Apsis program type
+- [ ] proper logging from procstar
 
 ### Cleanups
 

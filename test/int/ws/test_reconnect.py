@@ -1,8 +1,9 @@
 import asyncio
+from   contextlib import aclosing
 import pytest
 
 from   procstar import spec
-from   procstar.ws.testing import Assembly
+from   procstar.ws.testing import Assembly, ProcstarError
 
 #-------------------------------------------------------------------------------
 
@@ -62,7 +63,7 @@ async def test_ws_reconnect_nowait():
         await conn.ws.close()
         assert conn.ws.closed
 
-        # Wait for results anyway.  The procstar asmance should reconnect.
+        # Wait for results anyway.  The procstar instance should reconnect.
         res0, res1 = await asyncio.gather(
             proc0.wait_for_completion(),
             proc1.wait_for_completion()
@@ -74,7 +75,7 @@ async def test_ws_reconnect_nowait():
 @pytest.mark.asyncio
 async def test_proc_reconnect():
     """
-    Reconnects both the ws and `Process` asmances, simulating restart.
+    Reconnects both the ws and `Process` instances, simulating restart.
     """
     async with Assembly.start() as asm:
         proc0 = await asm.server.start(
@@ -98,8 +99,28 @@ async def test_proc_reconnect():
         assert res1.status.exit_code == 0
 
 
+@pytest.mark.asyncio
+async def test_proc_connect_timeout():
+    """
+    Tests timeout on connection attempts.
+    """
+    async with aclosing(Assembly()) as asm:
+        # Start and then stop the server, so we have an unused port.
+        await asm.start_server()
+        await asm.stop_server()
+
+        # Don't start the server, but start an instance.
+        with pytest.raises(ProcstarError):
+            await asm.start_instance()
+
+        # Start the server.
+        await asm.start_server()
+        # Now it should work.
+        await asm.start_instance()
+
+
 if __name__ == "__main__":
     import logging
     logging.getLogger().setLevel(logging.INFO)
-    asyncio.run(test_proc_reconnect())
+    asyncio.run(test_proc_connect_timeout())
 

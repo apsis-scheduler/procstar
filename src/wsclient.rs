@@ -11,7 +11,8 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
-use crate::net::{get_tls_connector, get_access_token};
+use crate::err::Error;
+use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
 use crate::proto;
@@ -77,14 +78,13 @@ async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<
 
 async fn connect(
     connection: &mut Connection,
-) -> Result<(SocketSender, SocketReceiver), proto::Error> {
+) -> Result<(SocketSender, SocketReceiver), Error> {
     eprintln!("connecting to {}", connection.url);
 
     let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector))
-            .await
-            .unwrap();
+            .await?;
     eprintln!("connected");
     let (mut sender, receiver) = ws_stream.split();
 
@@ -161,12 +161,35 @@ async fn send_notifications(
     }
 }
 
-/// Wait time before reconnection attempts.
-const RECONNECT_INTERVAL_START: Duration = Duration::from_millis(100);
-const RECONNECT_INTERVAL_MULT: f64 = 2.;
-const RECONNECT_INTERVAL_MAX: Duration = Duration::from_secs(30);
+/// Connection and reconnection configuration.
+#[derive(Debug)]
+pub struct ConnectConfig {
+    /// Initial interval after an unsuccessful connection attempt.
+    pub interval_start: Duration,
+    /// Exponential backoff after an unsuccessful connection attempt.
+    pub interval_mult: f64,
+    /// Maximum interval after an unsuccessful connection attempt.
+    pub interval_max: Duration,
+    /// Maximum consecutive failed connection attempts.
+    pub count_max: u64,
+}
 
-pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), proto::Error> {
+impl ConnectConfig {
+    pub fn new() -> Self {
+        Self {
+            interval_start: Duration::from_secs(1),
+            interval_mult: 2.0,
+            interval_max: Duration::from_secs(60),
+            count_max: std::u64::MAX,
+        }
+    }
+}
+
+pub async fn run(
+    mut connection: Connection,
+    procs: SharedProcs,
+    cfg: &ConnectConfig,
+) -> Result<(), Error> {
     // Create a shared websocket sender, which is shared between the
     // notification sender and the main message loop.
     let sender: Rc<RefCell<Option<SocketSender>>> = Rc::new(RefCell::new(None));
@@ -182,25 +205,36 @@ pub async fn run(mut connection: Connection, procs: SharedProcs) -> Result<(), p
         sender.clone(),
     ));
 
-    let mut interval = RECONNECT_INTERVAL_START;
+    let mut interval = cfg.interval_start;
+    let mut count = 0;
     loop {
         // (Re)connect to the service.
         let (new_sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => pair,
             Err(err) => {
-                eprintln!("error: {:?}", err);
-                // Reconnect, after a moment.
-                // FIXME: Is this the right policy?
-                sleep(interval).await;
-                interval = interval.mul_f64(RECONNECT_INTERVAL_MULT);
-                if RECONNECT_INTERVAL_MAX < interval {
-                    interval = RECONNECT_INTERVAL_MAX;
+                count += 1;
+                if cfg.count_max <= count {
+                    return Err(err);
                 }
+
+                // Take a break.
+                sleep(interval).await;
+
+                // Exponential backoff in interval.
+                interval = interval.mul_f64(cfg.interval_mult);
+                if cfg.interval_max < interval {
+                    interval = cfg.interval_max;
+                }
+
+                // Reconnect, after a moment.
                 continue;
             }
         };
         // Connected.  There's now a websocket sender available.
         sender.replace(Some(new_sender));
+
+        // Once successfully connected, reset the count of attempts.
+        count = 0;
 
         loop {
             match receiver.next().await {

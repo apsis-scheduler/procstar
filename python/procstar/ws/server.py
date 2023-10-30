@@ -36,7 +36,7 @@ class Server:
         )
 
 
-    def run(self, *, loc=(None, None), tls_cert=None):
+    def run(self, *, loc=(None, None), tls_cert=DEFAULT):
         """
         Returns an async context manager that runs the websocket server.
 
@@ -47,6 +47,16 @@ class Server:
           If not none, a (cert file path, key file path) pair to use for TLS.
         """
         host, port = loc
+
+        if tls_cert is DEFAULT:
+            try:
+                tls_cert = os.environ["PROCSTAR_CERT"]
+            except KeyError:
+                tls_cert = None
+            else:
+                # FIXME
+                tls_cert = Path(tls_cert).absolute()
+                tls_cert = tls_cert, tls_cert.with_suffix(".key")
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         if tls_cert is not None:
@@ -64,6 +74,11 @@ class Server:
             host, port,
             ssl=ssl_context,
         )
+
+
+    async def run_forever(self, *, loc=(None, None), tls_cert=DEFAULT):
+        server = await self.run(loc=loc, tls_cert=tls_cert)
+        await server.run_forever()
 
 
     async def _update_connection(self, conn):

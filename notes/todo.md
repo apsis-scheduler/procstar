@@ -4,6 +4,7 @@
 - [x] TLS
 - [x] connect max tries
 - [x] token-based security
+- [ ] clean up and rename TLS env var(s)
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] Apsis program type

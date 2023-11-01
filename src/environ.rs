@@ -103,7 +103,10 @@ mod tests {
         vars.insert("BIF".to_owned(), Some("purple".to_owned()));
         vars.insert("BOF".to_owned(), Option::None);
 
-        let env_spec = spec::Env { inherit: spec::EnvInherit::All, vars };
+        let env_spec = spec::Env {
+            inherit: spec::EnvInherit::All,
+            vars,
+        };
         let env = build(start_env.into_iter(), &env_spec);
 
         assert_eq!(env.get("FOO"), Some(&"42".to_owned()));

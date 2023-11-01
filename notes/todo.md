@@ -4,17 +4,22 @@
 - [x] TLS
 - [x] connect max tries
 - [x] token-based security
+- [x] Apsis program type
+- [x] proper logging from procstar
+- [ ] set up docs
 - [ ] clean up and rename TLS env var(s)
+- [ ] if group is unknown or has no connections, wait a while
+- [ ] global config for procstar in Apsis
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
-- [ ] Apsis program type
-- [x] proper logging from procstar
+
 
 ### Cleanups
 
 - [ ] if execve fails, return error code to parent for inclusion in result
 - [ ] age out old connections
 - [ ] should procstar ping the ws server?
+
 
 ### Features
 
@@ -38,10 +43,6 @@
 - [ ] make `get_result` async
 - [ ] base2048 output format
 - [ ] compress output
-
-### WebSockets connection
-
-- [ ] auth secret to connect
 
 
 # Integration tests

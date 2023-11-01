@@ -17,6 +17,11 @@ class ProtocolError(Exception):
 #-------------------------------------------------------------------------------
 
 @dataclass
+class Registered:
+    pass
+
+
+@dataclass
 class ProcStart:
     specs: Dict[str, dict]
 
@@ -43,6 +48,7 @@ class ProcDeleteRequest:
 OUTGOING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
+            Registered,
             ProcStart,
             ProcidListRequest,
             ProcResultRequest,

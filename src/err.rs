@@ -30,6 +30,7 @@ pub enum Error {
     NativeTlsError(native_tls::Error),
     ParseInt(std::num::ParseIntError),
     Proto(proto::Error),
+    Json(serde_json::Error),
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
 
@@ -47,6 +48,7 @@ impl std::fmt::Display for Error {
             Error::NativeTlsError(ref err) => err.fmt(f),
             Error::ParseInt(ref err) => err.fmt(f),
             Error::Proto(ref err) => err.fmt(f),
+            Error::Json(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }
@@ -73,6 +75,12 @@ impl From<std::num::ParseIntError> for Error {
 impl From<proto::Error> for Error {
     fn from(err: proto::Error) -> Error {
         Error::Proto(err)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Error {
+        Error::Json(err)
     }
 }
 

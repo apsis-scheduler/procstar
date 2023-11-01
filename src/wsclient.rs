@@ -47,7 +47,7 @@ impl Connection {
 }
 
 /// Handler for incoming messages on a websocket client connection.
-async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, proto::Error> {
+async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, Error> {
     match msg {
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json);
@@ -69,15 +69,15 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, pro
             }
         }
         Message::Ping(payload) => Ok(Some(Message::Pong(payload))),
-        Message::Close(_) => Err(proto::Error::Close),
-        _ => Err(proto::Error::WrongMessageType(format!(
+        Message::Close(_) => Err(Error::from(proto::Error::Close)),
+        _ => Err(Error::from(proto::Error::WrongMessageType(format!(
             "unexpected ws msg: {:?}",
             msg
-        ))),
+        )))),
     }
 }
 
-async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), proto::Error> {
+async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), Error> {
     let json = serde_json::to_vec(&msg)?;
     sender.send(Message::Binary(json)).await.unwrap();
     Ok(())
@@ -87,7 +87,7 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
     let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
-    let (mut sender, receiver) = ws_stream.split();
+    let (mut sender, mut receiver) = ws_stream.split();
 
     // Send a register message.
     let register = proto::OutgoingMessage::Register {
@@ -97,7 +97,25 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
     };
     send(&mut sender, register).await?;
 
-    Ok((sender, receiver))
+    // The first message we received should be Registered.
+    let msg = receiver.next().await;
+    match msg {
+        Some(Ok(Message::Binary(json))) => {
+            match serde_json::from_slice::<proto::IncomingMessage>(&json)? {
+                proto::IncomingMessage::Registered => Ok((sender, receiver)),
+                _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
+            }
+        }
+        Some(Ok(Message::Close(_))) => Err(proto::Error::WrongMessageType(
+            "websocket closed".to_owned(),
+        ))?,
+        Some(Ok(_)) => Err(proto::Error::WrongMessageType(format!(
+            "unexpected ws msg: {:?}",
+            msg
+        )))?,
+        Some(Err(err)) => Err(err)?,
+        None => Err(proto::Error::Close)?,
+    }
 }
 
 /// Constructs an outgoing message corresponding to a notification message.

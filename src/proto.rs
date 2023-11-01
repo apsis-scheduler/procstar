@@ -32,22 +32,20 @@ pub fn get_default_conn_id() -> String {
 #[derive(Debug)]
 pub enum Error {
     Close,
-    Json(serde_json::Error),
+    UnexpectedMessage(IncomingMessage),
     WrongMessageType(String),
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Error {
-        Error::Json(err)
-    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
             Error::Close => f.write_str("closed"),
-            Error::Json(ref err) => err.fmt(f),
-            Error::WrongMessageType(ref _type) => f.write_str("wrong message type"),
+            Error::UnexpectedMessage(ref msg) => {
+                f.write_fmt(format_args!("wrong message: {:?}", msg))
+            }
+            Error::WrongMessageType(ref msg) => {
+                f.write_fmt(format_args!("wrong WebSocket message: {}", msg))
+            }
         }
     }
 }
@@ -60,6 +58,9 @@ impl std::fmt::Display for Error {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum IncomingMessage {
+    /// The instance was successfully registered.
+    Registered,
+
     /// Requests new processes to be started.  `specs` maps proc IDs to process
     /// specs.  Proc IDs may not already be in use.
     ProcStart { specs: BTreeMap<ProcId, spec::Proc> },
@@ -105,6 +106,11 @@ pub enum OutgoingMessage {
 
 pub async fn handle_incoming(procs: SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
+        IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
+            msg,
+            err: "unexpected".to_owned(),
+        }),
+
         IncomingMessage::ProcStart { ref specs } => {
             if let Err(err) = start_procs(specs, procs) {
                 Some(OutgoingMessage::IncomingMessageError {

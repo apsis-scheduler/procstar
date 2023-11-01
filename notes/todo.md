@@ -6,7 +6,7 @@
 - [x] token-based security
 - [x] Apsis program type
 - [x] proper logging from procstar
-- [ ] set up docs
+- [x] set up docs
 - [ ] clean up and rename TLS env var(s)
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] global config for procstar in Apsis

@@ -102,7 +102,7 @@ impl<'de> Deserialize<'de> for EnvInherit {
 #[serde(deny_unknown_fields, default)]
 pub struct Env {
     pub inherit: EnvInherit,
-    pub vars: BTreeMap<String, String>,
+    pub vars: BTreeMap<String, Option<String>>,
 }
 
 //------------------------------------------------------------------------------

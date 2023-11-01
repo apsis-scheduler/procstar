@@ -8,19 +8,20 @@ pub type Env = BTreeMap<String, String>; // FIXME: Use OsString instead?
 
 //------------------------------------------------------------------------------
 
-pub fn build(start_env: std::env::Vars, spec: &spec::Env) -> Env {
-    start_env
-        .filter(|(env_var, _)| match &spec.inherit {
-            spec::EnvInherit::None => false,
-            spec::EnvInherit::All => true,
-            spec::EnvInherit::Vars(vars) => vars.contains(env_var),
-        })
-        .chain(
-            (&spec.vars)
-                .into_iter()
-                .map(|(n, v)| (n.clone(), v.clone())),
-        )
-        .collect()
+pub fn build<I: Iterator<Item = (String, String)>>(start_env: I, spec: &spec::Env) -> Env {
+    let mut env: Env = match &spec.inherit {
+        spec::EnvInherit::None => Env::new(),
+        spec::EnvInherit::All => start_env.collect(),
+        spec::EnvInherit::Vars(vars) => start_env.filter(|(v, _)| vars.contains(v)).collect(),
+    };
+    for (k, v) in spec.vars.iter() {
+        if let Some(v) = v {
+            env.insert(k.to_owned(), v.to_owned());
+        } else {
+            _ = env.remove(k);
+        }
+    }
+    env
 }
 
 //------------------------------------------------------------------------------
@@ -65,9 +66,9 @@ mod tests {
             r#" {"inherit": ["HOME", "USER", "PATH"]} "#,
             spec::Env {
                 inherit: Vars(vec![
-                    "HOME".to_string(),
-                    "USER".to_string(),
-                    "PATH".to_string(),
+                    "HOME".to_owned(),
+                    "USER".to_owned(),
+                    "PATH".to_owned(),
                 ]),
                 ..Default::default()
             },
@@ -80,11 +81,33 @@ mod tests {
             r#" {"vars": {"FOO": "42", "BAR": "somewhere with drinks"}} "#,
             spec::Env {
                 vars: BTreeMap::from([
-                    ("FOO".to_string(), "42".to_string()),
-                    ("BAR".to_string(), "somewhere with drinks".to_string()),
+                    ("FOO".to_owned(), Some("42".to_owned())),
+                    ("BAR".to_owned(), Some("somewhere with drinks".to_owned())),
                 ]),
                 ..Default::default()
             },
         );
+    }
+
+    #[test]
+    fn var_remove() {
+        let start_env: Vec<(String, String)> = vec![
+            ("FOO".to_owned(), "42".to_owned()),
+            ("BAR".to_owned(), "17".to_owned()),
+            ("BAZ".to_owned(), "mango".to_owned()),
+        ];
+        let mut vars = BTreeMap::<String, Option<String>>::new();
+        // FOO not specified.
+        vars.insert("BAZ".to_owned(), Some("pineapple".to_owned()));
+        vars.insert("BAR".to_owned(), Option::None);
+        vars.insert("BIF".to_owned(), Some("purple".to_owned()));
+        vars.insert("BOF".to_owned(), Option::None);
+
+        let env_spec = spec::Env { inherit: spec::EnvInherit::All, vars };
+        let env = build(start_env.into_iter(), &env_spec);
+
+        assert_eq!(env.get("FOO"), Some(&"42".to_owned()));
+        assert_eq!(env.get("BAR"), Option::None);
+        assert_eq!(env.get("BAZ"), Some(&"pineapple".to_owned()));
     }
 }

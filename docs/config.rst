@@ -29,7 +29,7 @@ Auth Token
 
 A Procstar WebSocket server can also optionally require an auth token to
 authenticate incoming connections from Procstar instances.  To use such a token,
-set the `PROCSTAR_TOKEN` environment variable for both Procstar instances and
-the server.  A connection is accepted only if the token (or absence thereof)
-matches.
+set the `PROCSTAR_WS_TOKEN` environment variable for both Procstar instances and
+the server.  The token itself is an arbitrary string; the default is the empty
+string.  A connection is accepted only if the token matches.
 

@@ -88,14 +88,14 @@ class ProcessInfo:
 class Register:
     conn: ConnectionInfo
     proc: ProcessInfo
-    access_token: str = None
+    access_token: str = ""
 
     @classmethod
     def from_jso(cls, jso):
         return cls(
             conn=ConnectionInfo(**jso["conn"]),
             proc=ProcessInfo(**jso["proc"]),
-            access_token=jso.get("access_token", None),
+            access_token=jso["access_token"],
         )
 
 

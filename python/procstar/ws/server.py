@@ -25,15 +25,39 @@ logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
+def _get_tls_from_env():
+    """
+    Returns TLS cert and key file paths from environment, or none if absent.
+    """
+    try:
+        cert_path = Path(os.environ["PROCSTAR_WS_CERT"])
+    except KeyError:
+        # No cert available.
+        return None, None
+    cert_path = cert_path.absolute()
+    if not cert_path.is_file():
+        raise RuntimeError(f"PROCSTAR_WS_CERT file {cert_path} missing")
+
+    try:
+        key_path = Path(os.environ["PROCSTAR_WS_KEY"])
+    except KeyError:
+        # Assume it's next to the cert file.
+        key_path = cert_path.with_suffix(".key")
+    key_path = key_path.absolute()
+    if not key_path.is_file():
+        raise RuntimeError(f"PROCSTAR_WS_KEY file {key_path} missing")
+
+    return cert_path, key_path
+
+
 class Server:
 
     def __init__(self, *, access_token=DEFAULT):
         self.connections = Connections()
         self.processes = Processes()
-        self.access_token = (
-            os.environ.get("PROCSTAR_TOKEN", None) if access_token is DEFAULT
-            else access_token
-        )
+        if access_token is DEFAULT:
+            access_token = os.environ.get("PROCSTAR_WS_TOKEN", "")
+        self.access_token = access_token
 
 
     def run(self, *, loc=(None, None), tls_cert=DEFAULT):
@@ -49,18 +73,12 @@ class Server:
         host, port = loc
 
         if tls_cert is DEFAULT:
-            try:
-                tls_cert = os.environ["PROCSTAR_CERT"]
-            except KeyError:
-                tls_cert = None
-            else:
-                # FIXME
-                tls_cert = Path(tls_cert).absolute()
-                tls_cert = tls_cert, tls_cert.with_suffix(".key")
+            cert_path, key_path = _get_tls_from_env()
+        else:
+            cert_path, key_path = tls_cert
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        if tls_cert is not None:
-            cert_path, key_path = tls_cert
+        if cert_path is not None:
             ssl_context.load_cert_chain(cert_path, key_path)
 
         # For debugging TLS handshake.

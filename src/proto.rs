@@ -90,7 +90,7 @@ pub enum OutgoingMessage {
     Register {
         conn: ConnectionInfo,
         proc: ProcessInfo,
-        access_token: Option<String>,
+        access_token: String,
     },
 
     /// The list of current proc IDs.

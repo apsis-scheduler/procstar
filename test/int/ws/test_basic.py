@@ -31,8 +31,8 @@ async def test_connect_no_token():
     """
     Tests connection without access token.
     """
-    async with Assembly.start(access_token=None) as asm:
-        assert asm.server.access_token is None
+    async with Assembly.start(access_token="") as asm:
+        assert asm.server.access_token == ""
         assert len(asm.server.connections) == 1
 
 
@@ -157,4 +157,4 @@ async def test_run_multi():
 if __name__ == "__main__":
     import logging
     logging.getLogger().setLevel(logging.INFO)
-    asyncio.run(test_connect())
+    asyncio.run(test_connect_no_token())

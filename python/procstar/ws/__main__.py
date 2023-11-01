@@ -6,7 +6,7 @@ import asyncio
 import logging
 from   pathlib import Path
 
-from   .server import Server
+from   .server import Server, DEFAULT
 from   procstar import proto
 
 # Timeout to receive an initial login message.
@@ -49,7 +49,7 @@ def main():
                 async for msg in proc.results:
                     pass
 
-    tls_cert = None if args.tls_cert is None else (
+    tls_cert = DEFAULT if args.tls_cert is None else (
         args.tls_cert,
         # If the key path wasn't given, assume the same path as the cert, except
         # with suffix '.key'.

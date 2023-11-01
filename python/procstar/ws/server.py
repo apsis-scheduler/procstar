@@ -74,11 +74,14 @@ class Server:
 
         if tls_cert is DEFAULT:
             cert_path, key_path = _get_tls_from_env()
+        elif tls_cert is None:
+            cert_path, key_path = None, None
         else:
             cert_path, key_path = tls_cert
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        if cert_path is not None:
+        if tls_cert is not None:
+            logger.warning(f"TLS {cert_path} {key_path}")
             ssl_context.load_cert_chain(cert_path, key_path)
 
         # For debugging TLS handshake.
@@ -143,6 +146,10 @@ class Server:
             if register_msg.access_token != self.access_token:
                 raise proto.ProtocolError("permission denied")
 
+            # Respond with a Registered message.
+            data = proto.serialize_message(proto.Registered())
+            await ws.send(data)
+
         except Exception as exc:
             logger.warning(f"{ws}: {exc}")
             await ws.close()
@@ -159,6 +166,7 @@ class Server:
         except RuntimeError as exc:
             logger.error(str(exc))
             return
+        # Let subscribers know.
         await self._update_connection(conn)
 
         # Receive messages.

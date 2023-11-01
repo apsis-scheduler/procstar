@@ -135,7 +135,7 @@ class Server:
 
             # Only Register is acceptable.
             type, register_msg = proto.deserialize_message(msg)
-            logging.info(f"recv: {msg}")
+            logger.info(f"recv: {msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
 
@@ -157,7 +157,7 @@ class Server:
             )
             conn = self.connections._add(procstar_info, ws)
         except RuntimeError as exc:
-            logging.error(str(exc))
+            logger.error(str(exc))
             return
         await self._update_connection(conn)
 
@@ -170,7 +170,7 @@ class Server:
                 break
             type, msg = proto.deserialize_message(msg)
             # Process the message.
-            logging.info(f"recv: {msg}")
+            logger.info(f"recv: {msg}")
             self.processes.on_message(conn.info, msg)
 
         await ws.close()

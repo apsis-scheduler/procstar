@@ -33,7 +33,10 @@ class Proc:
                 inherit if isinstance(inherit, bool)
                 else tuple( str(n) for n in inherit )
             )
-            self.__vars = { str(n): str(v) for n, v in vars.items() }
+            self.__vars = {
+                str(n): None if v is None else str(v)
+                for n, v in vars.items()
+            }
 
 
         def to_jso(self):

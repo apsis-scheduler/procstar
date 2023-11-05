@@ -8,8 +8,10 @@
 - [x] proper logging from procstar
 - [x] set up docs
 - [x] clean up and rename TLS env var(s)
+- [ ] clean up procstar procs when done
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] global config for procstar in Apsis
+- [ ] Apsis reconnect procstar procs
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 

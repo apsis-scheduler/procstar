@@ -77,6 +77,7 @@ class ConnectionInfo:
     group_id: str
 
 
+
 @dataclass
 class ProcessInfo:
     pid: int
@@ -88,6 +89,7 @@ class ProcessInfo:
     egid: int
     groupname: str
     hostname: str
+
 
 
 @dataclass

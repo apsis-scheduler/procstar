@@ -24,7 +24,8 @@ class Process:
         Process result updates.
 
         Acts as a one-shot async iterable and iterator of result updates.  The
-        `latest` property always returns the most recent, which may be none.
+        `latest` property always returns the most recent, which may be none if
+        no result has yet been received.
         """
 
         def __init__(self):
@@ -146,7 +147,6 @@ class Processes(Mapping):
                 proc = get_proc(proc_id)
                 logger.debug(f"msg proc delete: {proc_id}")
                 del self.__procs[proc_id]
-                proc.results._update(None)
 
             case proto.Register:
                 # We should receive this only immediately after connection.

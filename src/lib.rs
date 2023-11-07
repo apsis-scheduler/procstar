@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 pub mod environ;
 pub mod err;
 pub mod err_pipe;

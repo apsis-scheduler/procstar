@@ -13,7 +13,7 @@
       - [x] procstar info
       - [x] times
       - [x] errors
-- [ ] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
+- [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] reconnect to run on Apsis restart
 - [ ] global config for procstar in Apsis

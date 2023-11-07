@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::vec::Vec;
 
 use crate::spec;
 
@@ -6,7 +7,16 @@ use crate::spec;
 
 pub type Env = BTreeMap<String, String>; // FIXME: Use OsString instead?
 
-//------------------------------------------------------------------------------
+lazy_static! {
+    /// Env vars that are not inherited.
+    static ref EXCLUSIONS: Vec<&'static str> = {
+        let mut x = Vec::new();
+        x.push("PROCSTAR_WS_CERT");
+        x.push("PROCSTAR_WS_KEY");
+        x.push("PROCSTAR_WS_TOKEN");
+        x
+    };
+}
 
 pub fn build<I: Iterator<Item = (String, String)>>(start_env: I, spec: &spec::Env) -> Env {
     let mut env: Env = match &spec.inherit {
@@ -14,6 +24,9 @@ pub fn build<I: Iterator<Item = (String, String)>>(start_env: I, spec: &spec::En
         spec::EnvInherit::All => start_env.collect(),
         spec::EnvInherit::Vars(vars) => start_env.filter(|(v, _)| vars.contains(v)).collect(),
     };
+    for k in EXCLUSIONS.iter() {
+        _ = env.remove(*k);
+    }
     for (k, v) in spec.vars.iter() {
         if let Some(v) = v {
             env.insert(k.to_owned(), v.to_owned());

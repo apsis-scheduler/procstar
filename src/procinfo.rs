@@ -195,6 +195,7 @@ impl ProcStat {
         )
         .to_rfc3339();
         let vsize = parts.next().ok_or(Error::Eof)?.parse()?;
+        let _rss = parts.next().ok_or(Error::Eof)?.parse::<i64>()?;
         let rsslim = parts.next().ok_or(Error::Eof)?.parse()?;
         let startcode = parts.next().ok_or(Error::Eof)?.parse()?;
         let endcode = parts.next().ok_or(Error::Eof)?.parse()?;

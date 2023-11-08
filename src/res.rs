@@ -151,7 +151,7 @@ pub struct ProcRes {
     pub pid: pid_t,
 
     /// Recent status or status at completion.
-    pub stat: ProcStat,
+    pub proc_stat: ProcStat,
 
     /// Process timing.
     pub times: Times,

@@ -8,16 +8,18 @@
 - [x] proper logging from procstar
 - [x] set up docs
 - [x] clean up and rename TLS env var(s)
+- [x] clean up procstar procs when done
+- [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
 - [ ] better metadata in run
       - [x] proc stat
       - [x] procstar info
       - [x] times
       - [x] errors
       - [ ] proc statm
-- [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] reconnect to run on Apsis restart
 - [ ] global config for procstar in Apsis
+- [ ] Apsis reconnect procstar procs
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] don't (necessarily) include output text in Procstar res; get separately

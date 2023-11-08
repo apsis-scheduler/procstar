@@ -1,7 +1,6 @@
 use libc::{gid_t, pid_t, uid_t};
 use serde::{Deserialize, Serialize};
 
-use crate::err::Error;
 use crate::sys::{
     get_clk_tck, get_groupname, get_hostname, get_username, getegid, geteuid, getgid, getpid,
     getppid, getuid, BOOT_TIME,
@@ -152,80 +151,81 @@ pub struct ProcStat {
 }
 
 impl ProcStat {
-    pub fn parse(text: &str) -> Result<Self, Error> {
-        let (pid, text) = text.split_once(' ').ok_or(Error::Eof)?;
-        let pid = pid.parse::<pid_t>()?;
+    /// Parses contents of a /proc/{pid}/stat file.  Panics on failure.
+    pub fn parse(text: &str) -> Self {
+        let (pid, text) = text.split_once(' ').unwrap();
+        let pid = pid.parse::<pid_t>().unwrap();
 
         // FIXME: Convert some of these to proper units.
 
-        let (_, text) = text.split_once('(').ok_or(Error::Eof)?;
-        let (comm, text) = text.split_once(')').ok_or(Error::Eof)?;
+        let (_, text) = text.split_once('(').unwrap();
+        let (comm, text) = text.split_once(')').unwrap();
         let comm = comm.to_owned();
         let text = text.trim();
 
         let mut parts = text.split(' ').into_iter();
 
-        let state = parts.next().ok_or(Error::Eof)?.to_owned();
-        let ppid = parts.next().ok_or(Error::Eof)?.parse()?;
-        let pgrp = parts.next().ok_or(Error::Eof)?.parse()?;
-        let session = parts.next().ok_or(Error::Eof)?.parse()?;
-        let tty_nr = parts.next().ok_or(Error::Eof)?.parse::<u32>()?;
+        let state = parts.next().unwrap().to_owned();
+        let ppid = parts.next().unwrap().parse().unwrap();
+        let pgrp = parts.next().unwrap().parse().unwrap();
+        let session = parts.next().unwrap().parse().unwrap();
+        let tty_nr = parts.next().unwrap().parse::<u32>().unwrap();
         let tty_nr = (
             ((tty_nr >> 8) & 0xff) as u16,
             ((tty_nr >> 16) | (tty_nr & 0xff)) as u16,
         );
-        let tpgid = parts.next().ok_or(Error::Eof)?.parse()?;
-        let flags = parts.next().ok_or(Error::Eof)?.parse()?;
-        let minflt = parts.next().ok_or(Error::Eof)?.parse()?;
-        let cminflt = parts.next().ok_or(Error::Eof)?.parse()?;
-        let majflt = parts.next().ok_or(Error::Eof)?.parse()?;
-        let cmajflt = parts.next().ok_or(Error::Eof)?.parse()?;
+        let tpgid = parts.next().unwrap().parse().unwrap();
+        let flags = parts.next().unwrap().parse().unwrap();
+        let minflt = parts.next().unwrap().parse().unwrap();
+        let cminflt = parts.next().unwrap().parse().unwrap();
+        let majflt = parts.next().unwrap().parse().unwrap();
+        let cmajflt = parts.next().unwrap().parse().unwrap();
         let tick = get_clk_tck().unwrap() as f64;
-        let utime = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let stime = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let cutime = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let cstime = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let priority = parts.next().ok_or(Error::Eof)?.parse()?;
-        let nice = parts.next().ok_or(Error::Eof)?.parse()?;
-        let num_threads = parts.next().ok_or(Error::Eof)?.parse()?;
+        let utime = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let stime = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let cutime = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let cstime = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let priority = parts.next().unwrap().parse().unwrap();
+        let nice = parts.next().unwrap().parse().unwrap();
+        let num_threads = parts.next().unwrap().parse().unwrap();
         let _itrealvalue = parts.next();
-        let starttime = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
+        let starttime = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
         let starttime = chrono::DateTime::<chrono::Utc>::from(
             *BOOT_TIME + std::time::Duration::from_secs_f64(starttime),
         )
         .to_rfc3339();
-        let vsize = parts.next().ok_or(Error::Eof)?.parse()?;
-        let _rss = parts.next().ok_or(Error::Eof)?.parse::<i64>()?;
-        let rsslim = parts.next().ok_or(Error::Eof)?.parse()?;
-        let startcode = parts.next().ok_or(Error::Eof)?.parse()?;
-        let endcode = parts.next().ok_or(Error::Eof)?.parse()?;
-        let startstack = parts.next().ok_or(Error::Eof)?.parse()?;
-        let kstkesp = parts.next().ok_or(Error::Eof)?.parse()?;
-        let kstkeip = parts.next().ok_or(Error::Eof)?.parse()?;
-        let signal = parts.next().ok_or(Error::Eof)?.parse()?;
-        let blocked = parts.next().ok_or(Error::Eof)?.parse()?;
-        let sigignore = parts.next().ok_or(Error::Eof)?.parse()?;
-        let sigcatch = parts.next().ok_or(Error::Eof)?.parse()?;
-        let wchan = parts.next().ok_or(Error::Eof)?.parse()?;
+        let vsize = parts.next().unwrap().parse().unwrap();
+        let _rss = parts.next().unwrap().parse::<i64>().unwrap();
+        let rsslim = parts.next().unwrap().parse().unwrap();
+        let startcode = parts.next().unwrap().parse().unwrap();
+        let endcode = parts.next().unwrap().parse().unwrap();
+        let startstack = parts.next().unwrap().parse().unwrap();
+        let kstkesp = parts.next().unwrap().parse().unwrap();
+        let kstkeip = parts.next().unwrap().parse().unwrap();
+        let signal = parts.next().unwrap().parse().unwrap();
+        let blocked = parts.next().unwrap().parse().unwrap();
+        let sigignore = parts.next().unwrap().parse().unwrap();
+        let sigcatch = parts.next().unwrap().parse().unwrap();
+        let wchan = parts.next().unwrap().parse().unwrap();
         let _nswap = parts.next();
         let _cswap = parts.next();
-        let exit_signal = parts.next().ok_or(Error::Eof)?.parse()?;
-        let processor = parts.next().ok_or(Error::Eof)?.parse()?;
-        let rt_priority = parts.next().ok_or(Error::Eof)?.parse()?;
-        let policy = parts.next().ok_or(Error::Eof)?.parse()?;
-        let delayacct_blkio_ticks = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let guest_time = parts.next().ok_or(Error::Eof)?.parse::<u64>()? as f64 / tick;
-        let cguest_time = parts.next().ok_or(Error::Eof)?.parse()?;
-        let start_data = parts.next().ok_or(Error::Eof)?.parse()?;
-        let end_data = parts.next().ok_or(Error::Eof)?.parse()?;
-        let start_brk = parts.next().ok_or(Error::Eof)?.parse()?;
-        let arg_start = parts.next().ok_or(Error::Eof)?.parse()?;
-        let arg_end = parts.next().ok_or(Error::Eof)?.parse()?;
-        let env_start = parts.next().ok_or(Error::Eof)?.parse()?;
-        let env_end = parts.next().ok_or(Error::Eof)?.parse()?;
-        let exit_code = parts.next().ok_or(Error::Eof)?.parse()?;
+        let exit_signal = parts.next().unwrap().parse().unwrap();
+        let processor = parts.next().unwrap().parse().unwrap();
+        let rt_priority = parts.next().unwrap().parse().unwrap();
+        let policy = parts.next().unwrap().parse().unwrap();
+        let delayacct_blkio_ticks = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let guest_time = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
+        let cguest_time = parts.next().unwrap().parse().unwrap();
+        let start_data = parts.next().unwrap().parse().unwrap();
+        let end_data = parts.next().unwrap().parse().unwrap();
+        let start_brk = parts.next().unwrap().parse().unwrap();
+        let arg_start = parts.next().unwrap().parse().unwrap();
+        let arg_end = parts.next().unwrap().parse().unwrap();
+        let env_start = parts.next().unwrap().parse().unwrap();
+        let env_end = parts.next().unwrap().parse().unwrap();
+        let exit_code = parts.next().unwrap().parse().unwrap();
 
-        Ok(Self {
+        Self {
             pid,
             comm,
             state,
@@ -274,13 +274,13 @@ impl ProcStat {
             env_start,
             env_end,
             exit_code,
-        })
+        }
     }
 
     /// Loads process status from /proc/{pid}/stat.
-    pub fn load(pid: pid_t) -> Result<Self, Error> {
+    pub fn load(pid: pid_t) -> Result<Self, std::io::Error> {
         let path = format!("/proc/{}/stat", pid);
         let text = std::fs::read_to_string(path)?;
-        Ok(Self::parse(&text)?)
+        Ok(Self::parse(&text))
     }
 }

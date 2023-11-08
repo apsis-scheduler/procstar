@@ -313,3 +313,32 @@ pub fn get_hostname() -> String {
         _ => panic!("gethostname invalid ressult: {}", ret),
     }
 }
+
+//------------------------------------------------------------------------------
+
+pub fn get_clk_tck() -> io::Result<i64> {
+    let val = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if val == -1 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(val)
+    }
+}
+
+lazy_static! {
+    pub static ref BOOT_TIME: std::time::SystemTime = {
+        let uptime = std::fs::read_to_string("/proc/uptime");
+        std::time::SystemTime::now()
+            - std::time::Duration::from_secs_f64(
+                uptime
+                    .unwrap()
+                    .trim()
+                    .split(' ')
+                    .into_iter()
+                    .next()
+                    .unwrap()
+                    .parse::<f64>()
+                    .unwrap(),
+            )
+    };
+}

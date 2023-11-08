@@ -9,10 +9,11 @@
 - [x] set up docs
 - [x] clean up and rename TLS env var(s)
 - [ ] better metadata in run
-      - [ ] proc info
+      - [x] proc stat
       - [x] procstar info
       - [x] times
       - [x] errors
+      - [ ] proc statm
 - [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] reconnect to run on Apsis restart

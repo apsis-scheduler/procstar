@@ -1,11 +1,11 @@
 /// Named "Res" to avoid confusion with the `Result` types.
 use base64::Engine;
-use chrono::prelude::{DateTime, Utc};
 use libc::{c_int, pid_t, rusage};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::procinfo::ProcStat;
 use crate::spec::{CaptureFormat, ProcId};
 
 //------------------------------------------------------------------------------
@@ -148,8 +148,10 @@ pub struct ProcRes {
     pub errors: Vec<String>,
 
     /// The pid with which the process ran.
-    // FIXME: ProcessInfo instead.
     pub pid: pid_t,
+
+    /// Recent status or status at completion.
+    pub stat: ProcStat,
 
     /// Process timing.
     pub times: Times,
@@ -166,26 +168,26 @@ pub struct ProcRes {
 }
 
 impl ProcRes {
-    pub fn new(
-        errors: Vec<String>,
-        pid: pid_t,
-        start_time: DateTime<Utc>,
-        status: c_int,
-        rusage: rusage,
-    ) -> Self {
-        Self {
-            errors,
-            times: Times {
-                start: start_time.to_rfc3339(),
-                stop: None,
-                elapsed: None,
-            },
-            pid,
-            status: Some(Status::new(status)),
-            rusage: Some(ResourceUsage::new(&rusage)),
-            fds: BTreeMap::new(),
-        }
-    }
+    // pub fn new(
+    //     errors: Vec<String>,
+    //     proc: ProcessInfo,
+    //     start_time: DateTime<Utc>,
+    //     status: c_int,
+    //     rusage: rusage,
+    // ) -> Self {
+    //     Self {
+    //         errors,
+    //         times: Times {
+    //             start: start_time.to_rfc3339(),
+    //             stop: None,
+    //             elapsed: None,
+    //         },
+    //         proc,
+    //         status: Some(Status::new(status)),
+    //         rusage: Some(ResourceUsage::new(&rusage)),
+    //         fds: BTreeMap::new(),
+    //     }
+    // }
 }
 
 pub type Res = BTreeMap<ProcId, ProcRes>;

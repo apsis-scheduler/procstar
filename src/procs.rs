@@ -14,6 +14,7 @@ use crate::err::SpecError;
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::SharedFdHandler;
+use crate::procinfo::ProcStat;
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
@@ -55,6 +56,7 @@ pub struct Proc {
     pub pid: pid_t,
     pub errors: Vec<String>,
     pub wait_info: Option<WaitInfo>,
+    pub stat: Option<ProcStat>,
     pub fd_handlers: FdHandlers,
     pub start_time: DateTime<Utc>,
     pub stop_time: Option<DateTime<Utc>>,
@@ -73,6 +75,7 @@ impl Proc {
             pid,
             errors: Vec::new(),
             wait_info: None,
+            stat: None,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -119,9 +122,16 @@ impl Proc {
             elapsed: self.elapsed.map(|d| d.as_secs_f64()),
         };
 
+        // FIXME: Unwrap.
+        let stat = self
+            .stat
+            .clone()
+            .unwrap_or_else(|| ProcStat::load(self.pid).unwrap());
+
         res::ProcRes {
             errors: self.errors.clone(),
             pid: self.pid,
+            stat,
             times,
             status,
             rusage,
@@ -266,6 +276,12 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
         // Wait until the process receives SIGCHLD.
         sigchld_receiver.signal().await;
 
+        // FIXME: HACK This won't do at all.  We need a way (pidfd?) to
+        // determine that this pid has completed, without wait()ing it, so we
+        // can get its /proc/pid/stat first.
+        // FIXME: Unwrap.
+        let stat = ProcStat::load(pid).unwrap();
+
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
             // Take timestamps right away.
@@ -276,6 +292,7 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
             let mut proc = proc.borrow_mut();
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
+            proc.stat = Some(stat);
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;

@@ -10,6 +10,7 @@
 - [x] clean up and rename TLS env var(s)
 - [x] clean up procstar procs when done
 - [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
+- [x] include signal name with signum
 - [ ] better metadata in run
       - [x] proc stat
       - [x] procstar info
@@ -17,15 +18,13 @@
       - [x] errors
       - [ ] proc statm
 - [ ] if group is unknown or has no connections, wait a while
-- [ ] reconnect to run on Apsis restart
 - [ ] global config for procstar in Apsis
-- [ ] Apsis reconnect procstar procs
+- [ ] reconnect to run on Apsis restart
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] don't (necessarily) include output text in Procstar res; get separately
 - [ ] bad exe and other starting failures => error state in Apsis
        (this requires fixing procstar)
-- [ ] include signal name with signum
 
 ### Cleanups
 
@@ -45,6 +44,7 @@
 - [ ] manage umask
 - [ ] pdeath_sig
 - [ ] signal disposition
+- [ ] perf counters in results; see https://github.com/torvalds/linux/blob/master/tools/perf/design.txt
 - [ ] API for retrieving fd text (raw, UTF-8, compressed)
 - [ ] API for including fd text in proc results, or not
 - [ ] API for cleaning up jobs

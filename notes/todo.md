@@ -11,7 +11,7 @@
 - [x] clean up procstar procs when done
 - [x] exclude PROCSTAR_WS_* from children in Procstar, not Apsis
 - [x] include signal name with signum
-- [ ] better metadata in run
+- [x] better metadata in run
       - [x] proc stat
       - [x] procstar info
       - [x] times

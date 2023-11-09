@@ -21,7 +21,31 @@ pub struct ConnectionInfo {
 
 //------------------------------------------------------------------------------
 
+pub const DEFAULT_PORT: u32 = 59789;
 pub const DEFAULT_GROUP: &str = "default";
+
+// FIXME: Elsewhere.
+fn getenv(name: &str) -> Option<String> {
+    std::env::vars()
+        .filter(|(n, _)| n == name)
+        .next()
+        .map(|(_, v)| v)
+}
+
+/// Expands the agent server hostname.
+pub fn expand_hostname(hostname: &Option<String>) -> Option<String> {
+    return hostname.clone().or_else(|| getenv("PROCSTAR_AGENT_HOST"));
+}
+
+/// Expands the agent server port.
+pub fn expand_port(port: Option<u32>) -> Option<u32> {
+    port.or_else(|| {
+        getenv("PROCSTAR_AGENT_PORT").map(|p| {
+            p.parse()
+                .unwrap_or_else(|err| panic!("invalid agent port: {}: {}", p, err))
+        })
+    })
+}
 
 pub fn get_default_conn_id() -> String {
     return uuid::Uuid::new_v4().to_string();

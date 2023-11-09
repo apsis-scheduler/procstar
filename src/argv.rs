@@ -1,7 +1,8 @@
 use clap::Parser;
 use std::time::Duration;
 
-use crate::wsclient;
+use procstar::proto::DEFAULT_PORT;
+use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
@@ -30,25 +31,31 @@ pub struct Args {
     #[arg(short, long)]
     pub serve: bool,
 
-    /// connect to a WebSocket server
+    /// connect to a server as an agent
     #[arg(short, long)]
-    pub connect: Option<String>,
-    /// identifying name for WebSocket connection
-    #[arg(long)]
-    pub name: Option<String>,
-    /// group for WebSocket connection
+    pub agent: bool,
+    /// connect as agent to HOST
+    #[arg(long, value_name = "HOST")]
+    pub agent_host: Option<String>,
+    /// connect as agent to PORT
+    #[arg(long, value_name = "PORT", default_value_t = DEFAULT_PORT)]
+    pub agent_port: u32,
+    /// connection ID for agent connection; for debugging only
+    #[arg(long, hide = true, value_name = "ID")]
+    pub conn_id: Option<String>,
+    /// agent group ID
     #[arg(long)]
     pub group_id: Option<String>,
-    /// initial interval between connection attempts
+    /// initial interval between agent connection attempts
     #[arg(long, value_name = "SECS")]
     pub connect_interval_start: Option<f64>,
-    /// exponential backoff between connection attempts
+    /// exponential backoff between agent connection attempts
     #[arg(long, value_name = "FAC")]
     pub connect_interval_mult: Option<f64>,
-    /// maximum interval between connection attempts
+    /// maximum interval between agent connection attempts
     #[arg(long, value_name = "SECS")]
     pub connect_interval_max: Option<f64>,
-    /// maximum number of connection attempts
+    /// maximum number of consecutive agent connection attempts
     #[arg(long, value_name = "COUNT")]
     pub connect_count_max: Option<u64>,
 

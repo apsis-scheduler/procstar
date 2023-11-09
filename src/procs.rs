@@ -95,7 +95,7 @@ impl Proc {
                 Some(res::Status::new(status)),
                 Some(res::ResourceUsage::new(&rusage)),
                 // proc statm isn't available for a terminated process.
-                None
+                None,
             )
         } else {
             (None, None, ProcStatm::load_or_log(self.pid))
@@ -127,7 +127,10 @@ impl Proc {
 
         // Use completion proc stat on the process object, if available;
         // otherwise, snapshot current.
-        let proc_stat = self.proc_stat.clone().or_else(|| ProcStat::load_or_log(self.pid));
+        let proc_stat = self
+            .proc_stat
+            .clone()
+            .or_else(|| ProcStat::load_or_log(self.pid));
 
         res::ProcRes {
             errors: self.errors.clone(),

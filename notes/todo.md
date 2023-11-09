@@ -17,9 +17,8 @@
       - [x] times
       - [x] errors
       - [x] proc statm
-- [ ] `PROCSTAR_WS_PORT` and `PROCSTAR_WS_HOSTNAME`
-      - [ ] Rust
-      - [ ] Python client
+- [x] `PROCSTAR_WS_PORT` and `PROCSTAR_WS_HOSTNAME`
+- [ ] rename `PROCSTAR_WS` → `PROCSTAR_AGENT`
 - [ ] global config for procstar in Apsis
       - [ ] port and hostname
 - [ ] if group is unknown or has no connections, wait a while

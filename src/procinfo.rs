@@ -323,11 +323,12 @@ impl ProcStat {
     }
 
     pub fn load_or_log(pid: pid_t) -> Option<Self> {
-        Self::load(pid).or_else(|err| {
-            error!("failed to load /proc/{}/stat: {}", pid, err);
-            Err(err)
-        })
-        .ok()
+        Self::load(pid)
+            .or_else(|err| {
+                error!("failed to load /proc/{}/stat: {}", pid, err);
+                Err(err)
+            })
+            .ok()
     }
 }
 
@@ -383,10 +384,11 @@ impl ProcStatm {
     }
 
     pub fn load_or_log(pid: pid_t) -> Option<Self> {
-        Self::load(pid).or_else(|err| {
-            error!("failed to load /proc/{}/statm: {}", pid, err);
-            Err(err)
-        })
-        .ok()
+        Self::load(pid)
+            .or_else(|err| {
+                error!("failed to load /proc/{}/statm: {}", pid, err);
+                Err(err)
+            })
+            .ok()
     }
 }

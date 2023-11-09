@@ -10,6 +10,7 @@ import ssl
 import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
+from   . import DEFAULT_PORT
 from   .conn import Connections, ProcstarInfo, SocketInfo
 from   .proc import Processes, Process
 from   procstar import proto
@@ -60,7 +61,7 @@ class Server:
         self.access_token = access_token
 
 
-    def run(self, *, loc=(None, None), tls_cert=DEFAULT):
+    def run(self, *, loc=(DEFAULT, DEFAULT), tls_cert=DEFAULT):
         """
         Returns an async context manager that runs the websocket server.
 
@@ -71,6 +72,13 @@ class Server:
           If not none, a (cert file path, key file path) pair to use for TLS.
         """
         host, port = loc
+        if host is DEFAULT:
+            host = os.environ.get("PROCSTAR_AGENT_HOST", "*")
+            if host == "*":
+                # Serve on all interfaces.
+                host = None
+        if port is DEFAULT:
+            port = int(os.environ.get("PROCSTAR_AGENT_PORT", DEFAULT_PORT))
 
         if tls_cert is DEFAULT:
             cert_path, key_path = _get_tls_from_env()
@@ -97,9 +105,10 @@ class Server:
         )
 
 
-    async def run_forever(self, *, loc=(None, None), tls_cert=DEFAULT):
+    async def run_forever(self, *, loc=(DEFAULT, DEFAULT), tls_cert=DEFAULT):
         server = await self.run(loc=loc, tls_cert=tls_cert)
         await server.run_forever()
+        # FIXME: Log the/a server URL.
 
 
     async def _update_connection(self, conn):

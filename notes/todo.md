@@ -17,9 +17,15 @@
       - [x] times
       - [x] errors
       - [x] proc statm
-- [ ] if group is unknown or has no connections, wait a while
+- [ ] `PROCSTAR_WS_PORT` and `PROCSTAR_WS_HOSTNAME`
+      - [ ] Rust
+      - [ ] Python client
 - [ ] global config for procstar in Apsis
+      - [ ] port and hostname
+- [ ] if group is unknown or has no connections, wait a while
+- [ ] shell command variant of procstar program
 - [ ] reconnect to run on Apsis restart
+- [ ] Procstar web UI
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] don't (necessarily) include output text in Procstar res; get separately

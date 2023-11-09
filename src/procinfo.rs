@@ -125,7 +125,8 @@ pub struct ProcStat {
     pub starttime: String,
     /// Virtual memory size.
     pub vsize: u64,
-    // pub rss: i64,
+    /// Resident set size in bytes; inaccurate.
+    pub rss: i64,
     /// Resident set size soft limit in bytes.
     pub rsslim: u64,
     // pub startcode: u64,
@@ -225,7 +226,7 @@ impl ProcStat {
         )
         .to_rfc3339();
         let vsize = parts.next().unwrap().parse().unwrap();
-        let _rss = parts.next().unwrap();
+        let rss = parts.next().unwrap().parse::<i64>().unwrap() * *PAGE_SIZE as i64;
         let rsslim = parts.next().unwrap().parse().unwrap();
         let _startcode = parts.next().unwrap();
         let _endcode = parts.next().unwrap();
@@ -284,7 +285,7 @@ impl ProcStat {
             // itrealvalue
             starttime,
             vsize,
-            // rss,
+            rss,
             rsslim,
             // startcode,
             // endcode,

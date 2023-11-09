@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::procinfo::ProcStat;
+use crate::sig;
 use crate::spec::{CaptureFormat, ProcId};
 
 //------------------------------------------------------------------------------
@@ -109,6 +110,8 @@ pub struct Status {
     pub exit_code: Option<i32>,
     /// Signal number, if terminated by signal.
     pub signum: Option<i32>,
+    /// Signal name, if terminated by signal.
+    pub signal: Option<String>,
     /// True if the process was terminated by a signal and produced a core dump.
     pub core_dump: bool,
 }
@@ -122,10 +125,12 @@ impl Status {
                 (None, Some(libc::WTERMSIG(status)), libc::WCOREDUMP(status))
             }
         };
+        let signal = signum.map(|s| sig::get_abbrev(s).unwrap().to_owned());
         Self {
             status,
             exit_code,
             signum,
+            signal,
             core_dump,
         }
     }

@@ -11,9 +11,13 @@ use tokio::sync::watch::{channel, Receiver, Sender};
 
 pub type Signum = c_int;
 
+// FIXME: `libc::NSIG` missing; would be better.
+pub const NSIG: Signum = 32;
+
 #[rustfmt::skip]
 lazy_static! {
-    static ref SIGNAL_NAMES: HashMap::<&'static str, Signum> = {
+    // FIXME: `libc::sigabbrev_np` missing; would be better.
+    static ref SIGNAL_NUMS: HashMap::<&'static str, Signum> = {
         HashMap::from([
             ("SIGHUP"   ,  1),
             ("SIGINT"   ,  2),
@@ -47,16 +51,24 @@ lazy_static! {
             ("SIGSYS"   , 31),
         ])
     };
+
+    static ref SIGNAL_ABBREVS: HashMap::<Signum, &'static str> = {
+        SIGNAL_NUMS.iter().map(|(n, i)| (*i, *n)).collect::<HashMap<_, _>>()
+    };
 }
 
 pub fn parse_signum(signum: &str) -> Option<Signum> {
-    if let Some(signum) = SIGNAL_NAMES.get(signum) {
+    if let Some(signum) = SIGNAL_NUMS.get(signum) {
         Some(*signum)
     } else if let Ok(signum) = signum.parse::<c_int>() {
         Some(signum)
     } else {
         None
     }
+}
+
+pub fn get_abbrev(signum: Signum) -> Option<&'static str> {
+    SIGNAL_ABBREVS.get(&signum).as_deref().copied()
 }
 
 //------------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 use libc::{gid_t, pid_t, uid_t};
 use serde::{Deserialize, Serialize};
+use std::vec::Vec;
 
+use crate::sig;
 use crate::sys::{
     get_clk_tck, get_groupname, get_hostname, get_username, getegid, geteuid, getgid, getpid,
     getppid, getuid, BOOT_TIME,
@@ -62,6 +64,19 @@ impl ProcessInfo {
 
 //------------------------------------------------------------------------------
 
+/// Process information from /proc/{pid}/stat.  See `proc(5)` manpage.
+///
+/// Omits some fields that are unmaintained or inaccurate in recent Linux
+/// versions, or that are uninteresting.
+///
+/// Converts some fields to not require context from the process host system
+/// to interrpet:
+/// - times converted to f64 secs
+/// - time since boot converted to UTC time
+/// - device numbers decoded to [maj, min]
+/// - signal numbers converted to names
+/// - signal masks converted to [names]
+///
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProcStat {
     /// Process ID.
@@ -104,29 +119,33 @@ pub struct ProcStat {
     pub nice: i64,
     /// Number of threads in process.
     pub num_threads: i64,
-    // itrealvalue omitted
+    // pub itrealvalue: i64,
     /// Start time of process.
     pub starttime: String,
     /// Virtual memory size.
     pub vsize: u64,
-    // rss skipped
+    // pub rss: i64,
     /// Resident set size soft limit in bytes.
     pub rsslim: u64,
-    pub startcode: u64,
-    pub endcode: u64,
-    pub startstack: u64,
-    pub kstkesp: u64,
-    pub kstkeip: u64,
-    pub signal: u64,
-    pub blocked: u64,
-    pub sigignore: u64,
-    pub sigcatch: u64,
+    // pub startcode: u64,
+    // pub endcode: u64,
+    // pub startstack: u64,
+    // pub kstkesp: u64,
+    // pub kstkeip: u64,
+    /// Pending signals, excluding real-time signals.
+    pub signal: Vec<String>,
+    /// Blocked signals, excluding real-time signals.
+    pub blocked: Vec<String>,
+    /// Ignored signals, excluding real-time signals.
+    pub sigignore: Vec<String>,
+    /// Caught signals, excluding real-time signals.
+    pub sigcatch: Vec<String>,
     /// Channel in which process is waiting.
     pub wchan: u64,
-    // nswap
-    // cnswap
+    // pub nswap: u64,
+    // pub cnswap: u64,
     /// Signal sent to parent process on process death.
-    pub exit_signal: i32,
+    pub exit_signal: Option<String>,
     /// CPU number last executed on.
     pub processor: i32,
     /// Real-time scheduling priority.
@@ -139,15 +158,25 @@ pub struct ProcStat {
     pub guest_time: f64,
     /// Guest time of awaited children.
     pub cguest_time: i64,
-    pub start_data: u64,
-    pub end_data: u64,
-    pub start_brk: u64,
-    pub arg_start: u64,
-    pub arg_end: u64,
-    pub env_start: u64,
-    pub env_end: u64,
+    // pub start_data: u64,
+    // pub end_data: u64,
+    // pub start_brk: u64,
+    // pub arg_start: u64,
+    // pub arg_end: u64,
+    // pub env_start: u64,
+    // pub env_end: u64,
     /// Process exit code.
     pub exit_code: i32,
+}
+
+fn expand_sig_bitmap(bits: i32) -> Vec<String> {
+    let mut abbrevs = Vec::new();
+    for s in 1..sig::NSIG {
+        if bits & (1 << s) != 0 {
+            abbrevs.push(sig::get_abbrev(s).unwrap());
+        }
+    }
+    abbrevs.into_iter().map(|s| s.to_owned()).collect()
 }
 
 impl ProcStat {
@@ -195,34 +224,39 @@ impl ProcStat {
         )
         .to_rfc3339();
         let vsize = parts.next().unwrap().parse().unwrap();
-        let _rss = parts.next().unwrap().parse::<i64>().unwrap();
+        let _rss = parts.next().unwrap();
         let rsslim = parts.next().unwrap().parse().unwrap();
-        let startcode = parts.next().unwrap().parse().unwrap();
-        let endcode = parts.next().unwrap().parse().unwrap();
-        let startstack = parts.next().unwrap().parse().unwrap();
-        let kstkesp = parts.next().unwrap().parse().unwrap();
-        let kstkeip = parts.next().unwrap().parse().unwrap();
-        let signal = parts.next().unwrap().parse().unwrap();
-        let blocked = parts.next().unwrap().parse().unwrap();
-        let sigignore = parts.next().unwrap().parse().unwrap();
-        let sigcatch = parts.next().unwrap().parse().unwrap();
+        let _startcode = parts.next().unwrap();
+        let _endcode = parts.next().unwrap();
+        let _startstack = parts.next().unwrap();
+        let _kstkesp = parts.next().unwrap();
+        let _kstkeip = parts.next().unwrap();
+        let signal = expand_sig_bitmap(parts.next().unwrap().parse().unwrap());
+        let blocked = expand_sig_bitmap(parts.next().unwrap().parse().unwrap());
+        let sigignore = expand_sig_bitmap(parts.next().unwrap().parse().unwrap());
+        let sigcatch = expand_sig_bitmap(parts.next().unwrap().parse().unwrap());
         let wchan = parts.next().unwrap().parse().unwrap();
         let _nswap = parts.next();
         let _cswap = parts.next();
-        let exit_signal = parts.next().unwrap().parse().unwrap();
+        let exit_signal = parts.next().unwrap().parse::<i32>().unwrap();
+        let exit_signal = if exit_signal == 0 {
+            None
+        } else {
+            Some(sig::get_abbrev(exit_signal).unwrap().to_owned())
+        };
         let processor = parts.next().unwrap().parse().unwrap();
         let rt_priority = parts.next().unwrap().parse().unwrap();
         let policy = parts.next().unwrap().parse().unwrap();
         let delayacct_blkio_ticks = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
         let guest_time = parts.next().unwrap().parse::<u64>().unwrap() as f64 / tick;
         let cguest_time = parts.next().unwrap().parse().unwrap();
-        let start_data = parts.next().unwrap().parse().unwrap();
-        let end_data = parts.next().unwrap().parse().unwrap();
-        let start_brk = parts.next().unwrap().parse().unwrap();
-        let arg_start = parts.next().unwrap().parse().unwrap();
-        let arg_end = parts.next().unwrap().parse().unwrap();
-        let env_start = parts.next().unwrap().parse().unwrap();
-        let env_end = parts.next().unwrap().parse().unwrap();
+        let _start_data = parts.next().unwrap();
+        let _end_data = parts.next().unwrap();
+        let _start_brk = parts.next().unwrap();
+        let _arg_start = parts.next().unwrap();
+        let _arg_end = parts.next().unwrap();
+        let _env_start = parts.next().unwrap();
+        let _env_end = parts.next().unwrap();
         let exit_code = parts.next().unwrap().parse().unwrap();
 
         Self {
@@ -246,14 +280,16 @@ impl ProcStat {
             priority,
             nice,
             num_threads,
+            // itrealvalue
             starttime,
             vsize,
+            // rss,
             rsslim,
-            startcode,
-            endcode,
-            startstack,
-            kstkesp,
-            kstkeip,
+            // startcode,
+            // endcode,
+            // startstack,
+            // kstkesp,
+            // kstkeip,
             signal,
             blocked,
             sigignore,
@@ -266,13 +302,13 @@ impl ProcStat {
             delayacct_blkio_ticks,
             guest_time,
             cguest_time,
-            start_data,
-            end_data,
-            start_brk,
-            arg_start,
-            arg_end,
-            env_start,
-            env_end,
+            // start_data,
+            // end_data,
+            // start_brk,
+            // arg_start,
+            // arg_end,
+            // env_start,
+            // env_end,
             exit_code,
         }
     }

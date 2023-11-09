@@ -1,11 +1,12 @@
 use libc::{gid_t, pid_t, uid_t};
+use log::*;
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 use crate::sig;
 use crate::sys::{
     get_clk_tck, get_groupname, get_hostname, get_username, getegid, geteuid, getgid, getpid,
-    getppid, getuid, BOOT_TIME,
+    getppid, getuid, BOOT_TIME, PAGE_SIZE,
 };
 
 // FIXME: Use getpwuid and getgrgid to implement username and groupname.
@@ -64,7 +65,7 @@ impl ProcessInfo {
 
 //------------------------------------------------------------------------------
 
-/// Process information from /proc/{pid}/stat.  See `proc(5)` manpage.
+/// Process information from /proc/{pid}/stat.  See the `proc(5)` manpage.
 ///
 /// Omits some fields that are unmaintained or inaccurate in recent Linux
 /// versions, or that are uninteresting.
@@ -173,7 +174,7 @@ fn expand_sig_bitmap(bits: i32) -> Vec<String> {
     let mut abbrevs = Vec::new();
     for s in 1..sig::NSIG {
         if bits & (1 << s) != 0 {
-            abbrevs.push(sig::get_abbrev(s).unwrap());
+            abbrevs.push(sig::get_abbrev(s).unwrap_or("???"));
         }
     }
     abbrevs.into_iter().map(|s| s.to_owned()).collect()
@@ -318,5 +319,73 @@ impl ProcStat {
         let path = format!("/proc/{}/stat", pid);
         let text = std::fs::read_to_string(path)?;
         Ok(Self::parse(&text))
+    }
+
+    pub fn load_or_log(pid: pid_t) -> Option<Self> {
+        Self::load(pid).or_else(|err| {
+            error!("failed to load /proc/{}/stat: {}", pid, err);
+            Err(err)
+        })
+        .ok()
+    }
+}
+
+//------------------------------------------------------------------------------
+
+/// Process memory usage information.  See the `proc (5)` manpage.
+///
+/// Values in bytes.  Omits values unused in recent Linux versions.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ProcStatm {
+    /// Total program size.
+    size: u64,
+    /// Resident set size; inaccurate.
+    resident: u64,
+    /// Size of resident shared pages; inaccurate.
+    shared: u64,
+    /// Size of program text.
+    text: u64,
+    // lib: u64,
+    /// Size of program data + stack.
+    data: u64,
+    // dt: u64,
+}
+
+impl ProcStatm {
+    /// Parses contents of a /proc/{pid}/statm file.  Panics on failure.
+    pub fn parse(text: &str) -> Self {
+        info!("ProcStatm::parse '{}'", text);
+        let mut parts = text.trim().split(' ').into_iter();
+        let size = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
+        let resident = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
+        let shared = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
+        let text = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
+        let _lib = parts.next().unwrap();
+        let data = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
+        let _dt = parts.next().unwrap();
+        Self {
+            size,
+            resident,
+            shared,
+            text,
+            // lib,
+            data,
+            // dt,
+        }
+    }
+
+    /// Loads process memory usage from /proc/{pid}/statm.
+    pub fn load(pid: pid_t) -> Result<Self, std::io::Error> {
+        let path = format!("/proc/{}/statm", pid);
+        let text = std::fs::read_to_string(path)?;
+        Ok(Self::parse(&text))
+    }
+
+    pub fn load_or_log(pid: pid_t) -> Option<Self> {
+        Self::load(pid).or_else(|err| {
+            error!("failed to load /proc/{}/statm: {}", pid, err);
+            Err(err)
+        })
+        .ok()
     }
 }

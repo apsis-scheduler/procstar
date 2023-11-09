@@ -16,13 +16,15 @@
       - [x] procstar info
       - [x] times
       - [x] errors
-      - [ ] proc statm
+      - [x] proc statm
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] global config for procstar in Apsis
 - [ ] reconnect to run on Apsis restart
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist
 - [ ] don't (necessarily) include output text in Procstar res; get separately
+- [ ] replace sigchld_receiver with pidfd-based listener that signals when a
+      specific pid completes, so `wait_for_proc()` can inspect it before `wait`ing
 - [ ] bad exe and other starting failures => error state in Apsis
        (this requires fixing procstar)
 

@@ -14,7 +14,7 @@ use crate::err::SpecError;
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::SharedFdHandler;
-use crate::procinfo::ProcStat;
+use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
@@ -52,6 +52,7 @@ impl From<std::io::Error> for Error {
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
+// FIXME: Refactor this into enum for running and completed procs.
 pub struct Proc {
     pub pid: pid_t,
     pub errors: Vec<String>,
@@ -89,13 +90,15 @@ impl Proc {
     }
 
     pub fn to_result(&self) -> res::ProcRes {
-        let (status, rusage) = if let Some((_, status, rusage)) = self.wait_info {
+        let (status, rusage, proc_statm) = if let Some((_, status, rusage)) = self.wait_info {
             (
                 Some(res::Status::new(status)),
                 Some(res::ResourceUsage::new(&rusage)),
+                // proc statm isn't available for a terminated process.
+                None
             )
         } else {
-            (None, None)
+            (None, None, ProcStatm::load_or_log(self.pid))
         };
 
         let fds = self
@@ -122,16 +125,15 @@ impl Proc {
             elapsed: self.elapsed.map(|d| d.as_secs_f64()),
         };
 
-        // FIXME: Unwrap.
-        let proc_stat = self
-            .proc_stat
-            .clone()
-            .unwrap_or_else(|| ProcStat::load(self.pid).unwrap());
+        // Use completion proc stat on the process object, if available;
+        // otherwise, snapshot current.
+        let proc_stat = self.proc_stat.clone().or_else(|| ProcStat::load_or_log(self.pid));
 
         res::ProcRes {
             errors: self.errors.clone(),
             pid: self.pid,
             proc_stat,
+            proc_statm,
             times,
             status,
             rusage,
@@ -280,7 +282,7 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
         // determine that this pid has completed, without wait()ing it, so we
         // can get its /proc/pid/stat first.
         // FIXME: Unwrap.
-        let proc_stat = ProcStat::load(pid).unwrap();
+        let proc_stat = ProcStat::load_or_log(pid);
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
@@ -292,7 +294,7 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
             let mut proc = proc.borrow_mut();
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
-            proc.proc_stat = Some(proc_stat);
+            proc.proc_stat = proc_stat;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;

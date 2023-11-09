@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::procinfo::ProcStat;
+use crate::procinfo::{ProcStat, ProcStatm};
 use crate::sig;
 use crate::spec::{CaptureFormat, ProcId};
 
@@ -156,7 +156,10 @@ pub struct ProcRes {
     pub pid: pid_t,
 
     /// Recent status or status at completion.
-    pub proc_stat: ProcStat,
+    pub proc_stat: Option<ProcStat>,
+
+    /// Recent memory usage or memory usage at completion.
+    pub proc_statm: Option<ProcStatm>,
 
     /// Process timing.
     pub times: Times,

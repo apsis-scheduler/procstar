@@ -341,4 +341,5 @@ lazy_static! {
                     .unwrap(),
             )
     };
+    pub static ref PAGE_SIZE: u64 = (unsafe { libc::sysconf(libc::_SC_PAGESIZE) }) as u64;
 }

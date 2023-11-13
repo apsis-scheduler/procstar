@@ -145,18 +145,18 @@ class Assembly:
         """
         Returns argv and env to start a procstar process.
         """
-        url = f"wss://localhost:{self.port}"
         token = (
             self.server.access_token if access_token is DEFAULT
             else access_token
         )
         return (
             [
-                # FIXME: s/--name/--conn-id/
                 get_procstar_path(),
-                "--connect", url,
+                "--agent",
+                "--agent-host", "localhost",
+                "--agent-port", str(self.port),
                 "--group-id", group_id,
-                "--name", conn_id,
+                "--conn-id", conn_id,
                 "--connect-count-max", "1",
                 *args,
             ],

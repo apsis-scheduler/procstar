@@ -22,6 +22,7 @@ def test_stdout_stderr(tmp_path):
         "status": 42 << 8,
         "exit_code": 42,
         "signum": None,
+        "signal": None,
         "core_dump": False,
     }
 
@@ -48,6 +49,7 @@ def test_stdout_stderr_merge(tmp_path):
         "status": 42 << 8,
         "exit_code": 42,
         "signum": None,
+        "signal": None,
         "core_dump": False,
     }
 

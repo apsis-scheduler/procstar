@@ -31,22 +31,22 @@ def _get_tls_from_env():
     Returns TLS cert and key file paths from environment, or none if absent.
     """
     try:
-        cert_path = Path(os.environ["PROCSTAR_WS_CERT"])
+        cert_path = Path(os.environ["PROCSTAR_AGENT_CERT"])
     except KeyError:
         # No cert available.
         return None, None
     cert_path = cert_path.absolute()
     if not cert_path.is_file():
-        raise RuntimeError(f"PROCSTAR_WS_CERT file {cert_path} missing")
+        raise RuntimeError(f"PROCSTAR_AGENT_CERT file {cert_path} missing")
 
     try:
-        key_path = Path(os.environ["PROCSTAR_WS_KEY"])
+        key_path = Path(os.environ["PROCSTAR_AGENT_KEY"])
     except KeyError:
         # Assume it's next to the cert file.
         key_path = cert_path.with_suffix(".key")
     key_path = key_path.absolute()
     if not key_path.is_file():
-        raise RuntimeError(f"PROCSTAR_WS_KEY file {key_path} missing")
+        raise RuntimeError(f"PROCSTAR_AGENT_KEY file {key_path} missing")
 
     return cert_path, key_path
 
@@ -57,7 +57,7 @@ class Server:
         self.connections = Connections()
         self.processes = Processes()
         if access_token is DEFAULT:
-            access_token = os.environ.get("PROCSTAR_WS_TOKEN", "")
+            access_token = os.environ.get("PROCSTAR_AGENT_TOKEN", "")
         self.access_token = access_token
 
 

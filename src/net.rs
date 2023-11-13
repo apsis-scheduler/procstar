@@ -8,7 +8,7 @@ pub fn get_tls_connector() -> Result<TlsConnector, Error> {
     let mut builder = native_tls::TlsConnector::builder();
 
     if let Some((_, cert_path)) = std::env::vars()
-        .filter(|(n, _)| n == "PROCSTAR_WS_CERT")
+        .filter(|(n, _)| n == "PROCSTAR_AGENT_CERT")
         .next()
     {
         let cert = std::fs::read_to_string(cert_path)?;
@@ -21,7 +21,7 @@ pub fn get_tls_connector() -> Result<TlsConnector, Error> {
 
 pub fn get_access_token() -> String {
     if let Some((_, token)) = std::env::vars()
-        .filter(|(n, _)| n == "PROCSTAR_WS_TOKEN")
+        .filter(|(n, _)| n == "PROCSTAR_AGENT_TOKEN")
         .next()
     {
         token

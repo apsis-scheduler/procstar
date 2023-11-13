@@ -9,6 +9,6 @@ openssl req -x509 -out localhost.crt -keyout localhost.key \
 
 To use this (or another) cert with procstar:
 ```
-PROCSTAR_WS_CERT=path/to/cert.crt procstar ...
+PROCSTAR_AGENT_CERT=path/to/cert.crt procstar ...
 ```
 

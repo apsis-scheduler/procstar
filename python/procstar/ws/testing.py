@@ -162,8 +162,8 @@ class Assembly:
             ],
             {
                 "RUST_BACKTRACE": "1",
-                "PROCSTAR_WS_CERT": str(TLS_CERT_PATH),
-                "PROCSTAR_WS_TOKEN": token,
+                "PROCSTAR_AGENT_CERT": str(TLS_CERT_PATH),
+                "PROCSTAR_AGENT_TOKEN": token,
             }
             | os.environ
         )

@@ -11,9 +11,9 @@ lazy_static! {
     /// Env vars that are not inherited.
     static ref EXCLUSIONS: Vec<&'static str> = {
         let mut x = Vec::new();
-        x.push("PROCSTAR_WS_CERT");
-        x.push("PROCSTAR_WS_KEY");
-        x.push("PROCSTAR_WS_TOKEN");
+        x.push("PROCSTAR_AGENT_CERT");
+        x.push("PROCSTAR_AGENT_KEY");
+        x.push("PROCSTAR_AGENT_TOKEN");
         x
     };
 }

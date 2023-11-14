@@ -5,6 +5,7 @@ import os
 import pytest
 import socket
 
+from   procstar import proto
 from   procstar import spec
 from   procstar.ws.testing import Assembly
 
@@ -36,7 +37,6 @@ async def test_connect_no_token():
         assert len(asm.server.connections) == 1
 
 
-# @pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_connect_multi():
     """
@@ -59,21 +59,24 @@ async def test_run_proc():
             spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
         )
         assert proc.proc_id == proc_id
-        assert proc.results.latest is None
+        assert proc.result is None
 
         assert len(asm.server.processes) == 1
         assert next(iter(asm.server.processes)) == proc_id
         assert next(iter(asm.server.processes.values())) is proc
 
         # First, a result with no status set.
-        res = await anext(proc.results)
+        type, res = await anext(proc.messages)
+        assert type == "result"
         assert res is not None
         assert res.status is None
         pid = res.pid
         assert pid is not None
 
         # Now a result when the process completes.
-        res = await anext(proc.results)
+        type, res = await anext(proc.messages)
+        assert type == "result"
+        assert res is not None
         assert res.pid == pid
         assert res.status is not None
         assert res.status.exit_code == 0
@@ -82,8 +85,8 @@ async def test_run_proc():
 
         # Delete the proc.
         await asm.server.delete(proc_id)
-        res = await anext(proc.results)
-        assert res is None
+        type, res = await anext(proc.messages)
+        assert type == "delete"
 
         assert len(asm.server.processes) == 0
 
@@ -157,4 +160,4 @@ async def test_run_multi():
 if __name__ == "__main__":
     import logging
     logging.getLogger().setLevel(logging.INFO)
-    asyncio.run(test_connect_no_token())
+    asyncio.run(test_run_proc())

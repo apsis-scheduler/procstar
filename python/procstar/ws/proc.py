@@ -19,26 +19,21 @@ class Process:
     A process running under a connected procstar instance.
     """
 
-    class Results:
-        """
-        Process result updates.
+    proc_id: str
+    conn_id: str
 
-        Acts as a one-shot async iterable and iterator of result updates.  The
-        `latest` property always returns the most recent, which may be none if
-        no result has yet been received.
-        """
+    """
+    The most recent result received for this proc.
+    """
+    result: Optional[object]
+    # FIXME
+    errors: list[str]
+
+    # FIXME: Elsewhere.
+    class Messages:
 
         def __init__(self):
-            self.__latest = None
-            self.__updates = asyncio.Queue()
-
-
-        @property
-        def latest(self) -> Optional[Jso]:
-            """
-            Most recent received process result.
-            """
-            return self.__latest
+            self.__queue = asyncio.Queue()
 
 
         def __aiter__(self):
@@ -46,45 +41,50 @@ class Process:
 
 
         def __anext__(self):
-            return self.__updates.get()
+            return self.__queue.get()
 
 
-        def _update(self, result):
-            self.__latest = result
-            self.__updates.put_nowait(result)
+        def push(self, msg):
+            self.__queue.put_nowait(msg)
 
 
-    proc_id: str
-    conn_id: str
-
-    results: Results
-
-    # FIXME
-    errors: list[str]
 
     # FIXME: What happens when the connection is closed?
 
     def __init__(self, conn_id, proc_id):
         self.proc_id = proc_id
         self.conn_id = conn_id
-        self.results = self.Results()
+        self.messages = self.Messages()
+        self.result = None
         # FIXME: Receive proc-specific errors.
         self.errors = []
+
+
+    def on_message(self, msg):
+        match msg:
+            case proto.ProcResult(_proc_id, res):
+                res = Jso(res)
+                self.result = res
+                self.messages.push(("result", res))
+
+            case proto.ProcDelete():
+                self.messages.push(("delete", None))
 
 
     async def wait_for_completion(self) -> Jso:
         """
         Awaits and returns a completed result.
         """
-        # Is it already completed?
-        res = self.results.latest
-        if res is not None and res.status is not None:
-            return res
+        # Is the most recent result completed?
+        if self.result is None or self.result.status is None:
+            # Wait for a result message with a completed status.
+            await anext(
+                None
+                async for t, r in self.messages
+                if t == "result" and r.status is not None
+            )
 
-        while True:
-            res = await anext(self.results)
-            if res.status is not None:
-                return res
+        return self.result
 
 
 
@@ -135,18 +135,14 @@ class Processes(Mapping):
                 for proc_id in proc_ids:
                     _ = get_proc(proc_id)
 
-            case proto.ProcResult(proc_id, res):
-                proc = get_proc(proc_id)
+            case proto.ProcResult(proc_id):
                 logger.debug(f"msg proc result: {proc_id}")
-                # Attach procstar info to the result.
-                result = Jso(res)
-                result.procstar = procstar_info
-                proc.results._update(result)
+                msg.res["procstar"] = procstar_info
+                get_proc(proc_id).on_message(msg)
 
             case proto.ProcDelete(proc_id):
-                proc = get_proc(proc_id)
                 logger.debug(f"msg proc delete: {proc_id}")
-                del self.__procs[proc_id]
+                self.__procs.pop(proc_id).on_message(msg)
 
             case proto.Register:
                 # We should receive this only immediately after connection.
@@ -156,6 +152,10 @@ class Processes(Mapping):
                 # FIXME: Implement.
                 # FIXME: Proc-specific errors.
                 logger.error(f"msg error: {msg.err}")
+
+            case proto.Close():
+                pass
+
 
 
     # Mapping methods

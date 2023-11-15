@@ -8,7 +8,6 @@ import logging
 from   typing import Optional
 
 from   procstar import proto
-from   procstar.lib.json import Jso
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +62,19 @@ class Process:
     def on_message(self, msg):
         match msg:
             case proto.ProcResult(_proc_id, res):
-                res = Jso(res)
                 self.result = res
-                self.messages.push(("result", res))
 
             case proto.ProcDelete():
-                self.messages.push(("delete", None))
+                pass
+
+            case _:
+                # FIXME
+                raise NotImplementedError(repr(msg))
+
+        self.messages.push(msg)
 
 
-    async def wait_for_completion(self) -> Jso:
+    async def wait_for_completion(self):
         """
         Awaits and returns a completed result.
         """
@@ -80,8 +83,8 @@ class Process:
             # Wait for a result message with a completed status.
             await anext(
                 None
-                async for t, r in self.messages
-                if t == "result" and r.status is not None
+                async for m in self.messages
+                if isinstance(m, proto.ProcResult) and m.res.status is not None
             )
 
         return self.result
@@ -137,7 +140,7 @@ class Processes(Mapping):
 
             case proto.ProcResult(proc_id):
                 logger.debug(f"msg proc result: {proc_id}")
-                msg.res["procstar"] = procstar_info
+                msg.res.procstar = procstar_info
                 get_proc(proc_id).on_message(msg)
 
             case proto.ProcDelete(proc_id):

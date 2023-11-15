@@ -160,7 +160,7 @@ class Server:
             await ws.send(data)
 
         except Exception as exc:
-            logger.warning(f"{ws}: {exc}")
+            logger.warning(f"{ws}: {exc}", exc_info=True)
             await ws.close()
             return
 

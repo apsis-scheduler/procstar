@@ -66,27 +66,29 @@ async def test_run_proc():
         assert next(iter(asm.server.processes.values())) is proc
 
         # First, a result with no status set.
-        type, res = await anext(proc.messages)
-        assert type == "result"
-        assert res is not None
-        assert res.status is None
-        pid = res.pid
-        assert pid is not None
+        msg = await anext(proc.messages)
+        assert isinstance(msg, proto.ProcResult)
+        assert msg.res is not None
+        assert msg.res.status is None
+        assert msg.res.pid is not None
+        pid = msg.res.pid
+        print(f"have msg; pid={pid}")
 
         # Now a result when the process completes.
-        type, res = await anext(proc.messages)
-        assert type == "result"
-        assert res is not None
-        assert res.pid == pid
-        assert res.status is not None
-        assert res.status.exit_code == 0
-        assert res.fds.stdout.text == "Hello, world!\n"
-        assert res.fds.stderr.text == ""
+        msg = await anext(proc.messages)
+        assert isinstance(msg, proto.ProcResult)
+        assert msg.res is not None
+        assert msg.res.pid == pid
+        assert msg.res.status is not None
+        assert msg.res.status.exit_code == 0
+        assert msg.res.fds.stdout.text == "Hello, world!\n"
+        assert msg.res.fds.stderr.text == ""
+        print("have result")
 
         # Delete the proc.
         await asm.server.delete(proc_id)
-        type, res = await anext(proc.messages)
-        assert type == "delete"
+        msg = await anext(proc.messages)
+        assert isinstance(msg, proto.ProcDelete)
 
         assert len(asm.server.processes) == 0
 

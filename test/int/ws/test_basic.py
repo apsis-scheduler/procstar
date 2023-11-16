@@ -5,7 +5,6 @@ import os
 import pytest
 import socket
 
-from   procstar import proto
 from   procstar import spec
 from   procstar.ws.testing import Assembly
 
@@ -59,36 +58,30 @@ async def test_run_proc():
             spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
         )
         assert proc.proc_id == proc_id
-        assert proc.result is None
+        assert proc.results.latest is None
 
         assert len(asm.server.processes) == 1
         assert next(iter(asm.server.processes)) == proc_id
         assert next(iter(asm.server.processes.values())) is proc
 
         # First, a result with no status set.
-        msg = await anext(proc.messages)
-        assert isinstance(msg, proto.ProcResult)
-        assert msg.res is not None
-        assert msg.res.status is None
-        assert msg.res.pid is not None
-        pid = msg.res.pid
-        print(f"have msg; pid={pid}")
+        result = await anext(proc.results)
+        assert result is not None
+        assert result.status is None
+        assert result.pid is not None
+        pid = result.pid
 
         # Now a result when the process completes.
-        msg = await anext(proc.messages)
-        assert isinstance(msg, proto.ProcResult)
-        assert msg.res is not None
-        assert msg.res.pid == pid
-        assert msg.res.status is not None
-        assert msg.res.status.exit_code == 0
-        assert msg.res.fds.stdout.text == "Hello, world!\n"
-        assert msg.res.fds.stderr.text == ""
-        print("have result")
+        result = await anext(proc.results)
+        assert result is not None
+        assert result.pid == pid
+        assert result.status is not None
+        assert result.status.exit_code == 0
+        assert result.fds.stdout.text == "Hello, world!\n"
+        assert result.fds.stderr.text == ""
 
         # Delete the proc.
         await asm.server.delete(proc_id)
-        msg = await anext(proc.messages)
-        assert isinstance(msg, proto.ProcDelete)
 
         assert len(asm.server.processes) == 0
 
@@ -108,7 +101,7 @@ async def test_run_procs():
     async with Assembly.start() as asm:
         procs = { i: await asm.server.start(i, s) for i, s in specs.items() }
 
-        futs = ( p.wait_for_completion() for p in procs.values() )
+        futs = ( p.results.wait() for p in procs.values() )
         ress = dict(zip(specs, await asyncio.gather(*futs)))
 
         assert all( r.status.exit_code == 0 for r in ress.values() )
@@ -146,7 +139,7 @@ async def test_run_multi():
             assert asm.server.connections[proc.conn_id].info.conn.group_id == group
 
         # Each should complete successfully.
-        ress = await asyncio.gather(*( p.wait_for_completion() for p in procs ))
+        ress = await asyncio.gather(*( p.results.wait() for p in procs ))
         for proc, res in zip(procs, ress):
             group = proc.proc_id.split("-", 1)[1]
             assert res.status.exit_code == 0

@@ -10,7 +10,7 @@ use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 use tokio_pipe::PipeRead;
 
-use crate::err::Result;
+use crate::err::{Error, Result};
 use crate::res::FdRes;
 use crate::spec;
 use crate::sys;
@@ -60,7 +60,14 @@ fn get_oflags(flags: &spec::OpenFlag, fd: RawFd) -> libc::c_int {
 
 #[derive(Debug)]
 pub enum FdHandler {
+    /// Inherits the existing file descriptor, if any.
     Inherit,
+
+    /// A failed attempt to create a file descriptor.
+    Error {
+        /// Error message.
+        err: Error,
+    },
 
     /// Closes the file descriptor.
     Close {
@@ -224,6 +231,8 @@ impl SharedFdHandler {
         Ok(match *self.0.borrow() {
             FdHandler::Inherit => None,
 
+            FdHandler::Error { .. } => None,
+
             FdHandler::Close { .. } => None,
 
             FdHandler::Dup { .. } => None,
@@ -249,6 +258,8 @@ impl SharedFdHandler {
     pub fn in_child(self) -> Result<()> {
         match Rc::try_unwrap(self.0).unwrap().into_inner() {
             FdHandler::Inherit => Ok(()),
+
+            FdHandler::Error { err } => Err(err),
 
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
@@ -290,6 +301,7 @@ impl SharedFdHandler {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit
+            | FdHandler::Error { .. }
             | FdHandler::Close { .. }
             | FdHandler::Dup { .. }
             | FdHandler::UnmanagedFile { .. } => FdRes::None,
@@ -312,10 +324,8 @@ pub fn make_fd_handler(fd_str: String, spec: spec::Fd) -> (RawFd, SharedFdHandle
         std::process::exit(2);
     });
 
-    let handler = SharedFdHandler::new(fd_num, spec).unwrap_or_else(|err| {
-        error!("failed to set up fd {}: {}", fd_num, err);
-        std::process::exit(2);
-    });
+    let handler = SharedFdHandler::new(fd_num, spec)
+        .unwrap_or_else(|err| SharedFdHandler(Rc::new(RefCell::new(FdHandler::Error { err }))));
 
     (fd_num, handler)
 }

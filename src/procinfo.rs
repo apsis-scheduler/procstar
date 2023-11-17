@@ -356,7 +356,6 @@ pub struct ProcStatm {
 impl ProcStatm {
     /// Parses contents of a /proc/{pid}/statm file.  Panics on failure.
     pub fn parse(text: &str) -> Self {
-        info!("ProcStatm::parse '{}'", text);
         let mut parts = text.trim().split(' ').into_iter();
         let size = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
         let resident = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;

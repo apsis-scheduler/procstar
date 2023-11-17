@@ -52,16 +52,17 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, Err
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json);
             if let Ok(ref msg) = msg {
-                trace!("msg: {:?}", msg);
+                trace!("< {:?}", msg);
             } else {
                 if let Ok(json) = std::str::from_utf8(json.as_slice()) {
-                    trace!("msg: {}", json);
+                    error!("< {}", json);
                 } else {
-                    trace!("msg: {:?}", msg);
+                    error!("< {:?}", msg);
                 }
             }
             if let Some(rsp) = proto::handle_incoming(procs, msg?).await {
-                trace!("rsp: {:?}", rsp);
+                // FIXME: ProcResult is too big to log.
+                trace!("> {:?}", rsp);
                 let json = serde_json::to_vec(&rsp)?;
                 Ok(Some(Message::Binary(json)))
             } else {
@@ -78,6 +79,8 @@ async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, Err
 }
 
 async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), Error> {
+    // FIXME: ProcResult is too big to log.
+    trace!("> {:?}", msg);
     let json = serde_json::to_vec(&msg)?;
     sender.send(Message::Binary(json)).await.unwrap();
     Ok(())
@@ -228,7 +231,6 @@ pub async fn run(
     let mut count = 0;
     loop {
         // (Re)connect to the service.
-        info!("connecting: {}", connection.url);
         let (new_sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => {
                 info!("connected: {}", connection.url);

@@ -87,8 +87,9 @@ pub enum FdHandler {
     UnmanagedFile {
         /// Proc-visible fd.
         fd: RawFd,
-        /// Fd open to the file.
-        file_fd: RawFd,
+        path: PathBuf,
+        oflags: i32,
+        mode: c_int,
     },
 
     UnlinkedFile {
@@ -116,6 +117,21 @@ pub enum FdHandler {
     },
 }
 
+impl FdHandler {
+    /// Creates an unmanaged file fd handler.  The file itself is opened in the
+    /// child process.
+    fn new_unmanaged_file(fd: RawFd, path: &str, flags: spec::OpenFlag, mode: c_int) -> FdHandler {
+        let path = PathBuf::from(path);
+        let oflags = get_oflags(&flags, fd);
+        FdHandler::UnmanagedFile {
+            fd,
+            path,
+            oflags,
+            mode,
+        }
+    }
+}
+
 pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
 //------------------------------------------------------------------------------
@@ -123,19 +139,6 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 const PATH_DEV_NULL: &str = "/dev/null";
 // FIXME: Correct tmpdir.
 const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
-
-/// Opens a file as an unmanaged file fd handler.
-fn open_unmanaged_file(
-    fd: RawFd,
-    path: &str,
-    flags: spec::OpenFlag,
-    mode: c_int,
-) -> Result<FdHandler> {
-    let path = PathBuf::from(path);
-    let oflags = get_oflags(&flags, fd);
-    let file_fd = sys::open(&path, oflags, mode)?;
-    Ok(FdHandler::UnmanagedFile { fd, file_fd })
-}
 
 /// Creates and opens an unlinked temporary file as a fd handler.
 fn open_unlinked_temp_file(fd: RawFd, format: spec::CaptureFormat) -> Result<FdHandler> {
@@ -172,11 +175,13 @@ impl SharedFdHandler {
 
             spec::Fd::Close => FdHandler::Close { fd },
 
-            spec::Fd::Null { flags } => open_unmanaged_file(fd, PATH_DEV_NULL, flags, 0)?,
+            spec::Fd::Null { flags } => FdHandler::new_unmanaged_file(fd, PATH_DEV_NULL, flags, 0),
 
             spec::Fd::Dup { fd: dup_fd } => FdHandler::Dup { fd, dup_fd },
 
-            spec::Fd::File { path, flags, mode } => open_unmanaged_file(fd, &path, flags, mode)?,
+            spec::Fd::File { path, flags, mode } => {
+                FdHandler::new_unmanaged_file(fd, &path, flags, mode)
+            }
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::TempFile,
@@ -237,10 +242,7 @@ impl SharedFdHandler {
 
             FdHandler::Dup { .. } => None,
 
-            FdHandler::UnmanagedFile { file_fd, .. } => {
-                sys::close(file_fd).unwrap();
-                None
-            }
+            FdHandler::UnmanagedFile { .. } => None,
 
             FdHandler::UnlinkedFile { .. } => None,
 
@@ -273,8 +275,21 @@ impl SharedFdHandler {
                 Ok(())
             }
 
-            FdHandler::UnmanagedFile { fd, file_fd }
-            | FdHandler::UnlinkedFile { fd, file_fd, .. } => {
+            FdHandler::UnmanagedFile {
+                fd,
+                path,
+                oflags,
+                mode,
+            } => {
+                let file_fd = sys::open(&path, oflags, mode)?;
+                if file_fd != fd {
+                    sys::dup2(file_fd, fd)?;
+                    sys::close(file_fd)?;
+                }
+                Ok(())
+            }
+
+            FdHandler::UnlinkedFile { fd, file_fd, .. } => {
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub mod agent;
 pub mod environ;
 pub mod err;
 pub mod err_pipe;
@@ -15,4 +16,3 @@ pub mod res;
 pub mod sig;
 pub mod spec;
 pub mod sys;
-pub mod wsclient;

@@ -1,8 +1,8 @@
 use clap::Parser;
 use std::time::Duration;
 
+use procstar::agent;
 use procstar::proto::DEFAULT_PORT;
-use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
@@ -71,11 +71,11 @@ pub fn parse() -> Args {
     Args::parse()
 }
 
-pub fn get_connect_config(args: &Args) -> wsclient::ConnectConfig {
+pub fn get_connect_config(args: &Args) -> agent::ConnectConfig {
     // Defaults.
-    let df = wsclient::ConnectConfig::new();
+    let df = agent::ConnectConfig::new();
     // Apply options.
-    wsclient::ConnectConfig {
+    agent::ConnectConfig {
         interval_start: args
             .connect_interval_start
             .map_or(df.interval_start, |s| Duration::from_secs_f64(s)),

@@ -102,6 +102,20 @@ impl FdRes {
 //------------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum State {
+    /// The target process did not start, due to failure in setting up file
+    /// descriptors, fork, or exec.
+    Error,
+
+    /// The process is running.
+    Running,
+
+    /// The process has terminated.
+    Terminated,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Status {
     /// The raw process exit status returned by `wait()`.  This combines exit
     /// code and signum.
@@ -149,6 +163,8 @@ pub struct Times {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProcRes {
+    pub state: State,
+
     /// Errors starting the process.
     pub errors: Vec<String>,
 
@@ -158,7 +174,7 @@ pub struct ProcRes {
     /// Recent status or status at completion.
     pub proc_stat: Option<ProcStat>,
 
-    /// Recent memory usage or memory usage at completion.
+    /// Recent memory usage, if the process has not completed.
     pub proc_statm: Option<ProcStatm>,
 
     /// Process timing.

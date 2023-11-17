@@ -13,8 +13,9 @@ async def test_bad_exe():
             spec.make_proc(["/dev/null/bad_exe", "Hello, world!"]).to_jso()
         )
         res = await proc.results.wait()
+        assert res.state == "error"
         assert len(res.errors) == 1
         assert "bad_exe" in res.errors[0]
-        assert res.status.exit_code != 0
+
 
 

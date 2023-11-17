@@ -101,6 +101,14 @@ impl Proc {
             (None, None, ProcStatm::load_or_log(self.pid))
         };
 
+        let state = if self.errors.len() > 0 {
+            res::State::Error
+        } else if status.is_none() {
+            res::State::Running
+        } else {
+            res::State::Terminated
+        };
+
         let fds = self
             .fd_handlers
             .iter()
@@ -133,6 +141,7 @@ impl Proc {
             .or_else(|| ProcStat::load_or_log(self.pid));
 
         res::ProcRes {
+            state,
             errors: self.errors.clone(),
             pid: self.pid,
             proc_stat,
@@ -387,10 +396,9 @@ pub fn start_procs(
                     // replaced.
                     let err = execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
                     error_writer.try_write(format!("execve failed: {}: {}", exe, err));
-                    std::process::exit(63);
-                } else {
-                    std::process::exit(62);
                 }
+
+                std::process::exit(63);
             }
 
             Ok(child_pid) => {

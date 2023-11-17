@@ -84,10 +84,11 @@ def run1(spec, *, proc_id="test"):
       The process had errors.
     """
     proc = run({"specs": {proc_id: spec}})[proc_id]
-    if len(proc["errors"]) == 0:
-        return proc
-    else:
+    if proc["state"] == "error":
         raise Errors(proc["errors"])
+    else:
+        assert proc["state"] == "terminated"
+        return proc
 
 
 def run_spec(name):

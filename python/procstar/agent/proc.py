@@ -13,14 +13,9 @@ logger = logging.getLogger(__name__)
 #-------------------------------------------------------------------------------
 
 class ProcessDeletedError(RuntimeError):
-
-    pass
-
-
-
-class ProcessError(RuntimeError):
-
-    pass
+    """
+    The process was deleted.
+    """
 
 
 
@@ -47,8 +42,6 @@ class Results:
         """
         :raise ProcessDeletedError:
           The process was deleted before returning another result.
-        :raise ProcessError:
-          The process encountered an error before returning another result.
         """
         match await self.__queue.get():
             case proto.ProcResult(_, result):
@@ -66,17 +59,22 @@ class Results:
 
     async def wait(self):
         """
-        Awaits and returns a completed result.
+        Awaits a running process.
 
-        Returns immediately if a completed result has already been received.
+        Returns immediately if a non-running result has alread been received.
+
+        :return:
+          The process result.
+        :raise ProcessDeletedError:
+          The process was deleted before returning another result.
         """
         # Is the most recent result completed?  If so, return it immediately.
-        if self.latest is not None and self.latest.status is not None:
-            return self.result.status
+        if self.latest is not None and self.latest.state != "running":
+            return self.result
 
         # Wait for a completed result.
         async for result in self:
-            if result.status is not None:
+            if result.state != "running":
                 return result
 
 

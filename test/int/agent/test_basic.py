@@ -16,7 +16,7 @@ async def test_connect():
     Basic connection tests.
     """
     async with Assembly.start() as asm:
-        assert asm.server.access_token is not None
+        assert asm.access_token is not None
         assert len(asm.server.connections) == 1
         conn = next(iter(asm.server.connections.values()))
         assert conn.info.conn.group_id == "default"
@@ -32,7 +32,7 @@ async def test_connect_no_token():
     Tests connection without access token.
     """
     async with Assembly.start(access_token="") as asm:
-        assert asm.server.access_token == ""
+        assert asm.access_token == ""
         assert len(asm.server.connections) == 1
 
 

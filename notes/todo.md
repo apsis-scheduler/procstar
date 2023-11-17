@@ -23,8 +23,7 @@
 - [x] rename `wsclient` → `agent`
 - [x] rename `procstar.ws` → `procstar.agent`
 - [x] clean up how errors are sent to agent
-- [ ] global config for procstar in Apsis
-      - [ ] port and hostname
+- [x] global config for procstar in Apsis
 - [ ] if group is unknown or has no connections, wait a while
 - [ ] shell command variant of procstar program
 - [ ] reconnect to run on Apsis restart

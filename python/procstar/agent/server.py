@@ -3,6 +3,7 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
+from   functools import partial
 import logging
 import os
 from   pathlib import Path
@@ -15,7 +16,7 @@ from   .conn import Connections, ProcstarInfo, SocketInfo
 from   .proc import Processes, Process, ProcessDeletedError
 from   procstar import proto
 
-DEFAULT = object()
+FROM_ENV = object()
 
 # Timeout to receive an initial login message.
 TIMEOUT_LOGIN = 60
@@ -53,43 +54,58 @@ def _get_tls_from_env():
 
 class Server:
 
-    def __init__(self, *, access_token=DEFAULT):
+    def __init__(self):
         self.connections = Connections()
         self.processes = Processes()
-        if access_token is DEFAULT:
-            access_token = os.environ.get("PROCSTAR_AGENT_TOKEN", "")
-        self.access_token = access_token
 
 
-    def run(self, *, loc=(DEFAULT, DEFAULT), tls_cert=DEFAULT):
+    def run(
+            self, *,
+            host        =FROM_ENV,
+            port        =FROM_ENV,
+            tls_cert    =FROM_ENV,
+            access_token=FROM_ENV,
+        ):
         """
         Returns an async context manager that runs the websocket server.
 
-        :param loc:
-          `host, port` pair.  If `host` is none, runs on all interfaces.
-          If `port` is none, chooses an unused port on each interface.
-        :param cert:
-          If not none, a (cert file path, key file path) pair to use for TLS.
+        :param host:
+          Interface on which to run.  If `FROM_ENV`, uses the env var
+          `PROCSTAR_AGENT_HOST`.  The default value, `"*"`, runs on all
+          interfaces.
+        :param port:
+           Port on which to run.  If `FROM_ENV`, uses the env var
+           `PROCSTAR_AGENT_PORT`.  The default value is `DEFAULT_PORT`.
+        :param tls_cert:
+          TLS (cert path, key path) to use.  If `FROM_ENV`, uses the env vars
+          `PROCSTAR_AGENT_CERT` and `PROCSTAR_AGENT_KEY`.  By default, uses cert
+          in the system cert bundle.
+        :param access_token:
+          Secret access token required for agent connections.  If `FROM_ENV`,
+          uses the env var `PROCSTAR_AGENT_TOKEN`.  By default, uses an empty
+          string.
         """
-        host, port = loc
-        if host is DEFAULT:
+        if host is FROM_ENV:
             host = os.environ.get("PROCSTAR_AGENT_HOST", "*")
             if host == "*":
                 # Serve on all interfaces.
                 host = None
-        if port is DEFAULT:
+        if port is FROM_ENV:
             port = int(os.environ.get("PROCSTAR_AGENT_PORT", DEFAULT_PORT))
 
-        if tls_cert is DEFAULT:
+        if tls_cert is FROM_ENV:
             cert_path, key_path = _get_tls_from_env()
         elif tls_cert is None:
             cert_path, key_path = None, None
         else:
             cert_path, key_path = tls_cert
 
+        if access_token is FROM_ENV:
+            access_token = os.environ.get("PROCSTAR_AGENT_TOKEN", "")
+
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         if tls_cert is not None:
-            logger.warning(f"TLS {cert_path} {key_path}")
+            logger.info(f"using TLS cert {cert_path} key {key_path}")
             ssl_context.load_cert_chain(cert_path, key_path)
 
         # For debugging TLS handshake.
@@ -99,15 +115,14 @@ class Server:
             ssl_context._msg_callback = msg_callback
 
         return websockets.server.serve(
-            self._serve_connection,
+            partial(self._serve_connection, access_token),
             host, port,
             ssl=ssl_context,
         )
 
 
-    async def run_forever(self, *, loc=(DEFAULT, DEFAULT), tls_cert=DEFAULT):
-        server = await self.run(loc=loc, tls_cert=tls_cert)
-        await server.run_forever()
+    async def run_forever(self, **kw_args):
+        server = await self.run(**kw_args)
         # FIXME: Log the/a server URL.
 
 
@@ -128,7 +143,7 @@ class Server:
             ))
 
 
-    async def _serve_connection(self, ws):
+    async def _serve_connection(self, access_token, ws):
         """
         Serves an incoming connection.
 
@@ -152,7 +167,7 @@ class Server:
                 raise proto.ProtocolError(f"expected register; got {type}")
 
             # Check the access token.
-            if register_msg.access_token != self.access_token:
+            if register_msg.access_token != access_token:
                 raise proto.ProtocolError("permission denied")
 
             # Respond with a Registered message.

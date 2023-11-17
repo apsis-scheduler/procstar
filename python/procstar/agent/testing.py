@@ -73,9 +73,10 @@ class Assembly:
         """
         if access_token is DEFAULT:
             access_token = secrets.token_urlsafe(32)
+        self.access_token = access_token
 
         # The procstar server.
-        self.server = procstar.agent.server.Server(access_token=access_token)
+        self.server = procstar.agent.server.Server()
 
         # The port on which the websocket server is running.  Automatically
         # assigned the first time the server starts.
@@ -103,8 +104,10 @@ class Assembly:
         # new port the first time, then keep using the same port, so procstar
         # instances can reconnect.
         self.ws_server = await self.server.run(
-            loc=("localhost", self.port),
-            tls_cert=(TLS_CERT_PATH, TLS_KEY_PATH),
+            host        ="localhost",
+            port        =self.port,
+            tls_cert    =(TLS_CERT_PATH, TLS_KEY_PATH),
+            access_token=self.access_token,
         )
         self.port = self.locs[0][1]
         logger.info(f"started on port {self.port}")
@@ -146,7 +149,7 @@ class Assembly:
         Returns argv and env to start a procstar process.
         """
         token = (
-            self.server.access_token if access_token is DEFAULT
+            self.access_token if access_token is DEFAULT
             else access_token
         )
         return (

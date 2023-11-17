@@ -6,6 +6,7 @@ Procstar, a process manager
    :caption: Contents
 
    config
+   res
 
 
 Back matter

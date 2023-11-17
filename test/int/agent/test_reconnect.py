@@ -3,7 +3,7 @@ from   contextlib import aclosing
 import pytest
 
 from   procstar import spec
-from   procstar.ws.testing import Assembly, ProcstarError
+from   procstar.agent.testing import Assembly, ProcstarError
 
 #-------------------------------------------------------------------------------
 
@@ -34,8 +34,8 @@ async def test_ws_reconnect():
 
         # Results should be available.
         res0, res1 = await asyncio.gather(
-            proc0.wait_for_completion(),
-            proc1.wait_for_completion()
+            proc0.results.wait(),
+            proc1.results.wait()
         )
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
@@ -65,8 +65,8 @@ async def test_ws_reconnect_nowait():
 
         # Wait for results anyway.  The procstar instance should reconnect.
         res0, res1 = await asyncio.gather(
-            proc0.wait_for_completion(),
-            proc1.wait_for_completion()
+            proc0.results.wait(),
+            proc1.results.wait()
         )
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
@@ -92,8 +92,8 @@ async def test_proc_reconnect():
         await asm.start_server()
 
         res0, res1 = await asyncio.gather(
-            proc0.wait_for_completion(),
-            proc1.wait_for_completion(),
+            proc0.results.wait(),
+            proc1.results.wait(),
         )
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0

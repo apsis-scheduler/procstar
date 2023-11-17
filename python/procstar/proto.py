@@ -2,6 +2,8 @@ from   dataclasses import dataclass
 import orjson
 from   typing import Dict, List
 
+from   .lib.json import Jso
+
 #-------------------------------------------------------------------------------
 
 DEFAULT_PORT = 18782
@@ -124,7 +126,12 @@ class ProcidList:
 @dataclass
 class ProcResult:
     proc_id: str
-    res: dict
+    res: Jso
+
+    @classmethod
+    def from_jso(cls, jso):
+        jso["res"] = Jso.wrap(jso["res"])
+        return cls(**jso)
 
 
 

@@ -4,13 +4,84 @@ Processes on connected procstar instances.
 
 import asyncio
 from   collections.abc import Mapping
+from   dataclasses import dataclass
 import logging
 from   typing import Optional
 
 from   procstar import proto
-from   procstar.lib.json import Jso
 
 logger = logging.getLogger(__name__)
+
+#-------------------------------------------------------------------------------
+
+class ProcessDeletedError(RuntimeError):
+
+    pass
+
+
+
+class ProcessError(RuntimeError):
+
+    pass
+
+
+
+class Results:
+    """
+    Single-consumer async iterable of results of a process.
+    """
+
+    """
+    The most recent result received for the process.
+    """
+    latest: object
+
+    def __init__(self):
+        self.latest = None
+        self.__queue = asyncio.Queue()
+
+
+    def __aiter__(self):
+        return self
+
+
+    async def __anext__(self):
+        """
+        :raise ProcessDeletedError:
+          The process was deleted before returning another result.
+        :raise ProcessError:
+          The process encountered an error before returning another result.
+        """
+        match msg := await self.__queue.get():
+            case proto.ProcResult(_, result):
+                self.latest = result
+                return result
+            case proto.ProcDelete():
+                raise ProcessDeletedError("process deleted")
+            case _:
+                assert False
+
+
+    def _on_message(self, msg):
+        self.__queue.put_nowait(msg)
+
+
+    async def wait(self):
+        """
+        Awaits and returns a completed result.
+
+        Returns immediately if a completed result has already been received.
+        """
+        # Is the most recent result completed?  If so, return it immediately.
+        if self.latest is not None and self.latest.status is not None:
+            return self.result.status
+
+        # Wait for a completed result.
+        async for result in self:
+            if result.status is not None:
+                return result
+
+
 
 #-------------------------------------------------------------------------------
 
@@ -19,46 +90,13 @@ class Process:
     A process running under a connected procstar instance.
     """
 
-    class Results:
-        """
-        Process result updates.
-
-        Acts as a one-shot async iterable and iterator of result updates.  The
-        `latest` property always returns the most recent, which may be none if
-        no result has yet been received.
-        """
-
-        def __init__(self):
-            self.__latest = None
-            self.__updates = asyncio.Queue()
-
-
-        @property
-        def latest(self) -> Optional[Jso]:
-            """
-            Most recent received process result.
-            """
-            return self.__latest
-
-
-        def __aiter__(self):
-            return self
-
-
-        def __anext__(self):
-            return self.__updates.get()
-
-
-        def _update(self, result):
-            self.__latest = result
-            self.__updates.put_nowait(result)
-
-
     proc_id: str
     conn_id: str
 
+    """
+    The most recent result received for this proc.
+    """
     results: Results
-
     # FIXME
     errors: list[str]
 
@@ -67,26 +105,13 @@ class Process:
     def __init__(self, conn_id, proc_id):
         self.proc_id = proc_id
         self.conn_id = conn_id
-        self.results = self.Results()
+        self.results = Results()
         # FIXME: Receive proc-specific errors.
         self.errors = []
 
 
-    async def wait_for_completion(self) -> Jso:
-        """
-        Awaits and returns a completed result.
-        """
-        # Is it already completed?
-        res = self.results.latest
-        if res is not None and res.status is not None:
-            return res
 
-        while True:
-            res = await anext(self.results)
-            if res.status is not None:
-                return res
-
-
+#-------------------------------------------------------------------------------
 
 class Processes(Mapping):
     """
@@ -135,18 +160,14 @@ class Processes(Mapping):
                 for proc_id in proc_ids:
                     _ = get_proc(proc_id)
 
-            case proto.ProcResult(proc_id, res):
-                proc = get_proc(proc_id)
+            case proto.ProcResult(proc_id):
                 logger.debug(f"msg proc result: {proc_id}")
-                # Attach procstar info to the result.
-                result = Jso(res)
-                result.procstar = procstar_info
-                proc.results._update(result)
+                msg.res.procstar = procstar_info
+                get_proc(proc_id).results._on_message(msg)
 
             case proto.ProcDelete(proc_id):
-                proc = get_proc(proc_id)
                 logger.debug(f"msg proc delete: {proc_id}")
-                del self.__procs[proc_id]
+                self.__procs.pop(proc_id).results._on_message(msg)
 
             case proto.Register:
                 # We should receive this only immediately after connection.
@@ -156,6 +177,10 @@ class Processes(Mapping):
                 # FIXME: Implement.
                 # FIXME: Proc-specific errors.
                 logger.error(f"msg error: {msg.err}")
+
+            case proto.Close():
+                pass
+
 
 
     # Mapping methods

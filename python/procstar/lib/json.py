@@ -18,7 +18,8 @@ class Jso:
 
 
     def __repr__(self):
-        return json.dumps(self.__jso_dict)
+        args = ", ".join( f"{k}={v!r}" for k, v in self.__jso_dict.items() )
+        return f"Object({args})"
 
 
     def __getattr__(self, name):
@@ -36,6 +37,20 @@ class Jso:
     @property
     def __dict__(self):
         return self.__jso_dict
+
+
+    @classmethod
+    def wrap(cls, jso):
+        """
+        Recursively wraps a JSON-deserialized value, if it is an object, and
+        any subobjects.
+        """
+        if isinstance(jso, list):
+            return [ cls.wrap(i) for i in jso ]
+        elif isinstance(jso, dict):
+            return Jso({ k: cls.wrap(v) for k, v in jso.items() })
+        else:
+            return jso
 
 
 

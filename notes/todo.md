@@ -19,8 +19,10 @@
       - [x] proc statm
 - [x] `PROCSTAR_WS_PORT` and `PROCSTAR_WS_HOSTNAME`
 - [x] rename `PROCSTAR_WS` → `PROCSTAR_AGENT`
-- [ ] rename `wsclient` → `agent`
-- [ ] rename `procstar.ws` → `procstar.agent`
+- [x] fix async notification of `procstar.ws.proc.Process` to signal deletion
+- [x] rename `wsclient` → `agent`
+- [x] rename `procstar.ws` → `procstar.agent`
+- [ ] clean up how errors are sent to agent
 - [ ] global config for procstar in Apsis
       - [ ] port and hostname
 - [ ] if group is unknown or has no connections, wait a while

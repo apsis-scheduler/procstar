@@ -12,7 +12,7 @@ from   websockets.exceptions import ConnectionClosedError
 
 from   . import DEFAULT_PORT
 from   .conn import Connections, ProcstarInfo, SocketInfo
-from   .proc import Processes, Process
+from   .proc import Processes, Process, ProcessDeletedError
 from   procstar import proto
 
 DEFAULT = object()
@@ -160,7 +160,7 @@ class Server:
             await ws.send(data)
 
         except Exception as exc:
-            logger.warning(f"{ws}: {exc}")
+            logger.warning(f"{ws}: {exc}", exc_info=True)
             await ws.close()
             return
 
@@ -233,6 +233,13 @@ class Server:
         # FIXME: No connection?
         conn = self.connections[proc.conn_id]
         await conn.send(proto.ProcDeleteRequest(proc_id))
+        # Wait for the deletion message.
+        try:
+            async for _ in proc.results:
+                pass
+        except ProcessDeletedError:
+            # Good.
+            logger.info(f"deleted: {proc_id}")
 
 
 

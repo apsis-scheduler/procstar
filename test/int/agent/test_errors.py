@@ -1,7 +1,7 @@
 import pytest
 
 from   procstar import spec
-from   procstar.ws.testing import Assembly
+from   procstar.agent.testing import Assembly
 
 #-------------------------------------------------------------------------------
 
@@ -12,7 +12,7 @@ async def test_bad_exe():
             "bad_exe",
             spec.make_proc(["/dev/null/bad_exe", "Hello, world!"]).to_jso()
         )
-        res = await proc.wait_for_completion()
+        res = await proc.results.wait()
         assert len(res.errors) == 1
         # FIXME: Needs to be indicated better; see execve() failure handling in
         # start_procs().

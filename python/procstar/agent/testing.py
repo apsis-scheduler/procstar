@@ -11,7 +11,7 @@ import tempfile
 import uuid
 
 from   procstar import proto
-import procstar.ws.server
+import procstar.agent.server
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class Assembly:
             access_token = secrets.token_urlsafe(32)
 
         # The procstar server.
-        self.server = procstar.ws.server.Server(access_token=access_token)
+        self.server = procstar.agent.server.Server(access_token=access_token)
 
         # The port on which the websocket server is running.  Automatically
         # assigned the first time the server starts.

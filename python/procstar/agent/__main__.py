@@ -46,7 +46,7 @@ def main():
             proc = await server.start("proc0", {"argv": ["/usr/bin/sleep", "1"]})
             # Show result updates.
             while True:
-                async for msg in proc.results:
+                async for msg in proc.messages:
                     pass
 
     tls_cert = DEFAULT if args.tls_cert is None else (

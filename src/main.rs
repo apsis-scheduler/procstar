@@ -5,12 +5,12 @@ mod argv;
 use futures::future::join;
 use log::*;
 // use procstar::fd::parse_fd;
+use procstar::agent;
 use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::spec;
-use procstar::wsclient;
 
 //------------------------------------------------------------------------------
 
@@ -29,9 +29,9 @@ async fn maybe_run_agent(args: &argv::Args, running_procs: SharedProcs) {
         let url = url::Url::parse(&format!("wss://{}:{}", hostname, args.agent_port)).unwrap();
         info!("agent connecting to: {}", url);
         let connection =
-            wsclient::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
+            agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
-        if let Err(err) = wsclient::run(connection, running_procs, &cfg).await {
+        if let Err(err) = agent::run(connection, running_procs, &cfg).await {
             error!("websocket connection failed: {err}");
             std::process::exit(1);
         }

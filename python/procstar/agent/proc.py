@@ -4,9 +4,7 @@ Processes on connected procstar instances.
 
 import asyncio
 from   collections.abc import Mapping
-from   dataclasses import dataclass
 import logging
-from   typing import Optional
 
 from   procstar import proto
 
@@ -52,7 +50,7 @@ class Results:
         :raise ProcessError:
           The process encountered an error before returning another result.
         """
-        match msg := await self.__queue.get():
+        match await self.__queue.get():
             case proto.ProcResult(_, result):
                 self.latest = result
                 return result

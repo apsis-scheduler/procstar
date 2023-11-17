@@ -376,7 +376,7 @@ pub fn start_procs(
 
                 for (fd, fd_handler) in fd_handlers.into_iter() {
                     fd_handler.in_child().unwrap_or_else(|err| {
-                        error_writer.try_write(format!("failed to set up fd: {}: {}", fd, err));
+                        error_writer.try_write(format!("failed to set up fd {}: {}", fd, err));
                         ok_to_exec = false;
                     });
                 }

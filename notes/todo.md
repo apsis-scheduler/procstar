@@ -22,7 +22,7 @@
 - [x] fix async notification of `procstar.ws.proc.Process` to signal deletion
 - [x] rename `wsclient` → `agent`
 - [x] rename `procstar.ws` → `procstar.agent`
-- [ ] clean up how errors are sent to agent
+- [x] clean up how errors are sent to agent
 - [ ] global config for procstar in Apsis
       - [ ] port and hostname
 - [ ] if group is unknown or has no connections, wait a while
@@ -39,6 +39,7 @@
 
 ### Cleanups
 
+- [ ] use numerical fds only in specs and results (no stdin/stdout/stderr)
 - [ ] if execve fails, return error code to parent for inclusion in result
 - [ ] age out old connections
 - [ ] should procstar ping the ws server?

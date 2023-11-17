@@ -21,7 +21,7 @@
 - [x] rename `PROCSTAR_WS` → `PROCSTAR_AGENT`
 - [x] fix async notification of `procstar.ws.proc.Process` to signal deletion
 - [x] rename `wsclient` → `agent`
-- [ ] rename `procstar.ws` → `procstar.agent`
+- [x] rename `procstar.ws` → `procstar.agent`
 - [ ] clean up how errors are sent to agent
 - [ ] global config for procstar in Apsis
       - [ ] port and hostname

@@ -387,8 +387,6 @@ pub fn start_procs(
                     // replaced.
                     let err = execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
                     error_writer.try_write(format!("execve failed: {}: {}", exe, err));
-                    // FIXME: Find a way to pass the error code to the parent
-                    // for inclusion in results.
                     std::process::exit(63);
                 } else {
                     std::process::exit(62);

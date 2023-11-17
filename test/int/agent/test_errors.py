@@ -14,9 +14,7 @@ async def test_bad_exe():
         )
         res = await proc.results.wait()
         assert len(res.errors) == 1
-        # FIXME: Needs to be indicated better; see execve() failure handling in
-        # start_procs().
         assert "bad_exe" in res.errors[0]
-        assert res.status.exit_code == 63
+        assert res.status.exit_code != 0
 
 

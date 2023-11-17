@@ -18,4 +18,21 @@ async def test_bad_exe():
         assert "bad_exe" in res.errors[0]
 
 
+@pytest.mark.asyncio
+async def test_bad_fd_path():
+    async with Assembly.start() as asm:
+        proc = await asm.server.start(
+            "bad_fd",
+            spec.make_proc(
+                ["/usr/bin/echo", "Hello, world!"],
+                fds={
+                    "stdout": spec.Proc.Fd.File("/not_a_dir/out"),
+                }
+            )
+        )
+        res = await proc.results.wait()
+        assert res.state == "error"
+        assert len(res.errors) == 1
+        assert "No such file or directory" in res.errors[0]
+
 

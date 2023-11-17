@@ -108,8 +108,25 @@ class Proc:
 
 
 
-        # FIXME
-        # class File
+        class File:
+
+            def __init__(self, path, flags="Default", mode=0o666):
+                self.__path = str(path)
+                # FIXME: Validate.
+                self.__flags = str(flags)
+                self.__mode = int(mode)
+
+
+            def to_jso(self):
+                return {
+                    "file": {
+                        "path"  : self.__path,
+                        "flags" : self.__flags,
+                        "mode"  : self.__mode,
+                    }
+                }
+
+
 
         class Dup:
 

@@ -3,7 +3,7 @@ from   contextlib import aclosing
 import pytest
 
 from   procstar import spec
-from   procstar.ws.testing import Assembly, ProcstarError
+from   procstar.agent.testing import Assembly, ProcstarError
 
 #-------------------------------------------------------------------------------
 

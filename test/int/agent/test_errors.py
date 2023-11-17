@@ -1,7 +1,7 @@
 import pytest
 
 from   procstar import spec
-from   procstar.ws.testing import Assembly
+from   procstar.agent.testing import Assembly
 
 #-------------------------------------------------------------------------------
 

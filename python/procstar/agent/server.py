@@ -12,7 +12,7 @@ import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import DEFAULT_PORT
-from   .conn import Connections, ProcstarInfo, SocketInfo
+from   .conn import Connections, ProcstarInfo, SocketInfo, choose_connection
 from   .proc import Processes, Process, ProcessDeletedError
 from   procstar import proto
 
@@ -216,10 +216,15 @@ class Server:
             spec,
             *,
             group_id=proto.DEFAULT_GROUP,
+            conn_timeout=0,
     ) -> Process:
         """
         Starts a new process on a connection in `group`.
 
+        :param group_id:
+          The group from which to choose a connection.
+        :param conn_timeout:
+          Timeout to wait for an open connection for `group_id`.
         :return:
           The connection on which the process starts.
         """
@@ -228,8 +233,12 @@ class Server:
         except AttributeError:
             pass
 
-        conn = self.connections.choose_connection(group_id)
-        # FIXME: If the connection is closed, choose another.
+        conn = await choose_connection(
+            self.connections,
+            group_id,
+            timeout=conn_timeout,
+        )
+
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
         return self.processes.create(conn.info.conn.conn_id, proc_id)
 

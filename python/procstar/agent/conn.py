@@ -8,9 +8,10 @@ from   dataclasses import dataclass
 import ipaddress
 import logging
 import random
+import time
 from   websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoGroupError, NoOpenConnectionInGroup
+from   .exc import NoOpenConnectionInGroup
 from   procstar.lib.asyn import Subscribeable
 from   procstar.proto import ConnectionInfo, ProcessInfo
 from   procstar.proto import serialize_message
@@ -169,6 +170,14 @@ class Connections(Mapping, Subscribeable):
         return conn
 
 
+    def _get_open_conns_in_group(self, group_id):
+        """
+        Returns a sequence of connection IDs of open connections in a group.
+        """
+        conn_ids = self.__groups.get(group_id, ())
+        return tuple( c for i in conn_ids if (c := self.__conns[i]).open )
+
+
     # Mapping methods.
 
     def __contains__(self, conn_id):
@@ -195,27 +204,40 @@ class Connections(Mapping, Subscribeable):
         return self.__conns.items()
 
 
-    # Group methods
 
-    def choose_connection(self, group_id) -> Connection:
-        """
-        Chooses an open connection in 'group'.
-        """
-        try:
-            conn_ids = self.__groups[group_id]
-        except KeyError:
-            raise NoGroupError(group_id) from None
+async def choose_connection(
+        connections: Connections,
+        group_id,
+        *,
+        policy  ="random",
+        timeout =0,
+) -> Connection:
+    """
+    Chooses an open connection for 'group_id'.
 
-        connections = [
-            c
-            for i in conn_ids
-            if (c := self[i]).open
-        ]
-        if len(connections) == 0:
-            raise NoOpenConnectionInGroup(group_id)
+    :param timeout:
+      Timeout to wait for an open connection for `group_id`.
+    :raise NoOpenConnectionInGroup:
+      Timeout occurred waiting for an open connection.
+    """
+    deadline = time.monotonic() + timeout
 
-        # FIXME: Better choice mechanism.
-        return random.choice(connections)
+    with connections.subscription() as sub:
+        while len(conns := connections._get_open_conns_in_group(group_id)) == 0:
+            # Wait to be informed of a new connection.
+            remain = max(deadline - time.monotonic(), 0)
+            logger.debug(
+                f"no open connection for {group_id}; waiting {remain:.1f} s")
+            try:
+                # We don't care what precisely happened.
+                _ = await asyncio.wait_for(anext(sub), timeout=remain)
+            except asyncio.TimeoutError:
+                raise NoOpenConnectionInGroup(group_id) from None
 
+    match policy:
+        case "random":
+            return random.choice(conns)
+        case _:
+            raise ValueError(f"unknown policy: {policy}")
 
 

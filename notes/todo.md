@@ -24,9 +24,9 @@
 - [x] rename `procstar.ws` → `procstar.agent`
 - [x] clean up how errors are sent to agent
 - [x] global config for procstar in Apsis
-- [ ] if group is unknown or has no connections, wait a while
-- [ ] shell command variant of procstar program
+- [x] if group is unknown or has no connections, wait a while
 - [ ] reconnect to run on Apsis restart
+- [ ] shell command variant of procstar program
 - [ ] Procstar web UI
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist

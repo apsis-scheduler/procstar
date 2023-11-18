@@ -6,7 +6,7 @@ class NoGroupError(LookupError):
     """
 
     def __init__(self, group_id):
-        super().__init__(f"unknown group: {group_id}")
+        super().__init__(f"no group: {group_id}")
         self.group_id = group_id
 
 
@@ -17,7 +17,7 @@ class NoOpenConnectionInGroup(RuntimeError):
     """
 
     def __init__(self, group_id):
-        super().__init__(f"no connection in group: {group_id}")
+        super().__init__(f"no connections in group: {group_id}")
         self.group_id = group_id
 
 
@@ -28,7 +28,7 @@ class NoConnectionError(LookupError):
     """
 
     def __init__(self, conn_id):
-        super().__init__(f"unknown connection ID: {conn_id}")
+        super().__init__(f"no connection: {conn_id}")
         self.conn_id = conn_id
 
 

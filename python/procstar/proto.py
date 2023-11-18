@@ -118,6 +118,11 @@ class IncomingMessageError:
 
 
 @dataclass
+class ProcUnknown:
+    proc_id: str
+
+
+@dataclass
 class ProcidList:
     proc_ids: List[str]
 
@@ -145,9 +150,10 @@ INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             IncomingMessageError,
-            ProcidList,
-            ProcResult,
             ProcDelete,
+            ProcResult,
+            ProcUnknown,
+            ProcidList,
             Register,
     )
 }

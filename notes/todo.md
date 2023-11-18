@@ -25,8 +25,10 @@
 - [x] clean up how errors are sent to agent
 - [x] global config for procstar in Apsis
 - [x] if group is unknown or has no connections, wait a while
-- [ ] reconnect to run on Apsis restart
+- [x] reconnect to run on Apsis restart
+- [ ] if a connection goes away, error its process's runs after a while
 - [ ] shell command variant of procstar program
+- [ ] push intermediate Procstar metadata to running runs
 - [ ] Procstar web UI
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist

@@ -12,7 +12,8 @@ import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import DEFAULT_PORT
-from   .conn import Connections, ProcstarInfo, SocketInfo, choose_connection
+from   .conn import Connections, ProcstarInfo, SocketInfo
+from   .conn import choose_connection, get_connection
 from   .proc import Processes, Process, ProcessDeletedError
 from   procstar import proto
 
@@ -126,23 +127,6 @@ class Server:
         # FIXME: Log the/a server URL.
 
 
-    async def _update_connection(self, conn):
-        """
-        Refreshes process state from a connection.
-        """
-        if conn is not None:
-            # Ask the procstar instance to tell us all proc IDs it knows
-            # about.
-            await conn.send(proto.ProcidListRequest())
-            # Ask for updates on all processes we think are at this
-            # instance.
-            await asyncio.gather(*(
-                conn.send(proto.ProcResultRequest(p.proc_id))
-                for p in self.processes.values()
-                if p.conn_id == conn.info.conn.conn_id
-            ))
-
-
     async def _serve_connection(self, access_token, ws):
         """
         Serves an incoming connection.
@@ -190,8 +174,6 @@ class Server:
         except RuntimeError as exc:
             logger.error(str(exc))
             return
-        # Let subscribers know.
-        await self._update_connection(conn)
 
         # Receive messages.
         while True:
@@ -243,9 +225,23 @@ class Server:
         return self.processes.create(conn.info.conn.conn_id, proc_id)
 
 
-    async def reconnect(self, conn_id, proc_id) -> Process:
-        # FIXME
-        raise NotImplementedError()
+    async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
+        """
+        :param conn_timeout:
+          Timeout to wait for a connection from `conn_id`.
+        :raise NoConnectionError:
+          Timeout waiting for connection.
+        """
+        conn = await get_connection(
+            self.connections, conn_id, timeout=conn_timeout)
+
+        try:
+            proc = self.processes[proc_id]
+        except KeyError:
+            proc = self.processes.create(conn_id, proc_id)
+
+        await conn.send(proto.ProcResultRequest(proc_id))
+        return proc
 
 
     async def delete(self, proc_id):

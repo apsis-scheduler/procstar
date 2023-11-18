@@ -111,6 +111,9 @@ pub enum OutgoingMessage {
     /// An incoming message could not be processed.
     IncomingMessageError { msg: IncomingMessage, err: String },
 
+    /// An incoming message referenced a nonexistent proc ID.
+    ProcUnknown { proc_id: ProcId },
+
     /// Registers or re-registers this instance.
     Register {
         conn: ConnectionInfo,
@@ -158,16 +161,16 @@ pub async fn handle_incoming(procs: SharedProcs, msg: IncomingMessage) -> Option
                 Some(OutgoingMessage::ProcResult { proc_id, res })
             } else {
                 let proc_id = proc_id.clone();
-                Some(OutgoingMessage::IncomingMessageError {
-                    msg,
-                    err: format!("no such proc id: {}", proc_id),
-                })
+                Some(OutgoingMessage::ProcUnknown { proc_id })
             }
         }
 
         IncomingMessage::ProcDeleteRequest { ref proc_id } => {
             match procs.remove_if_complete(proc_id) {
                 Ok(_) => None,
+                Err(crate::procs::Error::NoProcId(proc_id)) => {
+                    Some(OutgoingMessage::ProcUnknown { proc_id })
+                }
                 Err(err) => Some(OutgoingMessage::IncomingMessageError {
                     msg,
                     err: err.to_string(),

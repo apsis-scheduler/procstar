@@ -11,7 +11,7 @@ import random
 import time
 from   websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoOpenConnectionInGroup
+from   .exc import NoOpenConnectionInGroup, NoConnectionError
 from   procstar.lib.asyn import Subscribeable
 from   procstar.proto import ConnectionInfo, ProcessInfo
 from   procstar.proto import serialize_message
@@ -218,26 +218,66 @@ async def choose_connection(
     :param timeout:
       Timeout to wait for an open connection for `group_id`.
     :raise NoOpenConnectionInGroup:
-      Timeout occurred waiting for an open connection.
+      Timeout waiting for an open connection.
     """
     deadline = time.monotonic() + timeout
 
     with connections.subscription() as sub:
         while len(conns := connections._get_open_conns_in_group(group_id)) == 0:
             # Wait to be informed of a new connection.
-            remain = max(deadline - time.monotonic(), 0)
+            remain = deadline - time.monotonic()
+            if remain < 0:
+                raise NoOpenConnectionInGroup(group_id)
+
             logger.debug(
                 f"no open connection for {group_id}; waiting {remain:.1f} s")
             try:
                 # We don't care what precisely happened.
                 _ = await asyncio.wait_for(anext(sub), timeout=remain)
             except asyncio.TimeoutError:
-                raise NoOpenConnectionInGroup(group_id) from None
+                pass
 
     match policy:
         case "random":
             return random.choice(conns)
         case _:
             raise ValueError(f"unknown policy: {policy}")
+
+
+async def get_connection(
+        connections: Connections,
+        conn_id,
+        *,
+        timeout=0,
+) -> Connection:
+    """
+    Returns a connection, waiting for it if not connected.
+
+    :raise NoConnectionError:
+      Timeout waiting for connection `conn_id`.
+    """
+    deadline = time.monotonic() + timeout
+
+    with connections.subscription() as sub:
+        while True:
+            try:
+                conn = connections[conn_id]
+            except KeyError:
+                logging.debug(f"no connection: {conn_id}")
+            else:
+                if conn.open:
+                    return conn
+                else:
+                    logging.debug("connection not open: {conn_id}")
+
+            # Not open connection.  Wait to be informed of a new connection.
+            remain = deadline - time.monotonic()
+            if remain < 0:
+                raise NoConnectionError(conn_id)
+
+            try:
+                _ = await asyncio.wait_for(anext(sub), timeout=remain)
+            except asyncio.TimeoutError:
+                pass
 
 

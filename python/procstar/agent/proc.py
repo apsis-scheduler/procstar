@@ -12,10 +12,25 @@ logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
+class ProcessUnknownError(RuntimeError):
+    """
+    The process is unknown to the remote agent.
+    """
+
+    def __init__(self, proc_id):
+        super().__init__(f"process unknown: {proc_id}")
+        self.proc_id = proc_id
+
+
+
 class ProcessDeletedError(RuntimeError):
     """
     The process was deleted.
     """
+
+    def __init__(self, proc_id):
+        super().__init__(f"process deleted: {proc_id}")
+        self.proc_id = proc_id
 
 
 
@@ -40,17 +55,24 @@ class Results:
 
     async def __anext__(self):
         """
+        :raise ProcessUnknownError:
+          The process is unknown to the remote agent.
         :raise ProcessDeletedError:
           The process was deleted before returning another result.
         """
-        match await self.__queue.get():
+        match await (msg := self.__queue.get()):
             case proto.ProcResult(_, result):
                 self.latest = result
                 return result
-            case proto.ProcDelete():
-                raise ProcessDeletedError("process deleted")
+
+            case proto.ProcDelete(proc_id):
+                raise ProcessDeletedError(proc_id)
+
+            case proto.ProcUnknown(proc_id):
+                raise ProcessUnknownError(proc_id)
+
             case _:
-                assert False
+                raise NotImplementedError(f"unknown msg: {msg}")
 
 
     def _on_message(self, msg):
@@ -163,6 +185,10 @@ class Processes(Mapping):
 
             case proto.ProcDelete(proc_id):
                 logger.debug(f"msg proc delete: {proc_id}")
+                self.__procs.pop(proc_id).results._on_message(msg)
+
+            case proto.ProcUnknown(proc_id):
+                logger.debug(f"msg proc unknown: {proc_id}")
                 self.__procs.pop(proc_id).results._on_message(msg)
 
             case proto.Register:

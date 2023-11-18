@@ -26,6 +26,8 @@
 - [x] global config for procstar in Apsis
 - [x] if group is unknown or has no connections, wait a while
 - [x] reconnect to run on Apsis restart
+- [ ] add proc_id to metadata
+- [ ] what happens to running procs when we kill procstar?
 - [ ] if a connection goes away, error its process's runs after a while
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs

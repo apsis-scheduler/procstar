@@ -26,9 +26,10 @@
 - [x] global config for procstar in Apsis
 - [x] if group is unknown or has no connections, wait a while
 - [x] reconnect to run on Apsis restart
-- [ ] add proc_id to metadata
+- [x] add proc_id to metadata
 - [ ] what happens to running procs when we kill procstar?
 - [ ] if a connection goes away, error its process's runs after a while
+- [ ] procstar request soft shutdown, when all procs are done (or cleaned up?)
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs
 - [ ] Procstar web UI
@@ -39,6 +40,8 @@
       specific pid completes, so `wait_for_proc()` can inspect it before `wait`ing
 - [ ] bad exe and other starting failures => error state in Apsis
        (this requires fixing procstar)
+- [ ] procstar HTTP client tool
+- [ ] HTTP endpoint describing WS agent?
 
 ### Cleanups
 

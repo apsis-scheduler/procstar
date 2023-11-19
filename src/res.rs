@@ -158,7 +158,7 @@ pub struct Times {
     pub stop: Option<String>,
     /// Duration of the process.  This is not necessarily `stop - start`, as it
     /// is computed from a monotonic clock.
-    pub elapsed: Option<f64>,
+    pub elapsed: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

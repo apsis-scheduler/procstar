@@ -127,10 +127,16 @@ impl Proc {
             })
             .collect::<BTreeMap<_, _>>();
 
+        let elapsed = if let Some(elapsed) = self.elapsed {
+            elapsed
+        } else {
+            // Compute elapsed to now.
+            Instant::now().duration_since(self.start_instant)
+        };
         let times = res::Times {
             start: self.start_time.to_rfc3339(),
             stop: self.stop_time.map(|t| t.to_rfc3339()),
-            elapsed: self.elapsed.map(|d| d.as_secs_f64()),
+            elapsed: elapsed.as_secs_f64(),
         };
 
         // Use completion proc stat on the process object, if available;

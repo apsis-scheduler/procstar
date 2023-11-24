@@ -10,17 +10,22 @@ use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
+use procstar::sig::SignalWatcher;
 use procstar::spec;
 
 //------------------------------------------------------------------------------
 
-async fn maybe_run_http(args: &argv::Args, running_procs: SharedProcs) {
+async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
     if args.serve {
-        http::run_http(running_procs).await.unwrap(); // FIXME: unwrap
+        http::run_http(procs).await.unwrap(); // FIXME: unwrap
+    } else {
+        loop {
+            tokio::time::sleep(core::time::Duration::MAX).await;
+        }
     }
 }
 
-async fn maybe_run_agent(args: &argv::Args, running_procs: SharedProcs) {
+async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
     if args.agent {
         let hostname = proto::expand_hostname(&args.agent_host).unwrap_or_else(|| {
             eprintln!("no agent server hostname; use --agent-host or set PROCSTAR_AGENT_HOST");
@@ -31,9 +36,41 @@ async fn maybe_run_agent(args: &argv::Args, running_procs: SharedProcs) {
         let connection =
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
-        if let Err(err) = agent::run(connection, running_procs, &cfg).await {
+        if let Err(err) = agent::run(connection, procs, &cfg).await {
             error!("websocket connection failed: {err}");
             std::process::exit(1);
+        }
+    } else {
+        loop {
+            tokio::time::sleep(core::time::Duration::MAX).await;
+        }
+    }
+}
+
+async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
+    if args.exit {
+        wait_until_not_running(procs.clone()).await;
+        // Collect results.
+        let result = collect_results(procs).await;
+        // Print them.
+        if args.print {
+            res::print(&result).unwrap_or_else(|err| {
+                error!("failed to print output: {}", err);
+                std::process::exit(exitcode::OSFILE);
+            });
+            println!("");
+        }
+        if let Some(path) = args.output {
+            res::dump_file(&result, &path).unwrap_or_else(|err| {
+                error!("failed to write output {}: {}", path, err);
+                std::process::exit(exitcode::OSFILE);
+            });
+        };
+    } else if args.wait {
+        wait_until_empty(procs).await;
+    } else {
+        loop {
+            tokio::time::sleep(core::time::Duration::MAX).await;
         }
     }
 }
@@ -55,6 +92,9 @@ async fn main() {
         .init()
         .unwrap();
 
+    // We run tokio in single-threaded mode.
+    let local = tokio::task::LocalSet::new();
+
     // Set up the collection of processes to run.
     let running_procs = SharedProcs::new();
     // If specs were given on the command line, start those processes now.
@@ -67,13 +107,62 @@ async fn main() {
         spec::Input::new()
     };
 
-    // We run tokio in single-threaded mode.
-    let local = tokio::task::LocalSet::new();
+    // Set up global signal handlers.
+    let (sigterm_watcher, mut sigterm_receiver) =
+        SignalWatcher::new(tokio::signal::unix::SignalKind::terminate());
+    local
+        .run_until(async {
+            tokio::task::spawn_local(sigterm_watcher.watch());
+            tokio::task::spawn_local({
+                info!("received SIGTERM; terminating processes");
+                let procs = running_procs.clone();
+                async move {
+                    loop {
+                        sigterm_receiver.signal().await;
+                        _ = procs.send_signal_all(
+                            tokio::signal::unix::SignalKind::terminate().as_raw_value(),
+                        );
+                    }
+                }
+            });
+        })
+        .await;
+
+    // Start specs given on the command line.
+    //
+    // We intentionally don't start any services until the input processes have
+    // started, to avoid races where these procs don't appear in service
+    // results.
+    //
+    // Even though `start_procs` is not async, we have to run it in the
+    // LocalSet since it starts other tasks itself.
+    let tasks = local
+        .run_until(async { start_procs(&input.specs, running_procs.clone()) })
+        .await
+        .unwrap_or_else(|err| {
+            error!("failed to start procs: {}", err);
+            std::process::exit(exitcode::DATAERR);
+        });
+
+    // Run servers and/or until completion, as specified on the command line.
+    local.run_until(async {
+        tokio::select! {
+            _ = maybe_run_http(&args, running_procs.clone()) => {
+                info!("HTTP server completed.");
+            }
+            _ = maybe_run_agent(&args, running_procs.clone()) => {
+                info!("Agent connection completed.");
+            }
+            ok = maybe_run_until_exit(&args, running_procs.clone()) => {
+                std::process::exit(if ok { exitcode::OK } else { 1 });
+            }
+        }
+    });
 
     if args.serve || args.agent {
         // Start specs from the command line.  Discard the tasks.  We
-        // intentionally don't start the HTTP service until the input processes
-        // have started, to avoid races where these procs don't appear in HTTP
+        // intentionally don't start the services until the input processes have
+        // started, to avoid races where these procs don't appear in service
         // results.
         //
         // Even though `start_procs` is not async, we have to run it in the
@@ -82,7 +171,7 @@ async fn main() {
             .run_until(async { start_procs(&input.specs, running_procs.clone()) })
             .await
             .unwrap_or_else(|err| {
-                error!("failred to start procs: {}", err);
+                error!("failed to start procs: {}", err);
                 std::process::exit(exitcode::DATAERR);
             });
 
@@ -94,7 +183,6 @@ async fn main() {
             ))
             .await;
     } else {
-        // FIXME: There should be a flag for "run to completion" and "print results"?
         local
             .run_until(async move {
                 // Start specs from the command line.

@@ -89,6 +89,16 @@ impl Proc {
         Ok(kill(self.pid, signum)?)
     }
 
+    pub fn get_state(&self) -> res::State {
+        if self.errors.len() > 0 {
+            res::State::Error
+        } else if self.wait_info.is_none() {
+            res::State::Running
+        } else {
+            res::State::Terminated
+        }
+    }
+
     pub fn to_result(&self) -> res::ProcRes {
         let (status, rusage, proc_statm) = if let Some((_, status, rusage)) = self.wait_info {
             (
@@ -99,14 +109,6 @@ impl Proc {
             )
         } else {
             (None, None, ProcStatm::load_or_log(self.pid))
-        };
-
-        let state = if self.errors.len() > 0 {
-            res::State::Error
-        } else if status.is_none() {
-            res::State::Running
-        } else {
-            res::State::Terminated
         };
 
         let fds = self
@@ -147,7 +149,7 @@ impl Proc {
             .or_else(|| ProcStat::load_or_log(self.pid));
 
         res::ProcRes {
-            state,
+            state: self.get_state(),
             errors: self.errors.clone(),
             pid: self.pid,
             proc_stat,
@@ -238,6 +240,16 @@ impl SharedProcs {
             .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
     }
 
+    pub fn first_running(&self) -> Option<(ProcId, SharedProc)> {
+        self.0
+            .borrow()
+            .procs
+            .iter()
+            .filter(|(_, proc)| proc.borrow().get_state() == res::State::Running)
+            .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
+            .next()
+    }
+
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
         let proc = self.0.borrow_mut().procs.remove(&proc_id);
         self.notify(ProcNotification::Delete(proc_id.clone()));
@@ -286,6 +298,17 @@ impl SharedProcs {
             .subs
             .iter()
             .for_each(|s| s.send(noti.clone()).unwrap());
+    }
+
+    pub fn send_signal_all(&self, signum: Signum) -> Result<(), Error> {
+        let mut result = Ok(());
+        self.0.borrow().procs.iter().for_each(|(_, proc)| {
+            let res = proc.borrow().send_signal(signum);
+            if res.is_err() {
+                result = res;
+            }
+        });
+        result
     }
 }
 
@@ -454,6 +477,22 @@ pub fn start_procs(
     }
 
     Ok(tasks)
+}
+
+/// Blocks until no processes are running.
+pub async fn wait_until_not_running(procs: SharedProcs) -> Result<(), Error> {
+    while let Some(proc) = procs.first_running() {
+        // FIXME: Wait for it to be done.
+    }
+    Ok(())
+}
+
+/// Blocks until no processes remain.
+pub async fn wait_until_empty(procs: SharedProcs) -> Result<(), Error> {
+    while let Some(proc) = procs.first() {
+        // FIXME: Wait for it to be deleted.
+    }
+    Ok(())
 }
 
 pub async fn collect_results(procs: SharedProcs) -> res::Res {

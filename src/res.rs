@@ -101,7 +101,7 @@ impl FdRes {
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
     /// The target process did not start, due to failure in setting up file

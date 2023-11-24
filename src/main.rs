@@ -2,6 +2,7 @@ extern crate exitcode;
 
 mod argv;
 
+use futures::future::join;
 use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
@@ -19,10 +20,6 @@ use procstar::spec;
 async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
     if args.serve {
         http::run_http(procs).await.unwrap(); // FIXME: unwrap
-    } else {
-        loop {
-            tokio::time::sleep(core::time::Duration::MAX).await;
-        }
     }
 }
 
@@ -40,10 +37,6 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
         if let Err(err) = agent::run(connection, procs, &cfg).await {
             error!("websocket connection failed: {err}");
             std::process::exit(1);
-        }
-    } else {
-        loop {
-            tokio::time::sleep(core::time::Duration::MAX).await;
         }
     }
 }
@@ -70,6 +63,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     } else if args.wait {
         wait_until_empty(procs).await;
     } else {
+        // Run forever.
         loop {
             tokio::time::sleep(core::time::Duration::MAX).await;
         }
@@ -147,19 +141,12 @@ async fn main() {
 
     // Run servers and/or until completion, as specified on the command line.
     local
-        .run_until(async {
-            tokio::select! {
-                _ = maybe_run_http(&args, running_procs.clone()) => {
-                    info!("HTTP server completed.");
-                }
-                _ = maybe_run_agent(&args, running_procs.clone()) => {
-                    info!("Agent connection completed.");
-                }
-                _ = maybe_run_until_exit(&args, running_procs.clone()) => {
-                    // FIXME: Proper exit status.
-                    std::process::exit(exitcode::OK);
-                }
-            }
-        })
+        .run_until(join(
+            join(
+                maybe_run_http(&args, running_procs.clone()),
+                maybe_run_agent(&args, running_procs.clone()),
+            ),
+            maybe_run_until_exit(&args, running_procs.clone()),
+        ))
         .await;
 }

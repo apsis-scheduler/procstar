@@ -243,7 +243,7 @@ class Assembly:
         """
         process = self.conn_procs.pop(conn_id)
         with suppress(ProcessLookupError):
-            process.send_signal(signal.SIGTERM)
+            process.send_signal(signal.SIGKILL)
         await process.wait()
 
 

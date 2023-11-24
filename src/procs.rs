@@ -480,19 +480,33 @@ pub fn start_procs(
 }
 
 /// Blocks until no processes are running.
-pub async fn wait_until_not_running(procs: SharedProcs) -> Result<(), Error> {
-    while let Some(proc) = procs.first_running() {
-        // FIXME: Wait for it to be done.
+pub async fn wait_until_not_running(procs: SharedProcs) {
+    let mut noti_receiver = procs.subscribe();
+    while let Some((proc_id, _proc)) = procs.first_running() {
+        // Wait for this proc to complete.
+        info!("waiting for completion: {}", proc_id);
+        while match noti_receiver.recv().await {
+            Some(ProcNotification::Complete(i)) | Some(ProcNotification::Delete(i))
+                if i == proc_id =>
+            {
+                false
+            }
+            _ => true,
+        } {}
     }
-    Ok(())
 }
 
 /// Blocks until no processes remain.
-pub async fn wait_until_empty(procs: SharedProcs) -> Result<(), Error> {
-    while let Some(proc) = procs.first() {
-        // FIXME: Wait for it to be deleted.
+pub async fn wait_until_empty(procs: SharedProcs) {
+    let mut noti_receiver = procs.subscribe();
+    while let Some((proc_id, _proc)) = procs.first() {
+        // Wait for this proc to be deleted.
+        info!("waiting for deletion: {}", proc_id);
+        while match noti_receiver.recv().await {
+            Some(ProcNotification::Delete(i)) if i == proc_id => false,
+            _ => true,
+        } {}
     }
-    Ok(())
 }
 
 pub async fn collect_results(procs: SharedProcs) -> res::Res {

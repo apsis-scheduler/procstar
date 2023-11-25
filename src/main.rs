@@ -93,7 +93,12 @@ async fn main() {
     let running_procs = SharedProcs::new();
     // If specs were given on the command line, start those processes now.
     let input = if let Some(p) = args.input.as_deref() {
-        spec::load_file(&p).unwrap_or_else(|err| {
+        if p == "-" {
+            spec::load_stdin()
+        } else {
+            spec::load_file(&p)
+        }
+        .unwrap_or_else(|err| {
             eprintln!("failed to load {}: {}", p, err);
             std::process::exit(2);
         })

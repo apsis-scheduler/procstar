@@ -252,6 +252,12 @@ impl Input {
     }
 }
 
+pub fn load_stdin() -> Result<Input> {
+    let stdin = std::io::stdin().lock();
+    let spec = serde_json::from_reader(stdin)?;
+    Ok(spec)
+}
+
 pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Input> {
     // Open the file in read-only mode with buffer.
     let file = File::open(path)?;

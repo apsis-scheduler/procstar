@@ -74,7 +74,7 @@ pub struct Args {
     #[arg(long, value_name = "COUNT")]
     pub connect_count_max: Option<u64>,
 
-    /// Process specification file
+    /// Process specification file, or "-" for stdin
     pub input: Option<String>,
 }
 

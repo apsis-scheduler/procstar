@@ -2,7 +2,6 @@ extern crate exitcode;
 
 mod argv;
 
-use futures::future::join;
 use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
@@ -141,12 +140,12 @@ async fn main() {
 
     // Run servers and/or until completion, as specified on the command line.
     local
-        .run_until(join(
-            join(
+        .run_until(async {
+            tokio::join!(
                 maybe_run_http(&args, running_procs.clone()),
                 maybe_run_agent(&args, running_procs.clone()),
-            ),
-            maybe_run_until_exit(&args, running_procs.clone()),
-        ))
+                maybe_run_until_exit(&args, running_procs.clone()),
+            )
+        })
         .await;
 }

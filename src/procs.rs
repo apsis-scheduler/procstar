@@ -196,6 +196,9 @@ pub struct Procs {
 
     /// Notification subscriptions.
     subs: Vec<ProcNotificationSender>,
+
+    /// Shut down notification channel.
+    shutdown: (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
 }
 
 #[derive(Clone)]
@@ -206,6 +209,7 @@ impl SharedProcs {
         SharedProcs(Rc::new(RefCell::new(Procs {
             procs: BTreeMap::new(),
             subs: Vec::new(),
+            shutdown: tokio::sync::watch::channel(false),
         })))
     }
 
@@ -300,15 +304,28 @@ impl SharedProcs {
             .for_each(|s| s.send(noti.clone()).unwrap());
     }
 
+    /// Sends a signal to all running procs.
     pub fn send_signal_all(&self, signum: Signum) -> Result<(), Error> {
         let mut result = Ok(());
         self.0.borrow().procs.iter().for_each(|(_, proc)| {
-            let res = proc.borrow().send_signal(signum);
-            if res.is_err() {
-                result = res;
+            let proc = proc.borrow();
+            if proc.get_state() == res::State::Running {
+                let res = proc.send_signal(signum);
+                if res.is_err() {
+                    result = res;
+                }
             }
         });
         result
+    }
+
+    pub fn set_shutdown(&self) {
+        self.0.borrow().shutdown.0.send(true).unwrap();
+    }
+
+    pub async fn wait_for_shutdown(&self) {
+        let mut recv = self.0.borrow().shutdown.1.clone();
+        recv.changed().await.unwrap();
     }
 }
 

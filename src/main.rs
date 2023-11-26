@@ -11,8 +11,9 @@ use procstar::procs::{
 };
 use procstar::proto;
 use procstar::res;
-use procstar::sig::SignalWatcher;
+use procstar::sig::{get_abbrev, SignalWatcher, Signum, SIGINT, SIGKILL, SIGQUIT, SIGTERM};
 use procstar::spec;
+use std::time::Duration;
 use tokio::signal::unix::SignalKind;
 
 //------------------------------------------------------------------------------
@@ -43,6 +44,10 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
 
 async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     if args.exit {
+        tokio::select! {
+            _ = wait_until_not_running(procs.clone()) => {}
+            _ = procs.wait_for_shutdown() => {},
+        };
         wait_until_not_running(procs.clone()).await;
         // Collect results.
         let result = collect_results(procs).await;
@@ -61,7 +66,10 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
             });
         };
     } else if args.wait {
-        wait_until_empty(procs).await;
+        tokio::select! {
+            _ = wait_until_empty(procs.clone()) => {},
+            _ = procs.wait_for_shutdown() => {},
+        };
     } else {
         // Run forever.
         loop {
@@ -70,23 +78,62 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
-async fn install_signal_watcher(
+const SIGTERM_TIMEOUT: f64 = 60.0;
+const SIGKILL_TIMEOUT: f64 = 5.0;
+
+#[derive(PartialEq)]
+enum ShutdownStyle {
+    TermThenKill,
+    Kill,
+}
+
+async fn install_shutdown_signal(
     local: &tokio::task::LocalSet,
     procs: SharedProcs,
-    kind: SignalKind,
-    send: SignalKind,
+    signum: Signum,
+    style: ShutdownStyle,
 ) {
-    let (sigterm_watcher, mut sigterm_receiver) = SignalWatcher::new(kind);
+    let (sigterm_watcher, mut sigterm_receiver) = SignalWatcher::new(SignalKind::from_raw(signum));
     local
         .run_until(async {
             tokio::task::spawn_local(sigterm_watcher.watch());
             tokio::task::spawn_local({
-                info!("received {:?}; terminating processes", kind);
                 async move {
-                    loop {
-                        sigterm_receiver.signal().await;
-                        _ = procs.send_signal_all(send.as_raw_value());
+                    sigterm_receiver.signal().await;
+                    info!("received {}", get_abbrev(signum).unwrap());
+
+                    let mut do_kill = false;
+
+                    if style == ShutdownStyle::TermThenKill {
+                        info!("terminating running processes");
+                        _ = procs.send_signal_all(SIGTERM);
+                        info!("waiting processes");
+                        if let Err(_) = tokio::time::timeout(
+                            Duration::from_secs_f64(SIGTERM_TIMEOUT),
+                            wait_until_not_running(procs.clone()),
+                        )
+                        .await
+                        {
+                            warn!("processes not terminated after {} s", SIGTERM_TIMEOUT);
+                            do_kill = true;
+                        }
                     }
+
+                    if style == ShutdownStyle::Kill || do_kill {
+                        info!("killing running processes");
+                        _ = procs.send_signal_all(SIGKILL);
+                        info!("waiting processes");
+                        if let Err(_) = tokio::time::timeout(
+                            Duration::from_secs_f64(SIGKILL_TIMEOUT),
+                            wait_until_not_running(procs.clone()),
+                        )
+                        .await
+                        {
+                            warn!("processes not killed after {} s", SIGKILL_TIMEOUT);
+                        }
+                    }
+
+                    procs.set_shutdown();
                 }
             });
         })
@@ -114,7 +161,7 @@ async fn main() {
     let local = tokio::task::LocalSet::new();
 
     // Set up the collection of processes to run.
-    let running_procs = SharedProcs::new();
+    let procs = SharedProcs::new();
     // If specs were given on the command line, start those processes now.
     let input = if let Some(p) = args.input.as_deref() {
         if p == "-" {
@@ -131,28 +178,9 @@ async fn main() {
     };
 
     // Set up global signal handlers.
-    // SIGTERM  → SIGTERM and exit
-    // SIGINT   → SIGTERM and exit
-    // SIGSTOP  → SIGKILL and exit
-
-    install_signal_watcher(
-        &local,
-        running_procs.clone(),
-        SignalKind::terminate(),
-        SignalKind::terminate(),
-    ).await;
-    install_signal_watcher(
-        &local,
-        running_procs.clone(),
-        SignalKind::interrupt(),
-        SignalKind::terminate(),
-    ).await;
-    install_signal_watcher(
-        &local,
-        running_procs.clone(),
-        SignalKind::quit(),
-        SignalKind::from_raw(9),  // FIXME
-    ).await;
+    install_shutdown_signal(&local, procs.clone(), SIGTERM, ShutdownStyle::TermThenKill).await;
+    install_shutdown_signal(&local, procs.clone(), SIGINT, ShutdownStyle::TermThenKill).await;
+    install_shutdown_signal(&local, procs.clone(), SIGQUIT, ShutdownStyle::Kill).await;
 
     // Start specs given on the command line.
     //
@@ -163,7 +191,7 @@ async fn main() {
     // Even though `start_procs` is not async, we have to run it in the
     // LocalSet since it starts other tasks itself.
     let _tasks = local
-        .run_until(async { start_procs(&input.specs, running_procs.clone()) })
+        .run_until(async { start_procs(&input.specs, procs.clone()) })
         .await
         .unwrap_or_else(|err| {
             error!("failed to start procs: {}", err);
@@ -174,9 +202,9 @@ async fn main() {
     local
         .run_until(async {
             tokio::join!(
-                maybe_run_http(&args, running_procs.clone()),
-                maybe_run_agent(&args, running_procs.clone()),
-                maybe_run_until_exit(&args, running_procs.clone()),
+                maybe_run_http(&args, procs.clone()),
+                maybe_run_agent(&args, procs.clone()),
+                maybe_run_until_exit(&args, procs.clone()),
             )
         })
         .await;

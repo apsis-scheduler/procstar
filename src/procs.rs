@@ -197,7 +197,7 @@ pub struct Procs {
     /// Notification subscriptions.
     subs: Vec<ProcNotificationSender>,
 
-    /// Shut down notification channel.
+    /// Shutdown notification channel.
     shutdown: (
         tokio::sync::watch::Sender<bool>,
         tokio::sync::watch::Receiver<bool>,

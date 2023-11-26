@@ -198,7 +198,10 @@ pub struct Procs {
     subs: Vec<ProcNotificationSender>,
 
     /// Shut down notification channel.
-    shutdown: (tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>),
+    shutdown: (
+        tokio::sync::watch::Sender<bool>,
+        tokio::sync::watch::Receiver<bool>,
+    ),
 }
 
 #[derive(Clone)]
@@ -319,10 +322,12 @@ impl SharedProcs {
         result
     }
 
+    /// Requests shutdown.
     pub fn set_shutdown(&self) {
         self.0.borrow().shutdown.0.send(true).unwrap();
     }
 
+    /// Awaits a shutdown request.
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
         recv.changed().await.unwrap();

@@ -1,13 +1,23 @@
 from   base import Process
+import pytest
 import signal
 import time
 
 #-------------------------------------------------------------------------------
 
-def test_sigterm():
+@pytest.mark.parametrize(
+    "signums", [
+        (signal.SIGTERM , signal.SIGTERM),
+        (signal.SIGINT  , signal.SIGTERM),
+        (signal.SIGQUIT , signal.SIGKILL),
+    ]
+)
+def test_sigterm(signums):
     """
     Sends SIGTERM to procstar and confirms that processes all receive SIGTERM.
     """
+    send_signum, recv_signum = signums
+
     proc_ids = ("0", "1", "2")
     proc = Process({
         "specs": {
@@ -16,11 +26,11 @@ def test_sigterm():
         },
     })
     time.sleep(0.1)
-    proc.send_signal(signal.SIGTERM)
+    proc.send_signal(send_signum)
     res = proc.wait_result()
     assert set(res) == set(proc_ids)
     for proc_id in proc_ids:
-        assert res[proc_id]["status"]["signal"] == "SIGTERM"
+        assert res[proc_id]["status"]["signum"] == recv_signum
 
 
 if __name__ == "__main__":

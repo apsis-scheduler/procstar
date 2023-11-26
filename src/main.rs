@@ -13,6 +13,7 @@ use procstar::proto;
 use procstar::res;
 use procstar::sig::SignalWatcher;
 use procstar::spec;
+use tokio::signal::unix::SignalKind;
 
 //------------------------------------------------------------------------------
 
@@ -69,6 +70,29 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
+async fn install_signal_watcher(
+    local: &tokio::task::LocalSet,
+    procs: SharedProcs,
+    kind: SignalKind,
+    send: SignalKind,
+) {
+    let (sigterm_watcher, mut sigterm_receiver) = SignalWatcher::new(kind);
+    local
+        .run_until(async {
+            tokio::task::spawn_local(sigterm_watcher.watch());
+            tokio::task::spawn_local({
+                info!("received {:?}; terminating processes", kind);
+                async move {
+                    loop {
+                        sigterm_receiver.signal().await;
+                        _ = procs.send_signal_all(send.as_raw_value());
+                    }
+                }
+            });
+        })
+        .await;
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = argv::parse();
@@ -107,25 +131,28 @@ async fn main() {
     };
 
     // Set up global signal handlers.
-    let (sigterm_watcher, mut sigterm_receiver) =
-        SignalWatcher::new(tokio::signal::unix::SignalKind::terminate());
-    local
-        .run_until(async {
-            tokio::task::spawn_local(sigterm_watcher.watch());
-            tokio::task::spawn_local({
-                info!("received SIGTERM; terminating processes");
-                let procs = running_procs.clone();
-                async move {
-                    loop {
-                        sigterm_receiver.signal().await;
-                        _ = procs.send_signal_all(
-                            tokio::signal::unix::SignalKind::terminate().as_raw_value(),
-                        );
-                    }
-                }
-            });
-        })
-        .await;
+    // SIGTERM  → SIGTERM and exit
+    // SIGINT   → SIGTERM and exit
+    // SIGSTOP  → SIGKILL and exit
+
+    install_signal_watcher(
+        &local,
+        running_procs.clone(),
+        SignalKind::terminate(),
+        SignalKind::terminate(),
+    ).await;
+    install_signal_watcher(
+        &local,
+        running_procs.clone(),
+        SignalKind::interrupt(),
+        SignalKind::terminate(),
+    ).await;
+    install_signal_watcher(
+        &local,
+        running_procs.clone(),
+        SignalKind::quit(),
+        SignalKind::from_raw(9),  // FIXME
+    ).await;
 
     // Start specs given on the command line.
     //

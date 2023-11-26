@@ -20,7 +20,10 @@ use tokio::signal::unix::SignalKind;
 
 async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
     if args.serve {
-        http::run_http(procs).await.unwrap(); // FIXME: unwrap
+        tokio::select! {
+            res = http::run_http(procs.clone()) => { res.unwrap() },
+            _ = procs.wait_for_shutdown() => {},
+        }
     }
 }
 
@@ -35,9 +38,14 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
         let connection =
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
-        if let Err(err) = agent::run(connection, procs, &cfg).await {
-            error!("websocket connection failed: {err}");
-            std::process::exit(1);
+        tokio::select! {
+            res = agent::run(connection, procs.clone(), &cfg) => {
+                if let Err(err) = res {
+                    error!("websocket connection failed: {err}");
+                    std::process::exit(1);
+                }
+            },
+            _ = procs.wait_for_shutdown() => {},
         }
     }
 }

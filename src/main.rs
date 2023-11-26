@@ -20,6 +20,7 @@ use tokio::signal::unix::SignalKind;
 
 async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
     if args.serve {
+        // Run the HTTP server until we receive a shutdown signal.
         tokio::select! {
             res = http::run_http(procs.clone()) => { res.unwrap() },
             _ = procs.wait_for_shutdown() => {},
@@ -35,9 +36,13 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
         });
         let url = url::Url::parse(&format!("wss://{}:{}", hostname, args.agent_port)).unwrap();
         info!("agent connecting to: {}", url);
+
         let connection =
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
+
+        // Keep connecting to the agent server until timeout, or until we
+        // receive a shutdown signal.
         tokio::select! {
             res = agent::run(connection, procs.clone(), &cfg) => {
                 if let Err(err) = res {
@@ -52,15 +57,18 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
 
 async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     if args.exit {
+        // Run until no processes are running, or until we receive a shutdown
+        // signal.
         tokio::select! {
             _ = wait_until_not_running(procs.clone()) => {}
             _ = procs.wait_for_shutdown() => {},
         };
-        wait_until_not_running(procs.clone()).await;
+
         // Collect results.
         let result = collect_results(procs).await;
-        // Print them.
+
         if args.print {
+            // Print them.
             res::print(&result).unwrap_or_else(|err| {
                 error!("failed to print output: {}", err);
                 std::process::exit(exitcode::OSFILE);
@@ -68,21 +76,22 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
             println!("");
         }
         if let Some(ref path) = args.output {
+            // Write them to a file.
             res::dump_file(&result, path).unwrap_or_else(|err| {
                 error!("failed to write output {}: {}", path, err);
                 std::process::exit(exitcode::OSFILE);
             });
         };
     } else if args.wait {
+        // Run until no processes are left, or until we receive a shutdown
+        // signal.
         tokio::select! {
             _ = wait_until_empty(procs.clone()) => {},
             _ = procs.wait_for_shutdown() => {},
         };
     } else {
-        // Run forever.
-        loop {
-            tokio::time::sleep(core::time::Duration::MAX).await;
-        }
+        // Run until a shutdown signal.
+        procs.wait_for_shutdown().await;
     }
 }
 

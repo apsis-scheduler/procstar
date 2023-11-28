@@ -93,13 +93,23 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
-const SIGTERM_TIMEOUT: f64 = 60.0;
-const SIGKILL_TIMEOUT: f64 = 5.0;
-
 #[derive(PartialEq)]
 enum ShutdownStyle {
     TermThenKill,
     Kill,
+}
+
+async fn signal_and_wait(procs: &SharedProcs, signum: Signum, timeout: Duration) -> bool {
+    info!("sending {} to processes", get_abbrev(signum).unwrap());
+    _ = procs.send_signal_all(signum);
+
+    info!("waiting for processes");
+    if let Err(_) = tokio::time::timeout(timeout, procs.wait_until_not_running()).await {
+        warn!("processes running after {} s", timeout.as_secs_f64());
+        false
+    } else {
+        true
+    }
 }
 
 async fn install_shutdown_signal(
@@ -117,34 +127,14 @@ async fn install_shutdown_signal(
                     sigterm_receiver.signal().await;
                     info!("received {}", get_abbrev(signum).unwrap());
 
-                    let mut do_kill = false;
-
-                    if style == ShutdownStyle::TermThenKill {
-                        info!("terminating running processes");
-                        _ = procs.send_signal_all(SIGTERM);
-                        info!("waiting processes");
-                        if let Err(_) = tokio::time::timeout(
-                            Duration::from_secs_f64(SIGTERM_TIMEOUT),
-                            procs.wait_until_not_running(),
-                        )
-                        .await
-                        {
-                            warn!("processes not terminated after {} s", SIGTERM_TIMEOUT);
-                            do_kill = true;
+                    match style {
+                        ShutdownStyle::TermThenKill => {
+                            if !signal_and_wait(&procs, SIGTERM, Duration::from_secs(60)).await {
+                                signal_and_wait(&procs, SIGKILL, Duration::from_secs(5)).await;
+                            }
                         }
-                    }
-
-                    if style == ShutdownStyle::Kill || do_kill {
-                        info!("killing running processes");
-                        _ = procs.send_signal_all(SIGKILL);
-                        info!("waiting processes");
-                        if let Err(_) = tokio::time::timeout(
-                            Duration::from_secs_f64(SIGKILL_TIMEOUT),
-                            procs.wait_until_not_running(),
-                        )
-                        .await
-                        {
-                            warn!("processes not killed after {} s", SIGKILL_TIMEOUT);
+                        ShutdownStyle::Kill => {
+                            signal_and_wait(&procs, SIGKILL, Duration::from_secs(5)).await;
                         }
                     }
 

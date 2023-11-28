@@ -6,9 +6,7 @@ use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
 use procstar::http;
-use procstar::procs::{
-    collect_results, start_procs, wait_until_empty, wait_until_not_running, SharedProcs,
-};
+use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::sig::{get_abbrev, SignalWatcher, Signum, SIGINT, SIGKILL, SIGQUIT, SIGTERM};
@@ -60,7 +58,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
         // Run until no processes are running, or until we receive a shutdown
         // signal.
         tokio::select! {
-            _ = wait_until_not_running(procs.clone()) => {}
+            _ = procs.wait_until_not_running() => {}
             _ = procs.wait_for_shutdown() => {},
         };
 
@@ -86,7 +84,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
         // Run until no processes are left, or until we receive a shutdown
         // signal.
         tokio::select! {
-            _ = wait_until_empty(procs.clone()) => {},
+            _ = procs.wait_until_empty() => {},
             _ = procs.wait_for_shutdown() => {},
         };
     } else {
@@ -127,7 +125,7 @@ async fn install_shutdown_signal(
                         info!("waiting processes");
                         if let Err(_) = tokio::time::timeout(
                             Duration::from_secs_f64(SIGTERM_TIMEOUT),
-                            wait_until_not_running(procs.clone()),
+                            procs.wait_until_not_running(),
                         )
                         .await
                         {
@@ -142,7 +140,7 @@ async fn install_shutdown_signal(
                         info!("waiting processes");
                         if let Err(_) = tokio::time::timeout(
                             Duration::from_secs_f64(SIGKILL_TIMEOUT),
-                            wait_until_not_running(procs.clone()),
+                            procs.wait_until_not_running(),
                         )
                         .await
                         {

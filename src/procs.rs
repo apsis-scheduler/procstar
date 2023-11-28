@@ -322,6 +322,36 @@ impl SharedProcs {
         result
     }
 
+    /// Blocks until no processes are running.
+    pub async fn wait_until_not_running(&self) {
+        let mut noti_receiver = self.subscribe();
+        while let Some((proc_id, _proc)) = self.first_running() {
+            // Wait for this proc to complete.
+            info!("waiting for completion: {}", proc_id);
+            while match noti_receiver.recv().await {
+                Some(ProcNotification::Complete(i)) | Some(ProcNotification::Delete(i))
+                    if i == proc_id =>
+                {
+                    false
+                }
+                _ => true,
+            } {}
+        }
+    }
+
+    /// Blocks until no processes remain.
+    pub async fn wait_until_empty(&self) {
+        let mut noti_receiver = self.subscribe();
+        while let Some((proc_id, _proc)) = self.first() {
+            // Wait for this proc to be deleted.
+            info!("waiting for deletion: {}", proc_id);
+            while match noti_receiver.recv().await {
+                Some(ProcNotification::Delete(i)) if i == proc_id => false,
+                _ => true,
+            } {}
+        }
+    }
+
     /// Requests shutdown.
     pub fn set_shutdown(&self) {
         self.0.borrow().shutdown.0.send(true).unwrap();
@@ -499,36 +529,6 @@ pub fn start_procs(
     }
 
     Ok(tasks)
-}
-
-/// Blocks until no processes are running.
-pub async fn wait_until_not_running(procs: SharedProcs) {
-    let mut noti_receiver = procs.subscribe();
-    while let Some((proc_id, _proc)) = procs.first_running() {
-        // Wait for this proc to complete.
-        info!("waiting for completion: {}", proc_id);
-        while match noti_receiver.recv().await {
-            Some(ProcNotification::Complete(i)) | Some(ProcNotification::Delete(i))
-                if i == proc_id =>
-            {
-                false
-            }
-            _ => true,
-        } {}
-    }
-}
-
-/// Blocks until no processes remain.
-pub async fn wait_until_empty(procs: SharedProcs) {
-    let mut noti_receiver = procs.subscribe();
-    while let Some((proc_id, _proc)) = procs.first() {
-        // Wait for this proc to be deleted.
-        info!("waiting for deletion: {}", proc_id);
-        while match noti_receiver.recv().await {
-            Some(ProcNotification::Delete(i)) if i == proc_id => false,
-            _ => true,
-        } {}
-    }
 }
 
 pub async fn collect_results(procs: SharedProcs) -> res::Res {

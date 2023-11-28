@@ -9,10 +9,8 @@ use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
-use procstar::sig::{get_abbrev, SignalWatcher, Signum, SIGINT, SIGKILL, SIGQUIT, SIGTERM};
+use procstar::shutdown;
 use procstar::spec;
-use std::time::Duration;
-use tokio::signal::unix::SignalKind;
 
 //------------------------------------------------------------------------------
 
@@ -93,58 +91,6 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
-#[derive(PartialEq)]
-enum ShutdownStyle {
-    TermThenKill,
-    Kill,
-}
-
-async fn signal_and_wait(procs: &SharedProcs, signum: Signum, timeout: Duration) -> bool {
-    info!("sending {} to processes", get_abbrev(signum).unwrap());
-    _ = procs.send_signal_all(signum);
-
-    info!("waiting for processes");
-    if let Err(_) = tokio::time::timeout(timeout, procs.wait_until_not_running()).await {
-        warn!("processes running after {} s", timeout.as_secs_f64());
-        false
-    } else {
-        true
-    }
-}
-
-async fn install_shutdown_signal(
-    local: &tokio::task::LocalSet,
-    procs: SharedProcs,
-    signum: Signum,
-    style: ShutdownStyle,
-) {
-    let (sigterm_watcher, mut sigterm_receiver) = SignalWatcher::new(SignalKind::from_raw(signum));
-    local
-        .run_until(async {
-            tokio::task::spawn_local(sigterm_watcher.watch());
-            tokio::task::spawn_local({
-                async move {
-                    sigterm_receiver.signal().await;
-                    info!("received {}", get_abbrev(signum).unwrap());
-
-                    match style {
-                        ShutdownStyle::TermThenKill => {
-                            if !signal_and_wait(&procs, SIGTERM, Duration::from_secs(60)).await {
-                                signal_and_wait(&procs, SIGKILL, Duration::from_secs(5)).await;
-                            }
-                        }
-                        ShutdownStyle::Kill => {
-                            signal_and_wait(&procs, SIGKILL, Duration::from_secs(5)).await;
-                        }
-                    }
-
-                    procs.set_shutdown();
-                }
-            });
-        })
-        .await;
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = argv::parse();
@@ -183,9 +129,18 @@ async fn main() {
     };
 
     // Set up global signal handlers.
-    install_shutdown_signal(&local, procs.clone(), SIGTERM, ShutdownStyle::TermThenKill).await;
-    install_shutdown_signal(&local, procs.clone(), SIGINT, ShutdownStyle::TermThenKill).await;
-    install_shutdown_signal(&local, procs.clone(), SIGQUIT, ShutdownStyle::Kill).await;
+    shutdown::install_signal_handlers(
+        &local,
+        &procs,
+        if args.wait {
+            shutdown::WaitStyle::Deletion
+        } else if args.exit {
+            shutdown::WaitStyle::Termination
+        } else {
+            shutdown::WaitStyle::None
+        }
+    )
+    .await;
 
     // Start specs given on the command line.
     //

@@ -44,7 +44,7 @@ async fn wait_for_procs(procs: &SharedProcs, wait_style: WaitStyle, timeout: Dur
 }
 
 async fn install_signal_handler(
-    local: &LocalSet,
+    local_set: &LocalSet,
     procs: &SharedProcs,
     signum: Signum,
     signal_style: SignalStyle,
@@ -54,7 +54,7 @@ async fn install_signal_handler(
         "failed to install stream for {}",
         get_abbrev(signum).unwrap()
     ));
-    local
+    local_set
         .run_until(async {
             // Wait for the signal.
             signal_stream.recv().await;
@@ -85,9 +85,9 @@ async fn install_signal_handler(
 /// `wait_style` specifies whether to wait (with timeout) for processes to be
 /// deleted before shutting down, or simply to wait for them to terminate, or
 /// not to wait at all.
-pub async fn install_signal_handlers(local: &LocalSet, procs: &SharedProcs, wait_style: WaitStyle) {
+pub async fn install_signal_handlers(local_set: &LocalSet, procs: &SharedProcs, wait_style: WaitStyle) {
     install_signal_handler(
-        &local,
+        &local_set,
         &procs,
         SIGTERM,
         SignalStyle::TermThenKill,
@@ -96,7 +96,7 @@ pub async fn install_signal_handlers(local: &LocalSet, procs: &SharedProcs, wait
     .await;
 
     install_signal_handler(
-        &local,
+        &local_set,
         procs,
         SIGINT,
         SignalStyle::TermThenKill,
@@ -104,5 +104,5 @@ pub async fn install_signal_handlers(local: &LocalSet, procs: &SharedProcs, wait
     )
     .await;
 
-    install_signal_handler(&local, procs, SIGQUIT, SignalStyle::Kill, wait_style).await;
+    install_signal_handler(&local_set, procs, SIGQUIT, SignalStyle::Kill, wait_style).await;
 }

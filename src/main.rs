@@ -109,7 +109,7 @@ async fn main() {
         .unwrap();
 
     // We run tokio in single-threaded mode.
-    let local = tokio::task::LocalSet::new();
+    let local_set = tokio::task::LocalSet::new();
 
     // Set up the collection of processes to run.
     let procs = SharedProcs::new();
@@ -130,7 +130,7 @@ async fn main() {
 
     // Set up global signal handlers.
     shutdown::install_signal_handlers(
-        &local,
+        &local_set,
         &procs,
         if args.wait {
             shutdown::WaitStyle::Deletion
@@ -150,7 +150,7 @@ async fn main() {
     //
     // Even though `start_procs` is not async, we have to run it in the
     // LocalSet since it starts other tasks itself.
-    let _tasks = local
+    let _tasks = local_set
         .run_until(async { start_procs(&input.specs, procs.clone()) })
         .await
         .unwrap_or_else(|err| {
@@ -159,7 +159,7 @@ async fn main() {
         });
 
     // Run servers and/or until completion, as specified on the command line.
-    local
+    local_set
         .run_until(async {
             tokio::join!(
                 maybe_run_http(&args, procs.clone()),

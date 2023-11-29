@@ -153,16 +153,20 @@ async fn main() {
     //
     // Even though `start_procs` is not async, we have to run it in the
     // LocalSet since it starts other tasks itself.
-    let _tasks = local_set
-        .run_until(async { start_procs(&input.specs, &procs) })
-        .await
-        .unwrap_or_else(|err| {
-            error!("failed to start procs: {}", err);
-            std::process::exit(exitcode::DATAERR);
-        });
+    if !input.specs.is_empty() {
+        let _tasks = local_set
+            .run_until(async { start_procs(&input.specs, &procs) })
+            .await
+            .unwrap_or_else(|err| {
+                error!("failed to start processes: {}", err);
+                std::process::exit(exitcode::DATAERR);
+            });
+        info!("started processes from specs");
+    }
 
-    // Run signal handlers.
-    for handler in signal_handlers.into_iter() {
+    // Start signal handler tasks.  We do this here so that any queued incoming
+    // signals apply to whatever procs we've just started.
+    for handler in signal_handlers {
         local_set.spawn_local(handler);
     }
 

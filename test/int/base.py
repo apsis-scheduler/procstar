@@ -4,6 +4,7 @@ import logging
 import os
 from   pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 log = logging.getLogger(__name__)
@@ -56,6 +57,8 @@ class Process(subprocess.Popen):
 
     def __init__(self, spec):
         spec_json = json.dumps(_thunk_jso(spec))
+        # Make our own pipe so that Popen doesn't manage it.
+        stdin_read_fd, stdin_write_fd = os.pipe()
         super().__init__(
             [
                 str(PROCSTAR_EXE),
@@ -64,19 +67,26 @@ class Process(subprocess.Popen):
                 "-",
             ],
             encoding="UTF-8",
-            stdin   =subprocess.PIPE,
+            stdin   =os.fdopen(stdin_read_fd, "r", encoding="utf-8"),
             stdout  =subprocess.PIPE,
+            stderr  =subprocess.PIPE,
             env     =os.environ | {"RUST_BACKTRACE": "1"},
         )
-        self.stdin.write(spec_json)
-        self.stdin.flush()
-        self.stdin.close()
+        os.write(stdin_write_fd, spec_json.encode())
+        os.close(stdin_write_fd)
+
+        # Read from stderr until we get the log line that indicates procstar has
+        # started the processes we specified.
+        for line in self.stderr:
+            sys.stderr.write(line)
+            if "started processes from specs" in line:
+                break
 
 
     def wait_result(self):
-        stdout = self.stdout.read()
-        exit_code = self.wait()
-        assert exit_code == 0
+        stdout, stderr = self.communicate()
+        sys.stderr.write(stderr)
+        assert self.returncode == 0
         return json.loads(stdout)
 
 

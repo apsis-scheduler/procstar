@@ -52,6 +52,35 @@ def _thunk_jso(o):
     return o
 
 
+class Process(subprocess.Popen):
+
+    def __init__(self, spec):
+        spec_json = json.dumps(_thunk_jso(spec))
+        super().__init__(
+            [
+                str(PROCSTAR_EXE),
+                "--print",
+                "--log-level", "trace",
+                "-",
+            ],
+            encoding="UTF-8",
+            stdin   =subprocess.PIPE,
+            stdout  =subprocess.PIPE,
+            env     =os.environ | {"RUST_BACKTRACE": "1"},
+        )
+        self.stdin.write(spec_json)
+        self.stdin.flush()
+        self.stdin.close()
+
+
+    def wait_result(self):
+        stdout = self.stdout.read()
+        exit_code = self.wait()
+        assert exit_code == 0
+        return json.loads(stdout)
+
+
+
 def run(spec):
     spec = _thunk_jso(spec)
     with TemporaryDirectory() as tmp_dir:

@@ -14,26 +14,31 @@ pub type Signum = c_int;
 // FIXME: `libc::NSIG` missing; would be better.
 pub const NSIG: Signum = 32;
 
+pub const SIGINT: Signum = 2;
+pub const SIGQUIT: Signum = 3;
+pub const SIGKILL: Signum = 9;
+pub const SIGTERM: Signum = 15;
+
 #[rustfmt::skip]
 lazy_static! {
     // FIXME: `libc::sigabbrev_np` missing; would be better.
     static ref SIGNAL_NUMS: HashMap::<&'static str, Signum> = {
         HashMap::from([
             ("SIGHUP"   ,  1),
-            ("SIGINT"   ,  2),
-            ("SIGQUIT"  ,  3),
+            ("SIGINT"   ,  SIGINT),
+            ("SIGQUIT"  ,  SIGQUIT),
             ("SIGILL"   ,  4),
             ("SIGTRAP"  ,  5),
             ("SIGABRT"  ,  6),
             ("SIGBUS"   ,  7),
             ("SIGFPE"   ,  8),
-            ("SIGKILL"  ,  9),
+            ("SIGKILL"  ,  SIGKILL),
             ("SIGUSR1"  , 10),
             ("SIGSEGV"  , 11),
             ("SIGUSR2"  , 12),
             ("SIGPIPE"  , 13),
             ("SIGALRM"  , 14),
-            ("SIGTERM"  , 15),
+            ("SIGTERM"  , SIGTERM),
             ("SIGCHLD"  , 17),
             ("SIGCONT"  , 18),
             ("SIGSTOP"  , 19),

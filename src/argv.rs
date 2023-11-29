@@ -19,56 +19,82 @@ pub fn parse_log_level(level: &str) -> Result<log::Level, ()> {
 
 /// Run and manage processes.
 #[derive(Parser, Debug)]
+#[command(about)]
 pub struct Args {
-    /// log at LEVEL
+    /// Log at LEVEL
     #[arg(
         long, value_name = "LEVEL",
         value_parser = clap::builder::PossibleValuesParser::new(["trace", "debug", "info", "warn", "error"])
     )]
     pub log_level: Option<String>,
 
-    /// run an HTTP service
+    /// Wait for all processes to complete, print results to stdout, then --exit
+    #[arg(short, long)]
+    pub print: bool,
+    /// Wait for all processes to complete, write results to a file, then --exit
+    #[arg(short, long, value_name = "PATH")]
+    pub output: Option<String>,
+    /// Wait for all processes to complete, then exit
+    #[arg(short = 'x', long)]
+    pub exit: bool,
+
+    /// Wait for all processes to be deleted, then exit
+    #[arg(short = 'w', long)]
+    pub wait: bool,
+
+    /// Run an HTTP service
     #[arg(short, long)]
     pub serve: bool,
 
-    /// connect to a server as an agent
+    /// Connect to a server as an agent
     #[arg(short, long)]
     pub agent: bool,
-    /// connect as agent to HOST
+    /// Connect as agent to HOST
     #[arg(long, value_name = "HOST")]
     pub agent_host: Option<String>,
-    /// connect as agent to PORT
+    /// Connect as agent to PORT
     #[arg(long, value_name = "PORT", default_value_t = DEFAULT_PORT)]
     pub agent_port: u32,
-    /// connection ID for agent connection; for debugging only
+    /// Connection ID for agent connection; for debugging only
     #[arg(long, hide = true, value_name = "ID")]
     pub conn_id: Option<String>,
-    /// agent group ID
+    /// Agent group ID
     #[arg(long)]
     pub group_id: Option<String>,
-    /// initial interval between agent connection attempts
+    /// Initial interval between agent connection attempts
     #[arg(long, value_name = "SECS")]
     pub connect_interval_start: Option<f64>,
-    /// exponential backoff between agent connection attempts
+    /// Exponential backoff between agent connection attempts
     #[arg(long, value_name = "FAC")]
     pub connect_interval_mult: Option<f64>,
-    /// maximum interval between agent connection attempts
+    /// Maximum interval between agent connection attempts
     #[arg(long, value_name = "SECS")]
     pub connect_interval_max: Option<f64>,
-    /// maximum number of consecutive agent connection attempts
+    /// Maximum number of consecutive agent connection attempts
     #[arg(long, value_name = "COUNT")]
     pub connect_count_max: Option<u64>,
 
-    /// process specification file
+    /// Process specification file, or "-" for stdin
     pub input: Option<String>,
-
-    /// write output to a file
-    #[arg(short, long)]
-    pub output: Option<String>,
 }
 
 pub fn parse() -> Args {
-    Args::parse()
+    let mut args = Args::parse();
+
+    if args.print || args.output.is_some() {
+        args.exit = true;
+    }
+
+    if args.exit && args.wait {
+        eprintln!("Specify only one of --exit or --wait.");
+    }
+
+    if !(args.exit || args.wait || args.serve || args.agent) {
+        eprintln!("Usage: Specify at least one of --exit, --wait, --serve, or --agent.");
+        std::process::exit(exitcode::DATAERR);
+    }
+
+    args
 }
 
 pub fn get_connect_config(args: &Args) -> agent::ConnectConfig {

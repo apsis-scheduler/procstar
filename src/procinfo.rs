@@ -95,7 +95,7 @@ pub struct ProcStat {
     /// Controlling terminal (major, minor) device number.
     pub tty_nr: (u16, u16),
     /// Group ID of foreground process group on controlling terminal.
-    pub tpgid: gid_t,
+    pub tpgid: Option<gid_t>,
     /// Kernel flags word.
     pub flags: u32,
     /// Number of minor faults from process.
@@ -205,7 +205,8 @@ impl ProcStat {
             ((tty_nr >> 8) & 0xff) as u16,
             ((tty_nr >> 16) | (tty_nr & 0xff)) as u16,
         );
-        let tpgid = parts.next().unwrap().parse().unwrap();
+        let tpgid = parts.next().unwrap();
+        let tpgid = if tpgid == "-1" { None } else { Some(tpgid.parse().unwrap()) };
         let flags = parts.next().unwrap().parse().unwrap();
         let minflt = parts.next().unwrap().parse().unwrap();
         let cminflt = parts.next().unwrap().parse().unwrap();

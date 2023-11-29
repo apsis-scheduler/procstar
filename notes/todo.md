@@ -27,11 +27,11 @@
 - [x] if group is unknown or has no connections, wait a while
 - [x] reconnect to run on Apsis restart
 - [x] add proc_id to metadata
+- [x] shutdown signal handlers also shut down HTTP/ws loops
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
       - erorr out the run
-- [ ] when procstar terminates normally, send a shutdown message and error out runs
 - [ ] procstar request soft shutdown, when all procs are done (or cleaned up?)
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs

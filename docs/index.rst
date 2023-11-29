@@ -14,3 +14,4 @@ Back matter
 
 * :ref:`genindex`
 * :ref:`search`
+* :ref:`shutdown`

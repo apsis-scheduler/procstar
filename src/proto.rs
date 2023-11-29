@@ -131,7 +131,7 @@ pub enum OutgoingMessage {
     ProcDelete { proc_id: ProcId },
 }
 
-pub async fn handle_incoming(procs: SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
+pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
             msg,

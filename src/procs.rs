@@ -88,7 +88,6 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
-        trace!("sending {}: pid={}", get_abbrev(signum).unwrap(), self.pid);
         Ok(kill(self.pid, signum)?)
     }
 
@@ -373,7 +372,6 @@ impl SharedProcs {
                 Some(_) => true,
                 None => false,
             } {}
-            info!("deleted: {}", proc_id);
         }
     }
 

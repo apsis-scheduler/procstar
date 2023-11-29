@@ -219,6 +219,9 @@ pub struct Procs {
         tokio::sync::watch::Sender<bool>,
         tokio::sync::watch::Receiver<bool>,
     ),
+
+    /// Soft shutdown request: shut down when next no processes remain.
+    shutdown_on_empty: bool,
 }
 
 #[derive(Clone)]
@@ -231,6 +234,7 @@ impl SharedProcs {
             procs: BTreeMap::new(),
             subs: sender,
             shutdown: watch::channel(false),
+            shutdown_on_empty: false,
         })))
     }
 
@@ -275,36 +279,44 @@ impl SharedProcs {
             .next()
     }
 
-    pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
-        let item = self.0.borrow_mut().procs.remove(&proc_id);
-        if item.is_some() {
-            self.notify(Notification::Delete(proc_id.clone()));
-        }
-        item
-    }
-
     /// Removes and returns a proc, if it is complete.
     pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
         let mut procs = self.0.borrow_mut();
-        if let Some(proc) = procs.procs.get(proc_id) {
-            if proc.borrow().wait_info.is_some() {
-                let proc = procs.procs.remove(proc_id).unwrap();
-                drop(procs);
-                self.notify(Notification::Delete(proc_id.clone()));
-                Ok(proc)
-            } else {
-                Err(Error::ProcRunning(proc_id.clone()))
-            }
-        } else {
-            Err(Error::NoProcId(proc_id.clone()))
+        // Confirm we can find the proc and it's not running.
+        match procs
+            .procs
+            .get(proc_id)
+            .map(|proc| proc.borrow().get_state() != res::State::Running)
+        {
+            Some(true) => Ok(()),
+            Some(false) => Err(Error::ProcRunning(proc_id.clone())),
+            None => Err(Error::NoProcId(proc_id.clone())),
+        }?;
+        // OK, we can proceed with removing.
+        let proc = procs.procs.remove(proc_id).unwrap();
+        let shutdown = procs.shutdown_on_empty && procs.procs.is_empty();
+        drop(procs);
+
+        if shutdown {
+            self.set_shutdown();
         }
+        self.notify(Notification::Delete(proc_id.clone()));
+        Ok(proc)
     }
 
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
-        let item = self.0.borrow_mut().procs.pop_first();
+        let mut procs = self.0.borrow_mut();
+        let item = procs.procs.pop_first();
+        let shutdown = procs.shutdown_on_empty && procs.procs.is_empty();
+        drop(procs);
+
         if let Some((ref proc_id, _)) = item {
             self.notify(Notification::Delete(proc_id.clone()));
         }
+        if shutdown {
+            self.set_shutdown();
+        }
+
         item
     }
 
@@ -384,6 +396,11 @@ impl SharedProcs {
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
         recv.changed().await.unwrap();
+    }
+
+    /// Requests shutdown when next no processes remain.
+    pub fn set_shutdown_on_empty(&self) {
+        self.0.borrow_mut().shutdown_on_empty = true;
     }
 }
 
@@ -564,9 +581,7 @@ pub fn start_procs(
 pub async fn collect_results(procs: &SharedProcs) -> res::Res {
     let mut result = res::Res::new();
 
-    // Collect proc results by removing and waiting each running proc.
     while let Some((proc_id, proc)) = procs.pop() {
-        info!("collect_results: strong_count={}", Rc::strong_count(&proc));
         let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
         result.insert(proc_id.clone(), proc.to_result());

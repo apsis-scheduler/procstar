@@ -10,9 +10,11 @@ use crate::sig::{get_abbrev, Signum, SIGKILL, SIGTERM};
 //------------------------------------------------------------------------------
 
 pub enum SignalStyle {
-    /// Sends SIGTERM, waits, then sends SIGKILL.
+    /// Shuts down when next all procs are deleted.
+    ShutdownOnEmpty,
+    /// Sends SIGTERM, then sends SIGKILL, then shuts down.
     TermThenKill,
-    /// Just sends SIGKILL.
+    /// Just sends SIGKILL, then shuts down.
     Kill,
 }
 
@@ -37,6 +39,11 @@ pub fn install_signal_handler(
         info!("received: {}", name);
 
         match signal_style {
+            SignalStyle::ShutdownOnEmpty => {
+                info!("will shut down when empty");
+                procs.set_shutdown_on_empty();
+            },
+
             SignalStyle::TermThenKill => {
                 // Send SIGTERM and wait for processes to terminate.
                 info!("terminating processes");
@@ -48,21 +55,29 @@ pub fn install_signal_handler(
                     // Send SIGKILL to stragglers.
                     _ = procs.send_signal(SIGKILL);
                 }
+
+                // Final wait for processes.
+                if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
+                    warn!("undeleted processes remain");
+                }
+
+                trace!("shutting down");
+                procs.set_shutdown();
             }
 
             SignalStyle::Kill => {
                 info!("killing processes");
                 _ = procs.send_signal(SIGKILL);
+
+                // Final wait for processes.
+                if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
+                    warn!("undeleted processes remain");
+                }
+
+                trace!("shutting down");
+                procs.set_shutdown();
             }
         }
-
-        // Final wait for processes.
-        if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
-            warn!("undeleted processes remain");
-        }
-
-        trace!("shutting down");
-        procs.set_shutdown();
     };
 
     local_set.spawn_local(handler);

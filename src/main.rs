@@ -10,7 +10,7 @@ use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::shutdown::{install_signal_handler, SignalStyle};
-use procstar::sig::{SIGINT, SIGQUIT, SIGTERM};
+use procstar::sig::{SIGINT, SIGQUIT, SIGTERM, SIGUSR1};
 use procstar::spec;
 
 //------------------------------------------------------------------------------
@@ -79,6 +79,9 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
                 std::process::exit(exitcode::OSFILE);
             });
         };
+
+        // Ready to shut down now.
+        procs.set_shutdown();
     } else if args.wait {
         // Run until no processes are left, or until we receive a shutdown
         // signal.
@@ -86,6 +89,9 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
             _ = procs.wait_empty() => {},
             _ = procs.wait_for_shutdown() => {},
         };
+
+        // Ready to shut down now.
+        procs.set_shutdown();
     } else {
         // Run until a shutdown signal.
         procs.wait_for_shutdown().await;
@@ -149,6 +155,7 @@ async fn main() {
     install_signal_handler(&local_set, &procs, SIGTERM, SignalStyle::TermThenKill);
     install_signal_handler(&local_set, &procs, SIGINT, SignalStyle::TermThenKill);
     install_signal_handler(&local_set, &procs, SIGQUIT, SignalStyle::Kill);
+    install_signal_handler(&local_set, &procs, SIGUSR1, SignalStyle::ShutdownOnEmpty);
 
     // Run servers and/or until completion, as specified on the command line.
     local_set

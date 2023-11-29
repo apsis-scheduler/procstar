@@ -21,3 +21,8 @@ Procstar responds as follows to signals sent to the Procstar process itself:
 - SIGKILL: Procstar terminates immediately; running or undeleted processes are
   orphaned.
 
+- SIGUSR1: If Procstar is serving HTTP or running as an agent, this sets a flag
+  indicating that it should shut down the next time it is tracking no processes.
+  All remaining processes must complete and be deleted before it shuts down.
+  This signal has no effect if Procstar is running with `--wait` or `--exit`.
+

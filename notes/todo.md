@@ -28,11 +28,13 @@
 - [x] reconnect to run on Apsis restart
 - [x] add proc_id to metadata
 - [x] shutdown signal handlers also shut down HTTP/ws loops
+- [x] procstar request soft shutdown, when all procs are done (or cleaned up?)
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
       - erorr out the run
-- [ ] procstar request soft shutdown, when all procs are done (or cleaned up?)
+- [ ] intermediate meta updates to running program
+- [ ] intermediate output updates to running program
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs
 - [ ] Procstar web UI

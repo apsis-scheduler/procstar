@@ -17,6 +17,7 @@ pub const NSIG: Signum = 32;
 pub const SIGINT: Signum = 2;
 pub const SIGQUIT: Signum = 3;
 pub const SIGKILL: Signum = 9;
+pub const SIGUSR1: Signum = 10;
 pub const SIGTERM: Signum = 15;
 
 #[rustfmt::skip]
@@ -25,15 +26,15 @@ lazy_static! {
     static ref SIGNAL_NUMS: HashMap::<&'static str, Signum> = {
         HashMap::from([
             ("SIGHUP"   ,  1),
-            ("SIGINT"   ,  SIGINT),
-            ("SIGQUIT"  ,  SIGQUIT),
+            ("SIGINT"   , SIGINT),
+            ("SIGQUIT"  , SIGQUIT),
             ("SIGILL"   ,  4),
             ("SIGTRAP"  ,  5),
             ("SIGABRT"  ,  6),
             ("SIGBUS"   ,  7),
             ("SIGFPE"   ,  8),
-            ("SIGKILL"  ,  SIGKILL),
-            ("SIGUSR1"  , 10),
+            ("SIGKILL"  , SIGKILL),
+            ("SIGUSR1"  , SIGUSR1),
             ("SIGSEGV"  , 11),
             ("SIGUSR2"  , 12),
             ("SIGPIPE"  , 13),

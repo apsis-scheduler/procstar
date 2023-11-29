@@ -16,7 +16,7 @@ pub enum SignalStyle {
     Kill,
 }
 
-const TERM_TIMEOUT: Duration = Duration::from_secs(2);  // FIXME: 60
+const TERM_TIMEOUT: Duration = Duration::from_secs(60);
 const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn install_signal_handler(

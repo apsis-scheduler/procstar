@@ -87,7 +87,7 @@ async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<
 }
 
 async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketReceiver), Error> {
-    let connector = Connector::NativeTls(get_tls_connector().unwrap()); // FIXME: Unwrap.
+    let connector = Connector::NativeTls(get_tls_connector()?);
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
     let (mut sender, mut receiver) = ws_stream.split();

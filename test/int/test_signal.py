@@ -6,32 +6,61 @@ import time
 #-------------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "signums", [
-        (signal.SIGTERM , signal.SIGTERM),
-        (signal.SIGINT  , signal.SIGTERM),
-        (signal.SIGQUIT , signal.SIGKILL),
-    ]
+    "signum",
+    [signal.SIGTERM, signal.SIGINT, signal.SIGQUIT]
 )
-def test_sigterm(signums):
+def test_shutdown_signal(signum):
     """
-    Sends SIGTERM to procstar and confirms that processes all receive SIGTERM.
+    Sends a shutdown signal to procstar and confirms that processes all
+    receive the appropriate signal.
     """
-    send_signum, recv_signum = signums
+    # The signum we expect the client procs to receive.
+    proc_signum = {
+        signal.SIGTERM  : signal.SIGTERM,
+        signal.SIGINT   : signal.SIGTERM,
+        signal.SIGQUIT  : signal.SIGKILL,
+    }[signum]
 
-    proc_ids = ("0", "1", "2")
-    proc = Process({
-        "specs": {
-            i: {"argv": ["/usr/bin/sleep", "1"]}
-            for i in proc_ids
-        },
-    })
+    specs = {
+        str(i): {"argv": ["/usr/bin/sleep", "1"]}
+        for i in range(3)
+    }
+
+    # Start procstar.
+    proc = Process({"specs": specs})
+    # Send the signal.
     time.sleep(0.1)
-    proc.send_signal(send_signum)
+    proc.send_signal(signum)
     res = proc.wait_result()
-    assert set(res) == set(proc_ids)
-    for proc_id in proc_ids:
-        assert res[proc_id]["status"]["signum"] == recv_signum
+    assert set(res) == set(specs)
+    for proc_id in specs:
+        assert res[proc_id]["status"]["signum"] == proc_signum
+
+
+def test_idle_signal():
+    """
+    Sends SIGUSR1 and confirms that procstar exits when idle.
+    """
+    specs = {
+        str(i): {"argv": ["/usr/bin/sleep", str(i)]}
+        for i in [0.2, 0.3, 0.4]
+    }
+    proc = Process({"specs": specs})
+
+    # Start procstar.
+    proc = Process({"specs": specs})
+    # Send the signal.
+    time.sleep(0.1)
+    proc.send_signal(signal.SIGUSR1)
+    res = proc.wait_result()
+    assert set(res) == set(specs)
+    for proc_id in specs:
+        r = res[proc_id]
+        assert r["status"]["exit_code"] == 0
+        assert abs(r["times"]["elapsed"] - float(proc_id)) < 0.01
 
 
 if __name__ == "__main__":
-    test_sigterm((signal.SIGTERM, signal.SIGTERM))
+    test_shutdown_signal(signal.SIGTERM)
+
+

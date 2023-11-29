@@ -13,8 +13,10 @@ Procstar responds as follows to signals sent to the Procstar process itself:
   SIGQUIT.
 
 - On SIGQUIT, Procstar sends SIGKILL to all running processes.  It then waits up
-  to 5 sec for all processes to be deleted.  Finally, Procstar exits.  Any
-  remaining running or undeleted processes are orphaned.
+  to 5 sec for all processes to be deleted; during this time, it serves HTTP and
+  agent connections as usual, allowing clients to obtain results from and delete
+  the killed processes. Finally, Procstar itself exits.  Any remaining running
+  or undeleted processes are orphaned.
 
 - SIGKILL: Procstar terminates immediately; running or undeleted processes are
   orphaned.

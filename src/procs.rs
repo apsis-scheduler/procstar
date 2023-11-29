@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::watch;
 
 use crate::environ;
 use crate::err::SpecError;
@@ -174,7 +176,7 @@ type SharedProc = Rc<RefCell<Proc>>;
 
 /// Asynchronous notifications to clients when something happens.
 #[derive(Clone, Debug)]
-pub enum ProcNotification {
+pub enum Notification {
     /// Notification that a process has been created and started.
     Start(ProcId),
 
@@ -185,8 +187,22 @@ pub enum ProcNotification {
     Delete(ProcId),
 }
 
-pub type ProcNotificationSender = mpsc::UnboundedSender<ProcNotification>;
-pub type ProcNotificationReceiver = mpsc::UnboundedReceiver<ProcNotification>;
+type NotificationSender = broadcast::Sender<Notification>;
+type NotificationReceiver = broadcast::Receiver<Notification>;
+
+pub struct NotificationSub {
+    receiver: NotificationReceiver,
+}
+
+impl NotificationSub {
+    pub async fn recv(&mut self) -> Option<Notification> {
+        match self.receiver.recv().await {
+            Ok(noti) => Some(noti),
+            Err(RecvError::Closed) => None,
+            Err(RecvError::Lagged(i)) => panic!("notification subscriber lagging: {}", i),
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 
@@ -195,9 +211,10 @@ pub struct Procs {
     procs: BTreeMap<ProcId, SharedProc>,
 
     /// Notification subscriptions.
-    subs: Vec<ProcNotificationSender>,
+    subs: NotificationSender,
 
     /// Shutdown notification channel.
+    // FIXME: Use CancellationToken instead?
     shutdown: (
         tokio::sync::watch::Sender<bool>,
         tokio::sync::watch::Receiver<bool>,
@@ -209,10 +226,11 @@ pub struct SharedProcs(Rc<RefCell<Procs>>);
 
 impl SharedProcs {
     pub fn new() -> SharedProcs {
+        let (sender, _receiver) = broadcast::channel(1024);
         SharedProcs(Rc::new(RefCell::new(Procs {
             procs: BTreeMap::new(),
-            subs: Vec::new(),
-            shutdown: tokio::sync::watch::channel(false),
+            subs: sender,
+            shutdown: watch::channel(false),
         })))
     }
 
@@ -221,7 +239,7 @@ impl SharedProcs {
     pub fn insert(&self, proc_id: ProcId, proc: SharedProc) {
         self.0.borrow_mut().procs.insert(proc_id.clone(), proc);
         // Let subscribers know that there is a new proc.
-        self.notify(ProcNotification::Start(proc_id));
+        self.notify(Notification::Start(proc_id));
     }
 
     pub fn len(&self) -> usize {
@@ -258,9 +276,11 @@ impl SharedProcs {
     }
 
     pub fn remove(&self, proc_id: ProcId) -> Option<SharedProc> {
-        let proc = self.0.borrow_mut().procs.remove(&proc_id);
-        self.notify(ProcNotification::Delete(proc_id.clone()));
-        proc
+        let item = self.0.borrow_mut().procs.remove(&proc_id);
+        if item.is_some() {
+            self.notify(Notification::Delete(proc_id.clone()));
+        }
+        item
     }
 
     /// Removes and returns a proc, if it is complete.
@@ -270,7 +290,7 @@ impl SharedProcs {
             if proc.borrow().wait_info.is_some() {
                 let proc = procs.procs.remove(proc_id).unwrap();
                 drop(procs);
-                self.notify(ProcNotification::Delete(proc_id.clone()));
+                self.notify(Notification::Delete(proc_id.clone()));
                 Ok(proc)
             } else {
                 Err(Error::ProcRunning(proc_id.clone()))
@@ -281,7 +301,11 @@ impl SharedProcs {
     }
 
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
-        self.0.borrow_mut().procs.pop_first()
+        let item = self.0.borrow_mut().procs.pop_first();
+        if let Some((ref proc_id, _)) = item {
+            self.notify(Notification::Delete(proc_id.clone()));
+        }
+        item
     }
 
     pub fn to_result(&self) -> res::Res {
@@ -293,24 +317,24 @@ impl SharedProcs {
             .collect::<BTreeMap<_, _>>()
     }
 
-    pub fn subscribe(&self) -> ProcNotificationReceiver {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        self.0.borrow_mut().subs.push(sender);
-        receiver
+    pub fn subscribe(&self) -> NotificationSub {
+        NotificationSub {
+            receiver: self.0.borrow().subs.subscribe(),
+        }
     }
 
-    fn notify(&self, noti: ProcNotification) {
-        self.0
-            .borrow()
-            .subs
-            .iter()
-            .for_each(|s| s.send(noti.clone()).unwrap());
+    fn notify(&self, noti: Notification) {
+        let s = self.0.borrow();
+        if s.subs.receiver_count() > 0 {
+            s.subs.send(noti).unwrap();
+        }
     }
 
     /// Sends a signal to all running procs.
-    pub fn send_signal_all(&self, signum: Signum) -> Result<(), Error> {
+    pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
         let mut result = Ok(());
         self.0.borrow().procs.iter().for_each(|(_, proc)| {
+            info!("send_signal 1: strong_count={}", Rc::strong_count(&proc));
             let proc = proc.borrow();
             if proc.get_state() == res::State::Running {
                 let res = proc.send_signal(signum);
@@ -322,33 +346,34 @@ impl SharedProcs {
         result
     }
 
-    /// Blocks until no processes are running.
-    pub async fn wait_until_not_running(&self) {
-        let mut noti_receiver = self.subscribe();
-        while let Some((proc_id, _proc)) = self.first_running() {
-            // Wait for this proc to complete.
-            info!("waiting for completion: {}", proc_id);
-            while match noti_receiver.recv().await {
-                Some(ProcNotification::Complete(i)) | Some(ProcNotification::Delete(i))
-                    if i == proc_id =>
-                {
+    /// Waits until no processes are running.
+    pub async fn wait_running(&self) {
+        let mut sub = self.subscribe();
+        while let Some((proc_id, proc)) = self.first_running() {
+            drop(proc);
+            // Wait for notification that this proc has completed.
+            while match sub.recv().await {
+                Some(Notification::Complete(i)) | Some(Notification::Delete(i)) if i == proc_id => {
                     false
                 }
-                _ => true,
+                Some(_) => true,
+                None => false,
             } {}
         }
     }
 
-    /// Blocks until no processes remain.
-    pub async fn wait_until_empty(&self) {
-        let mut noti_receiver = self.subscribe();
-        while let Some((proc_id, _proc)) = self.first() {
-            // Wait for this proc to be deleted.
-            info!("waiting for deletion: {}", proc_id);
-            while match noti_receiver.recv().await {
-                Some(ProcNotification::Delete(i)) if i == proc_id => false,
-                _ => true,
+    /// Waits until no processes remain, i.e. all are deleted.
+    pub async fn wait_empty(&self) {
+        let mut sub = self.subscribe();
+        while let Some((proc_id, proc)) = self.first() {
+            drop(proc);
+            // Wait for notification that this proc is deleted.
+            while match sub.recv().await {
+                Some(Notification::Delete(i)) if i == proc_id => false,
+                Some(_) => true,
+                None => false,
             } {}
+            info!("deleted: {}", proc_id);
         }
     }
 
@@ -422,7 +447,7 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
 /// a `LocalSet`.
 pub fn start_procs(
     specs: &spec::Procs,
-    procs: SharedProcs,
+    procs: &SharedProcs,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, SpecError> {
     // First check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
@@ -518,7 +543,7 @@ pub fn start_procs(
                 let fut = {
                     let procs = procs.clone();
                     let proc_id = proc_id.clone();
-                    fut.inspect(move |_| procs.notify(ProcNotification::Complete(proc_id)))
+                    fut.inspect(move |_| procs.notify(Notification::Complete(proc_id)))
                 };
                 // Start the task.
                 tasks.push(tokio::task::spawn_local(fut));
@@ -531,33 +556,12 @@ pub fn start_procs(
     Ok(tasks)
 }
 
-pub async fn collect_results(procs: SharedProcs) -> res::Res {
+pub async fn collect_results(procs: &SharedProcs) -> res::Res {
     let mut result = res::Res::new();
-
-    // // Clean up procs that might have completed already.
-    // procs.wait_any();
-    // // Now we wait for the procs to run.
-    // while select.any() {
-    //     match select.select(None) {
-    //         Ok(_) => {
-    //             // select did something.  Keep going.
-    //         }
-    //         Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => {
-    //             // select interrupted, possibly by SIGCHLD.  Keep going.
-    //         }
-    //         Err(err) => {
-    //             panic!("select failed: {}", err)
-    //         }
-    //     };
-    //     // If we received SIGCHLD, clean up any terminated procs.
-    //     if sigchld_flag.get() {
-    //         procs.wait_any();
-    //     }
-    // }
-    // std::mem::drop(select);
 
     // Collect proc results by removing and waiting each running proc.
     while let Some((proc_id, proc)) = procs.pop() {
+        info!("collect_results: strong_count={}", Rc::strong_count(&proc));
         let proc = Rc::try_unwrap(proc).unwrap().into_inner();
         // Build the proc res.
         result.insert(proc_id.clone(), proc.to_result());

@@ -34,4 +34,4 @@ def test_sigterm(signums):
 
 
 if __name__ == "__main__":
-    test_sigterm()
+    test_sigterm((signal.SIGTERM, signal.SIGTERM))

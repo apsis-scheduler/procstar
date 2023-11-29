@@ -15,7 +15,7 @@ use url::Url;
 use crate::err::Error;
 use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
-use crate::procs::{ProcNotification, ProcNotificationReceiver, SharedProcs};
+use crate::procs::{Notification, NotificationSub, SharedProcs};
 use crate::proto;
 
 //------------------------------------------------------------------------------
@@ -47,7 +47,7 @@ impl Connection {
 }
 
 /// Handler for incoming messages on a websocket client connection.
-async fn handle(procs: SharedProcs, msg: Message) -> Result<Option<Message>, Error> {
+async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Error> {
     match msg {
         Message::Binary(json) => {
             let msg = serde_json::from_slice::<proto::IncomingMessage>(&json);
@@ -124,10 +124,10 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
 /// Constructs an outgoing message corresponding to a notification message.
 fn notification_to_message(
     procs: &SharedProcs,
-    noti: ProcNotification,
+    noti: Notification,
 ) -> Option<proto::OutgoingMessage> {
     match noti {
-        ProcNotification::Start(proc_id) | ProcNotification::Complete(proc_id) => {
+        Notification::Start(proc_id) | Notification::Complete(proc_id) => {
             // Look up the proc.
             if let Some(proc) = procs.get(&proc_id) {
                 // Got it.  Send its result.
@@ -140,7 +140,7 @@ fn notification_to_message(
             }
         }
 
-        ProcNotification::Delete(proc_id) => Some(proto::OutgoingMessage::ProcDelete { proc_id }),
+        Notification::Delete(proc_id) => Some(proto::OutgoingMessage::ProcDelete { proc_id }),
     }
 }
 
@@ -148,12 +148,12 @@ fn notification_to_message(
 /// converts them to outgoing messages, and sends them via `sender`.
 async fn send_notifications(
     procs: SharedProcs,
-    mut noti_receiver: ProcNotificationReceiver,
+    mut sub: NotificationSub,
     sender: Rc<RefCell<Option<SocketSender>>>,
 ) {
     loop {
         // Wait for a notification to arrive on the channel.
-        match noti_receiver.recv().await {
+        match sub.recv().await {
             Some(noti) => {
                 // Borrow the websocket sender.
                 if let Some(sender) = sender.borrow_mut().as_mut() {
@@ -265,7 +265,7 @@ pub async fn run(
 
         loop {
             match receiver.next().await {
-                Some(Ok(msg)) => match handle(procs.clone(), msg).await {
+                Some(Ok(msg)) => match handle(&procs, msg).await {
                     Ok(Some(rsp))
                         // Handling the incoming message produced a response;
                         // send it back.

@@ -2,107 +2,68 @@ use log::*;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::LocalSet;
+use tokio::time::timeout;
 
 use crate::procs::SharedProcs;
-use crate::sig::{get_abbrev, Signum, SIGINT, SIGKILL, SIGQUIT, SIGTERM};
+use crate::sig::{get_abbrev, Signum, SIGKILL, SIGTERM};
 
 //------------------------------------------------------------------------------
 
-enum SignalStyle {
+pub enum SignalStyle {
     /// Sends SIGTERM, waits, then sends SIGKILL.
     TermThenKill,
     /// Just sends SIGKILL.
     Kill,
 }
 
-#[derive(Clone)]
-pub enum WaitStyle {
-    /// Don't wait for processes.
-    None,
-    /// Waits for all processes to terminate, i.e. none running.
-    Termination,
-    /// Waits for all processes to be deleted.
-    Deletion,
-}
+const TERM_TIMEOUT: Duration = Duration::from_secs(2);  // FIXME: 60
+const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn send_signal(procs: &SharedProcs, signum: Signum) {
-    info!("sending {} to processes", get_abbrev(signum).unwrap());
-    _ = procs.send_signal_all(signum);
-}
-
-async fn wait_for_procs(procs: &SharedProcs, wait_style: WaitStyle, timeout: Duration) {
-    info!("waiting for processes");
-    if let Err(_) = match wait_style {
-        WaitStyle::None => { Ok(()) }
-        WaitStyle::Termination => {
-            tokio::time::timeout(timeout, procs.wait_until_not_running()).await
-        }
-        WaitStyle::Deletion => tokio::time::timeout(timeout, procs.wait_until_empty()).await,
-    } {
-        warn!("processes running after {} s", timeout.as_secs_f64());
-    }
-}
-
-async fn install_signal_handler(
+pub fn install_signal_handler(
     local_set: &LocalSet,
     procs: &SharedProcs,
     signum: Signum,
     signal_style: SignalStyle,
-    wait_style: WaitStyle,
 ) {
-    let mut signal_stream = signal(SignalKind::from_raw(signum)).expect(&format!(
-        "failed to install stream for {}",
-        get_abbrev(signum).unwrap()
-    ));
-    local_set
-        .run_until(async {
-            // Wait for the signal.
-            signal_stream.recv().await;
+    let name = get_abbrev(signum).unwrap();
+    let kind = SignalKind::from_raw(signum);
+    let mut signal_stream = signal(kind).expect(&format!("failed to create stream: {}", name));
 
-            match signal_style {
-                SignalStyle::TermThenKill => {
-                    // Send SIGTERM and wait for processes to terminate.
-                    send_signal(procs, SIGTERM);
-                    wait_for_procs(procs, WaitStyle::Termination, Duration::from_secs(60)).await;
+    let procs = procs.clone();
+
+    let handler = async move {
+        // Wait for the signal.
+        signal_stream.recv().await;
+        info!("received: {}", name);
+
+        match signal_style {
+            SignalStyle::TermThenKill => {
+                // Send SIGTERM and wait for processes to terminate.
+                info!("terminating processes");
+                _ = procs.send_signal(SIGTERM);
+
+                info!("waiting for running processes");
+                if timeout(TERM_TIMEOUT, procs.wait_running()).await.is_err() {
+                    warn!("running processes remain; killing");
                     // Send SIGKILL to stragglers.
-                    send_signal(procs, SIGKILL);
-                }
-                SignalStyle::Kill => {
-                    send_signal(procs, SIGKILL);
+                    _ = procs.send_signal(SIGKILL);
                 }
             }
 
-            // Final wait for processes.
-            wait_for_procs(procs, wait_style, Duration::from_secs(5)).await;
+            SignalStyle::Kill => {
+                info!("killing processes");
+                _ = procs.send_signal(SIGKILL);
+            }
+        }
 
-            procs.set_shutdown();
-        })
-        .await;
-}
+        // Final wait for processes.
+        if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
+            warn!("undeleted processes remain");
+        }
 
-/// Install handlers for shutdown signals.
-///
-/// `wait_style` specifies whether to wait (with timeout) for processes to be
-/// deleted before shutting down, or simply to wait for them to terminate, or
-/// not to wait at all.
-pub async fn install_signal_handlers(local_set: &LocalSet, procs: &SharedProcs, wait_style: WaitStyle) {
-    install_signal_handler(
-        &local_set,
-        &procs,
-        SIGTERM,
-        SignalStyle::TermThenKill,
-        wait_style.clone(),
-    )
-    .await;
+        trace!("shutting down");
+        procs.set_shutdown();
+    };
 
-    install_signal_handler(
-        &local_set,
-        procs,
-        SIGINT,
-        SignalStyle::TermThenKill,
-        wait_style.clone(),
-    )
-    .await;
-
-    install_signal_handler(&local_set, procs, SIGQUIT, SignalStyle::Kill, wait_style).await;
+    local_set.spawn_local(handler);
 }

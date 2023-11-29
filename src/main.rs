@@ -9,12 +9,13 @@ use procstar::http;
 use procstar::procs::{collect_results, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
-use procstar::shutdown;
+use procstar::shutdown::{install_signal_handler, SignalStyle};
+use procstar::sig::{SIGINT, SIGQUIT, SIGTERM};
 use procstar::spec;
 
 //------------------------------------------------------------------------------
 
-async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
+async fn maybe_run_http(args: &argv::Args, procs: &SharedProcs) {
     if args.serve {
         // Run the HTTP server until we receive a shutdown signal.
         tokio::select! {
@@ -24,7 +25,7 @@ async fn maybe_run_http(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
-async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
+async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
     if args.agent {
         let hostname = proto::expand_hostname(&args.agent_host).unwrap_or_else(|| {
             eprintln!("no agent server hostname; use --agent-host or set PROCSTAR_AGENT_HOST");
@@ -51,12 +52,12 @@ async fn maybe_run_agent(args: &argv::Args, procs: SharedProcs) {
     }
 }
 
-async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
+async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
     if args.exit {
         // Run until no processes are running, or until we receive a shutdown
         // signal.
         tokio::select! {
-            _ = procs.wait_until_not_running() => {}
+            _ = procs.wait_running() => {}
             _ = procs.wait_for_shutdown() => {},
         };
 
@@ -82,7 +83,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: SharedProcs) {
         // Run until no processes are left, or until we receive a shutdown
         // signal.
         tokio::select! {
-            _ = procs.wait_until_empty() => {},
+            _ = procs.wait_empty() => {},
             _ = procs.wait_for_shutdown() => {},
         };
     } else {
@@ -128,20 +129,6 @@ async fn main() {
         spec::Input::new()
     };
 
-    // Set up global signal handlers.
-    shutdown::install_signal_handlers(
-        &local_set,
-        &procs,
-        if args.wait {
-            shutdown::WaitStyle::Deletion
-        } else if args.exit {
-            shutdown::WaitStyle::Termination
-        } else {
-            shutdown::WaitStyle::None
-        }
-    )
-    .await;
-
     // Start specs given on the command line.
     //
     // We intentionally don't start any services until the input processes have
@@ -151,20 +138,25 @@ async fn main() {
     // Even though `start_procs` is not async, we have to run it in the
     // LocalSet since it starts other tasks itself.
     let _tasks = local_set
-        .run_until(async { start_procs(&input.specs, procs.clone()) })
+        .run_until(async { start_procs(&input.specs, &procs) })
         .await
         .unwrap_or_else(|err| {
             error!("failed to start procs: {}", err);
             std::process::exit(exitcode::DATAERR);
         });
 
+    // Set up global signal handlers.
+    install_signal_handler(&local_set, &procs, SIGTERM, SignalStyle::TermThenKill);
+    install_signal_handler(&local_set, &procs, SIGINT, SignalStyle::TermThenKill);
+    install_signal_handler(&local_set, &procs, SIGQUIT, SignalStyle::Kill);
+
     // Run servers and/or until completion, as specified on the command line.
     local_set
         .run_until(async {
             tokio::join!(
-                maybe_run_http(&args, procs.clone()),
-                maybe_run_agent(&args, procs.clone()),
-                maybe_run_until_exit(&args, procs.clone()),
+                maybe_run_http(&args, &procs),
+                maybe_run_agent(&args, &procs),
+                maybe_run_until_exit(&args, &procs),
             )
         })
         .await;

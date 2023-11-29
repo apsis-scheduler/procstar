@@ -140,6 +140,13 @@ pub fn getegid() -> gid_t {
     unsafe { libc::getegid() }
 }
 
+pub fn setsid() -> io::Result<pid_t> {
+    match unsafe { libc::setsid() } {
+        -1 => Err(io::Error::last_os_error()),
+        pgid => Ok(pgid)
+    }
+}
+
 pub fn mkstemp(template: &str) -> io::Result<(PathBuf, fd_t)> {
     let path = CString::new(template)?;
     let (fd, path) = unsafe {

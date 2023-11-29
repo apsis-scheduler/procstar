@@ -18,10 +18,10 @@ use crate::fd;
 use crate::fd::SharedFdHandler;
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
-use crate::sig::{SignalReceiver, SignalWatcher, Signum};
+use crate::sig::{SignalReceiver, SignalWatcher, Signum, get_abbrev};
 use crate::spec;
 use crate::spec::ProcId;
-use crate::sys::{execve, fork, kill, wait, WaitInfo};
+use crate::sys::{execve, fork, setsid, kill, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 
@@ -88,6 +88,7 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
+        trace!("sending {}: pid={}", get_abbrev(signum).unwrap(), self.pid);
         Ok(kill(self.pid, signum)?)
     }
 
@@ -334,7 +335,6 @@ impl SharedProcs {
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
         let mut result = Ok(());
         self.0.borrow().procs.iter().for_each(|(_, proc)| {
-            info!("send_signal 1: strong_count={}", Rc::strong_count(&proc));
             let proc = proc.borrow();
             if proc.get_state() == res::State::Running {
                 let res = proc.send_signal(signum);
@@ -494,6 +494,13 @@ pub fn start_procs(
                         error_writer.try_write(format!("failed to set up fd {}: {}", fd, err));
                         ok_to_exec = false;
                     });
+                }
+
+                // Put the child process into a new session, to avoid
+                // getting signals from the parent process group.
+                if let Err(err) = setsid() {
+                    error_writer.try_write(format!("setsid failed: {}", err));
+                    ok_to_exec = false;
                 }
 
                 if ok_to_exec {

@@ -11,7 +11,7 @@ use crate::sig::{get_abbrev, Signum, SIGKILL, SIGTERM};
 
 pub enum SignalStyle {
     /// Shuts down when next all procs are deleted.
-    ShutdownOnEmpty,
+    ShutdownOnIdle,
     /// Sends SIGTERM, then sends SIGKILL, then shuts down.
     TermThenKill,
     /// Just sends SIGKILL, then shuts down.
@@ -39,10 +39,10 @@ pub fn install_signal_handler(
         info!("received: {}", name);
 
         match signal_style {
-            SignalStyle::ShutdownOnEmpty => {
-                info!("will shut down when empty");
-                procs.set_shutdown_on_empty();
-            },
+            SignalStyle::ShutdownOnIdle => {
+                info!("will shut down when idle");
+                procs.set_shutdown_on_idle();
+            }
 
             SignalStyle::TermThenKill => {
                 // Send SIGTERM and wait for processes to terminate.
@@ -57,7 +57,7 @@ pub fn install_signal_handler(
                 }
 
                 // Final wait for processes.
-                if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
+                if timeout(KILL_TIMEOUT, procs.wait_idle()).await.is_err() {
                     warn!("undeleted processes remain");
                 }
 
@@ -70,7 +70,7 @@ pub fn install_signal_handler(
                 _ = procs.send_signal(SIGKILL);
 
                 // Final wait for processes.
-                if timeout(KILL_TIMEOUT, procs.wait_empty()).await.is_err() {
+                if timeout(KILL_TIMEOUT, procs.wait_idle()).await.is_err() {
                     warn!("undeleted processes remain");
                 }
 

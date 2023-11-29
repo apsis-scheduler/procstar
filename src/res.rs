@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::sig;
 use crate::spec::{CaptureFormat, ProcId};
+use crate::state::State;
 
 //------------------------------------------------------------------------------
 
@@ -101,20 +102,6 @@ impl FdRes {
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum State {
-    /// The target process did not start, due to failure in setting up file
-    /// descriptors, fork, or exec.
-    Error,
-
-    /// The process is running.
-    Running,
-
-    /// The process has terminated.
-    Terminated,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Status {
     /// The raw process exit status returned by `wait()`.  This combines exit
@@ -154,7 +141,7 @@ impl Status {
 pub struct Times {
     /// System time when the process started.
     pub start: String,
-    /// System time when the process completed.
+    /// System time when the process terminated.
     pub stop: Option<String>,
     /// Duration of the process.  This is not necessarily `stop - start`, as it
     /// is computed from a monotonic clock.
@@ -171,19 +158,19 @@ pub struct ProcRes {
     /// The pid with which the process ran.
     pub pid: pid_t,
 
-    /// Recent status or status at completion.
+    /// Recent status or status at termination.
     pub proc_stat: Option<ProcStat>,
 
-    /// Recent memory usage, if the process has not completed.
+    /// Recent memory usage, if the process has not terminated.
     pub proc_statm: Option<ProcStatm>,
 
     /// Process timing.
     pub times: Times,
 
-    /// Process status, if it has completed.
+    /// Process status, if it has terminated.
     pub status: Option<Status>,
 
-    /// Process resource usage, if it has completed.
+    /// Process resource usage, if it has terminated.
     pub rusage: Option<ResourceUsage>,
 
     /// Fd results.

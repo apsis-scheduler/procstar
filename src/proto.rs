@@ -92,11 +92,11 @@ pub enum IncomingMessage {
     /// Requests a list of current proc IDs.
     ProcidListRequest {},
 
-    /// Requests the current result of a process, which may or may not be
-    /// complete.
+    /// Requests the current result of a process, which may be running.
     ProcResultRequest { proc_id: ProcId },
 
-    /// Requests deletion of a process's records.  The process must be complete.
+    /// Requests deletion of a process's records.  The process may not be
+    /// running.
     ProcDeleteRequest { proc_id: ProcId },
 }
 
@@ -124,7 +124,7 @@ pub enum OutgoingMessage {
     /// The list of current proc IDs.
     ProcidList { proc_ids: Vec<ProcId> },
 
-    /// The current result of a process, which may or may not be complete.
+    /// The current result of a process, which may or may not have terminated.
     ProcResult { proc_id: ProcId, res: ProcRes },
 
     /// A process has been deleted.
@@ -166,7 +166,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
         }
 
         IncomingMessage::ProcDeleteRequest { ref proc_id } => {
-            match procs.remove_if_complete(proc_id) {
+            match procs.remove_if_not_running(proc_id) {
                 Ok(_) => None,
                 Err(crate::procs::Error::NoProcId(proc_id)) => {
                     Some(OutgoingMessage::ProcUnknown { proc_id })

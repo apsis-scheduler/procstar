@@ -207,7 +207,7 @@ pub fn wait4(pid: pid_t, block: bool) -> io::Result<Option<WaitInfo>> {
     }
 }
 
-/// Polls or blocks for completion of a process by pid.
+/// Polls or blocks for termination of a process by pid.
 pub fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
     loop {
         match wait4(pid, block) {

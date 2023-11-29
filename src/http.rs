@@ -89,7 +89,7 @@ async fn procs_id_get(procs: SharedProcs, proc_id: &str) -> RspResult {
 /// Handles `DELETE /procs/:id`.
 async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> RspResult {
     let proc_id: ProcId = proc_id.to_string();
-    match procs.remove_if_complete(&proc_id) {
+    match procs.remove_if_not_running(&proc_id) {
         Ok(_) => {
             Ok(json!({
                 // FIXME

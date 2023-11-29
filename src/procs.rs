@@ -21,6 +21,7 @@ use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
 use crate::spec::ProcId;
+use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
@@ -54,16 +55,19 @@ impl From<std::io::Error> for Error {
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
-// FIXME: Refactor this into enum for running and completed procs.
+// FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
+
     pub errors: Vec<String>,
-    pub wait_info: Option<WaitInfo>,
-    pub proc_stat: Option<ProcStat>,
+
     pub fd_handlers: FdHandlers,
     pub start_time: DateTime<Utc>,
-    pub stop_time: Option<DateTime<Utc>>,
     pub start_instant: Instant,
+
+    pub wait_info: Option<WaitInfo>,
+    pub proc_stat: Option<ProcStat>,
+    pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
 
@@ -91,13 +95,13 @@ impl Proc {
         Ok(kill(self.pid, signum)?)
     }
 
-    pub fn get_state(&self) -> res::State {
+    pub fn get_state(&self) -> State {
         if self.errors.len() > 0 {
-            res::State::Error
+            State::Error
         } else if self.wait_info.is_none() {
-            res::State::Running
+            State::Running
         } else {
-            res::State::Terminated
+            State::Terminated
         }
     }
 
@@ -143,7 +147,7 @@ impl Proc {
             elapsed: elapsed.as_secs_f64(),
         };
 
-        // Use completion proc stat on the process object, if available;
+        // Use termination proc stat on the process object, if available;
         // otherwise, snapshot current.
         let proc_stat = self
             .proc_stat
@@ -180,8 +184,9 @@ pub enum Notification {
     /// Notification that a process has been created and started.
     Start(ProcId),
 
-    /// Notification that a process has completed.
-    Complete(ProcId),
+    /// Notification that a process is not running, either because it terminated
+    /// or because of an error.
+    NotRunning(ProcId),
 
     /// Notification that a process has been deleted.
     Delete(ProcId),
@@ -221,7 +226,7 @@ pub struct Procs {
     ),
 
     /// Soft shutdown request: shut down when next no processes remain.
-    shutdown_on_empty: bool,
+    shutdown_on_idle: bool,
 }
 
 #[derive(Clone)]
@@ -234,7 +239,7 @@ impl SharedProcs {
             procs: BTreeMap::new(),
             subs: sender,
             shutdown: watch::channel(false),
-            shutdown_on_empty: false,
+            shutdown_on_idle: false,
         })))
     }
 
@@ -274,19 +279,19 @@ impl SharedProcs {
             .borrow()
             .procs
             .iter()
-            .filter(|(_, proc)| proc.borrow().get_state() == res::State::Running)
+            .filter(|(_, proc)| proc.borrow().get_state() == State::Running)
             .map(|(proc_id, proc)| (proc_id.clone(), Rc::clone(proc)))
             .next()
     }
 
-    /// Removes and returns a proc, if it is complete.
-    pub fn remove_if_complete(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
+    /// Removes and returns a proc, if it is not running.
+    pub fn remove_if_not_running(&self, proc_id: &ProcId) -> Result<SharedProc, Error> {
         let mut procs = self.0.borrow_mut();
         // Confirm we can find the proc and it's not running.
         match procs
             .procs
             .get(proc_id)
-            .map(|proc| proc.borrow().get_state() != res::State::Running)
+            .map(|proc| proc.borrow().get_state() != State::Running)
         {
             Some(true) => Ok(()),
             Some(false) => Err(Error::ProcRunning(proc_id.clone())),
@@ -294,7 +299,7 @@ impl SharedProcs {
         }?;
         // OK, we can proceed with removing.
         let proc = procs.procs.remove(proc_id).unwrap();
-        let shutdown = procs.shutdown_on_empty && procs.procs.is_empty();
+        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
 
         if shutdown {
@@ -307,7 +312,7 @@ impl SharedProcs {
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
         let mut procs = self.0.borrow_mut();
         let item = procs.procs.pop_first();
-        let shutdown = procs.shutdown_on_empty && procs.procs.is_empty();
+        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
 
         if let Some((ref proc_id, _)) = item {
@@ -347,7 +352,7 @@ impl SharedProcs {
         let mut result = Ok(());
         self.0.borrow().procs.iter().for_each(|(_, proc)| {
             let proc = proc.borrow();
-            if proc.get_state() == res::State::Running {
+            if proc.get_state() == State::Running {
                 let res = proc.send_signal(signum);
                 if res.is_err() {
                     result = res;
@@ -362,9 +367,11 @@ impl SharedProcs {
         let mut sub = self.subscribe();
         while let Some((proc_id, proc)) = self.first_running() {
             drop(proc);
-            // Wait for notification that this proc has completed.
+            // Wait for notification that this proc is not running.
             while match sub.recv().await {
-                Some(Notification::Complete(i)) | Some(Notification::Delete(i)) if i == proc_id => {
+                Some(Notification::NotRunning(i)) | Some(Notification::Delete(i))
+                    if i == proc_id =>
+                {
                     false
                 }
                 Some(_) => true,
@@ -374,7 +381,7 @@ impl SharedProcs {
     }
 
     /// Waits until no processes remain, i.e. all are deleted.
-    pub async fn wait_empty(&self) {
+    pub async fn wait_idle(&self) {
         let mut sub = self.subscribe();
         while let Some((proc_id, proc)) = self.first() {
             drop(proc);
@@ -399,8 +406,8 @@ impl SharedProcs {
     }
 
     /// Requests shutdown when next no processes remain.
-    pub fn set_shutdown_on_empty(&self) {
-        self.0.borrow_mut().shutdown_on_empty = true;
+    pub fn set_shutdown_on_idle(&self) {
+        self.0.borrow_mut().shutdown_on_idle = true;
     }
 }
 
@@ -412,7 +419,7 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
         sigchld_receiver.signal().await;
 
         // FIXME: HACK This won't do at all.  We need a way (pidfd?) to
-        // determine that this pid has completed, without wait()ing it, so we
+        // determine that this pid has terminated without calling wait(), so we
         // can get its /proc/pid/stat first.
         // FIXME: Unwrap.
         let proc_stat = ProcStat::load_or_log(pid);
@@ -561,11 +568,11 @@ pub fn start_procs(
 
                 // Build the task that awaits the process.
                 let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe);
-                // Let subscribers know when it completes.
+                // Let subscribers know when it terminates.
                 let fut = {
                     let procs = procs.clone();
                     let proc_id = proc_id.clone();
-                    fut.inspect(move |_| procs.notify(Notification::Complete(proc_id)))
+                    fut.inspect(move |_| procs.notify(Notification::NotRunning(proc_id)))
                 };
                 // Start the task.
                 tasks.push(tokio::task::spawn_local(fut));

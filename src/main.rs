@@ -82,19 +82,20 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
 
         // Ready to shut down now.
         procs.set_shutdown();
-    } else if args.wait {
+    }
+}
+
+async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
+    if args.wait {
         // Run until no processes are left, or until we receive a shutdown
         // signal.
         tokio::select! {
-            _ = procs.wait_empty() => {},
+            _ = procs.wait_idle() => {},
             _ = procs.wait_for_shutdown() => {},
         };
 
         // Ready to shut down now.
         procs.set_shutdown();
-    } else {
-        // Run until a shutdown signal.
-        procs.wait_for_shutdown().await;
     }
 }
 
@@ -155,15 +156,17 @@ async fn main() {
     install_signal_handler(&local_set, &procs, SIGTERM, SignalStyle::TermThenKill);
     install_signal_handler(&local_set, &procs, SIGINT, SignalStyle::TermThenKill);
     install_signal_handler(&local_set, &procs, SIGQUIT, SignalStyle::Kill);
-    install_signal_handler(&local_set, &procs, SIGUSR1, SignalStyle::ShutdownOnEmpty);
+    install_signal_handler(&local_set, &procs, SIGUSR1, SignalStyle::ShutdownOnIdle);
 
-    // Run servers and/or until completion, as specified on the command line.
+    // Run servers and/or processes until completion, as specified on the
+    // command line and other shutdown behavior.
     local_set
         .run_until(async {
             tokio::join!(
                 maybe_run_http(&args, &procs),
                 maybe_run_agent(&args, &procs),
                 maybe_run_until_exit(&args, &procs),
+                maybe_run_until_idle(&args, &procs),
             )
         })
         .await;

@@ -127,7 +127,7 @@ fn notification_to_message(
     noti: Notification,
 ) -> Option<proto::OutgoingMessage> {
     match noti {
-        Notification::Start(proc_id) | Notification::Complete(proc_id) => {
+        Notification::Start(proc_id) | Notification::NotRunning(proc_id) => {
             // Look up the proc.
             if let Some(proc) = procs.get(&proc_id) {
                 // Got it.  Send its result.
@@ -216,14 +216,12 @@ pub async fn run(
     // notification sender and the main message loop.
     let sender: Rc<RefCell<Option<SocketSender>>> = Rc::new(RefCell::new(None));
 
-    // Subscribe to receive asynchronous notifications, such as when a process
-    // completes.
-    let noti_receiver = procs.subscribe();
-    // Start a task that sends notifications as outgoing messages to the
+    // Start a task that subscribes to asynchronous notifications, such as when
+    // a process terminates, and sends them as outgoing messages to the
     // websocket.
     let _noti_task = tokio::task::spawn_local(send_notifications(
         procs.clone(),
-        noti_receiver,
+        procs.subscribe(),
         sender.clone(),
     ));
 

@@ -206,7 +206,11 @@ impl ProcStat {
             ((tty_nr >> 16) | (tty_nr & 0xff)) as u16,
         );
         let tpgid = parts.next().unwrap();
-        let tpgid = if tpgid == "-1" { None } else { Some(tpgid.parse().unwrap()) };
+        let tpgid = if tpgid == "-1" {
+            None
+        } else {
+            Some(tpgid.parse().unwrap())
+        };
         let flags = parts.next().unwrap().parse().unwrap();
         let minflt = parts.next().unwrap().parse().unwrap();
         let cminflt = parts.next().unwrap().parse().unwrap();

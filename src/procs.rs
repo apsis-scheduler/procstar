@@ -21,7 +21,7 @@ use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
 use crate::spec::ProcId;
-use crate::sys::{execve, fork, setsid, kill, wait, WaitInfo};
+use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
 
 //------------------------------------------------------------------------------
 

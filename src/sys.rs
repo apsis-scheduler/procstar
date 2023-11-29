@@ -143,7 +143,7 @@ pub fn getegid() -> gid_t {
 pub fn setsid() -> io::Result<pid_t> {
     match unsafe { libc::setsid() } {
         -1 => Err(io::Error::last_os_error()),
-        pgid => Ok(pgid)
+        pgid => Ok(pgid),
     }
 }
 

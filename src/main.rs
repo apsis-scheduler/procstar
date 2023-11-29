@@ -121,6 +121,15 @@ async fn main() {
 
     // Set up the collection of processes to run.
     let procs = SharedProcs::new();
+
+    // Set up global signal handlers.
+    let signal_handlers = [
+        install_signal_handler(&procs, SIGTERM, SignalStyle::TermThenKill),
+        install_signal_handler(&procs, SIGINT, SignalStyle::TermThenKill),
+        install_signal_handler(&procs, SIGQUIT, SignalStyle::Kill),
+        install_signal_handler(&procs, SIGUSR1, SignalStyle::ShutdownOnIdle),
+    ];
+
     // If specs were given on the command line, start those processes now.
     let input = if let Some(p) = args.input.as_deref() {
         if p == "-" {
@@ -135,14 +144,6 @@ async fn main() {
     } else {
         spec::Input::new()
     };
-
-    // Set up global signal handlers.
-    let signal_handlers = [
-        install_signal_handler(&procs, SIGTERM, SignalStyle::TermThenKill),
-        install_signal_handler(&procs, SIGINT, SignalStyle::TermThenKill),
-        install_signal_handler(&procs, SIGQUIT, SignalStyle::Kill),
-        install_signal_handler(&procs, SIGUSR1, SignalStyle::ShutdownOnIdle),
-    ];
 
     // Start specs given on the command line.
     //

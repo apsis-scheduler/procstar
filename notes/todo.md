@@ -28,7 +28,6 @@
 - [x] reconnect to run on Apsis restart
 - [x] add proc_id to metadata
 - [x] shutdown signal handlers also shut down HTTP/ws loops
-- [ ] when procstar terminates normally, send a shutdown message and error out runs
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens

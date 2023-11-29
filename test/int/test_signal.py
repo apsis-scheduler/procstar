@@ -54,6 +54,7 @@ def test_idle_signal():
     proc.send_signal(signal.SIGUSR1)
     res = proc.wait_result()
     assert set(res) == set(specs)
+    # All procs should have slept the specified time and exited successfully.
     for proc_id in specs:
         r = res[proc_id]
         assert r["status"]["exit_code"] == 0

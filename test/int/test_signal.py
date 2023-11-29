@@ -29,7 +29,7 @@ def test_shutdown_signal(signum):
     # Start procstar.
     proc = Process({"specs": specs})
     # Send the signal.
-    time.sleep(0.1)
+    time.sleep(0.01)
     proc.send_signal(signum)
     res = proc.wait_result()
     assert set(res) == set(specs)
@@ -50,7 +50,7 @@ def test_idle_signal():
     # Start procstar.
     proc = Process({"specs": specs})
     # Send the signal.
-    time.sleep(0.1)
+    time.sleep(0.01)
     proc.send_signal(signal.SIGUSR1)
     res = proc.wait_result()
     assert set(res) == set(specs)

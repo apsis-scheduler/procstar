@@ -1,7 +1,7 @@
 use log::*;
+use std::pin::Pin;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::task::LocalSet;
 use tokio::time::timeout;
 
 use crate::procs::SharedProcs;
@@ -22,18 +22,17 @@ const TERM_TIMEOUT: Duration = Duration::from_secs(60);
 const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn install_signal_handler(
-    local_set: &LocalSet,
     procs: &SharedProcs,
     signum: Signum,
     signal_style: SignalStyle,
-) {
+) -> Pin<Box<dyn futures::Future<Output = ()> + 'static>> {
     let name = get_abbrev(signum).unwrap();
     let kind = SignalKind::from_raw(signum);
     let mut signal_stream = signal(kind).expect(&format!("failed to create stream: {}", name));
 
     let procs = procs.clone();
 
-    let handler = async move {
+    Box::pin(async move {
         // Wait for the signal.
         signal_stream.recv().await;
         info!("received: {}", name);
@@ -78,7 +77,5 @@ pub fn install_signal_handler(
                 procs.set_shutdown();
             }
         }
-    };
-
-    local_set.spawn_local(handler);
+    })
 }

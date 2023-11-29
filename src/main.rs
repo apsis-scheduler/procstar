@@ -136,6 +136,14 @@ async fn main() {
         spec::Input::new()
     };
 
+    // Set up global signal handlers.
+    let signal_handlers = [
+        install_signal_handler(&procs, SIGTERM, SignalStyle::TermThenKill),
+        install_signal_handler(&procs, SIGINT, SignalStyle::TermThenKill),
+        install_signal_handler(&procs, SIGQUIT, SignalStyle::Kill),
+        install_signal_handler(&procs, SIGUSR1, SignalStyle::ShutdownOnIdle),
+    ];
+
     // Start specs given on the command line.
     //
     // We intentionally don't start any services until the input processes have
@@ -152,11 +160,10 @@ async fn main() {
             std::process::exit(exitcode::DATAERR);
         });
 
-    // Set up global signal handlers.
-    install_signal_handler(&local_set, &procs, SIGTERM, SignalStyle::TermThenKill);
-    install_signal_handler(&local_set, &procs, SIGINT, SignalStyle::TermThenKill);
-    install_signal_handler(&local_set, &procs, SIGQUIT, SignalStyle::Kill);
-    install_signal_handler(&local_set, &procs, SIGUSR1, SignalStyle::ShutdownOnIdle);
+    // Run signal handlers.
+    for handler in signal_handlers.into_iter() {
+        local_set.spawn_local(handler);
+    }
 
     // Run servers and/or processes until completion, as specified on the
     // command line and other shutdown behavior.

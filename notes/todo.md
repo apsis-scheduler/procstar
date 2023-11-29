@@ -37,6 +37,7 @@
 - [ ] intermediate output updates to running program
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs
+- [ ] manage file descriptor inheritance flag
 - [ ] Procstar web UI
 - [ ] specify exe explicitly
 - [ ] command-line exe whitelist

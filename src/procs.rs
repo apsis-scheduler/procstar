@@ -18,7 +18,7 @@ use crate::fd;
 use crate::fd::SharedFdHandler;
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
-use crate::sig::{SignalReceiver, SignalWatcher, Signum, get_abbrev};
+use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
 use crate::spec::ProcId;
 use crate::sys::{execve, fork, setsid, kill, wait, WaitInfo};

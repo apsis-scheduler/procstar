@@ -28,17 +28,17 @@ pub struct Args {
     )]
     pub log_level: Option<String>,
 
-    /// Wait for all processes to complete, print results to stdout, then --exit
+    /// When all processes are complete, print results and exit
     #[arg(short, long)]
     pub print: bool,
-    /// Wait for all processes to complete, write results to a file, then --exit
+    /// When all processes are complete, write results to PATH and exit
     #[arg(short, long, value_name = "PATH")]
     pub output: Option<String>,
-    /// Wait for all processes to complete, then exit
+    /// When all processes are complete, exit
     #[arg(short = 'x', long)]
     pub exit: bool,
 
-    /// Wait for all processes to be deleted, then exit
+    /// When all processes are deleted, exit
     #[arg(short = 'w', long)]
     pub wait: bool,
 

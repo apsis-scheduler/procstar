@@ -117,7 +117,7 @@ async def test_run_procs():
 @pytest.mark.asyncio
 async def test_run_multi():
     """
-    Runs multiple processes on multiple asmances.
+    Runs multiple processes on multiple instances.
     """
     counts = {"red": 1, "green": 3, "blue": 2}
     group_ids = itertools.cycle(counts.keys())

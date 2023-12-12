@@ -33,8 +33,20 @@
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
       - erorr out the run
-- [ ] intermediate meta updates to running program
-- [ ] intermediate output updates to running program
+- [x] intermediate meta updates to running program
+- [x] intermediate output updates to running program
+- [x] intermediate cleanups
+    - merge `__starting_tasks` and `__running_tasks` into `__run_tasks`
+    - use `TaskGroup` for `__waiting_tasks`
+- [x] proxy old `Program` to `IncrementalProgram` and retire the old logic
+- [ ] implement procstar program signal
+- [ ] int test for procstar progam, including reconnect
+- [ ] manage outputs better, especially when they're large
+    - don't include captured results in output
+    - API for requesting output
+    - what is the appropriate UI logic?
+- [ ] output compression in procstar
+- [ ] clean up `Run.STATE`
 - [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs
 - [ ] manage file descriptor inheritance flag

@@ -78,6 +78,9 @@ class ConnectionInfo:
     conn_id: str
     group_id: str
 
+    def to_jso(self):
+        return dict(self.__dict__)
+
 
 
 @dataclass
@@ -91,6 +94,9 @@ class ProcessInfo:
     egid: int
     groupname: str
     hostname: str
+
+    def to_jso(self):
+        return dict(self.__dict__)
 
 
 

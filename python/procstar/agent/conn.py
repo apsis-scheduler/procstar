@@ -38,6 +38,13 @@ class SocketInfo:
         return cls(address, port)
 
 
+    def to_jso(self):
+        return {
+            "address"   : str(self.address),
+            "port"      : self.port,
+        }
+
+
 
 @dataclass
 class ProcstarInfo:
@@ -48,6 +55,13 @@ class ProcstarInfo:
     conn: ConnectionInfo
     socket: SocketInfo
     proc: ProcessInfo
+
+    def to_jso(self):
+        return {
+            "conn"  : self.conn.to_jso(),
+            "socket": self.socket.to_jso(),
+            "proc"  : self.proc.to_jso(),
+        }
 
 
 
@@ -69,6 +83,12 @@ class Connection:
 
     def __hash__(self):
         return hash(self.info.conn.conn_id)
+
+
+    def to_jso(self):
+        return {
+            "info": self.info.to_jso(),
+        }
 
 
     @property
@@ -176,6 +196,14 @@ class Connections(Mapping, Subscribeable):
         """
         conn_ids = self.__groups.get(group_id, ())
         return tuple( c for i in conn_ids if (c := self.__conns[i]).open )
+
+
+    @property
+    def groups(self):
+        """
+        A mapping from group ID to a sequence of conn IDs in the group.
+        """
+        return dict(self.__groups)
 
 
     # Mapping methods.

@@ -5,6 +5,7 @@ Incoming connections to the websocket service.
 import asyncio
 from   collections.abc import Mapping
 from   dataclasses import dataclass
+from   datetime import datetime
 import ipaddress
 import logging
 import random
@@ -47,6 +48,57 @@ class SocketInfo:
 
 
 @dataclass
+class Stats:
+    """
+    Whether the connection is open.
+    """
+    connected: bool = False
+
+    """
+    Time of first connection.
+    """
+    first_connect_time: datetime | None = None
+
+    """
+    Time of most recent WebSocket connection.
+    """
+    last_connect_time: datetime | None = None
+
+    """
+    Time of most recent WebSocket disconnection.
+    """
+    last_disconnect_time: datetime | None = None
+
+    """
+    Number of times a WebSocket connection was established.
+    """
+    num_connections: int = 0
+
+    """
+    Number of messages received.
+    """
+    num_received: int = 0
+
+    """
+    Number of messages sent.
+    """
+    num_sent: int = 0
+
+    def to_jso(self):
+        niso = lambda t: None if t is None else t.isoformat()
+        return {
+            "connected"             : self.connected,
+            "first_connect_time"    : niso(self.first_connect_time),
+            "last_connect_time"     : niso(self.last_connect_time),
+            "last_disconnect_time"  : niso(self.last_disconnect_time),
+            "num_connections"       : self.num_connections,
+            "num_received"          : self.num_received,
+            "num_sent"              : self.num_sent,
+        }
+
+
+
+@dataclass
 class ProcstarInfo:
     """
     Information about a procstar instance and the connection to it.
@@ -55,12 +107,14 @@ class ProcstarInfo:
     conn: ConnectionInfo
     socket: SocketInfo
     proc: ProcessInfo
+    stats: Stats
 
     def to_jso(self):
         return {
             "conn"  : self.conn.to_jso(),
             "socket": self.socket.to_jso(),
             "proc"  : self.proc.to_jso(),
+            "stats" : self.stats.to_jso(),
         }
 
 
@@ -107,6 +161,8 @@ class Connection:
             logger.warning(f"{self.info.socket}: connection closed")
             # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             # FIXME: Think carefully the temporarily dropped connection logic.
+        else:
+            self.info.stats.num_sent += 1
 
 
 
@@ -125,7 +181,13 @@ class Connections(Mapping, Subscribeable):
         self.__groups = {}
 
 
-    def _add(self, procstar_info: ProcstarInfo, ws) -> Connection:
+    def _add(
+            self,
+            conn_info: ConnectionInfo,
+            proc_info: ProcessInfo,
+            time: datetime,
+            ws,
+    ) -> Connection:
         """
         Adds a new connection or readds an existing one.
 
@@ -134,8 +196,8 @@ class Connections(Mapping, Subscribeable):
         :raise RuntimeError:
           The connection could not be added.
         """
-        conn_id = procstar_info.conn.conn_id
-        group_id = procstar_info.conn.group_id
+        conn_id = conn_info.conn_id
+        group_id = conn_info.group_id
         socket_info = SocketInfo.from_ws(ws)
 
         try:
@@ -144,7 +206,19 @@ class Connections(Mapping, Subscribeable):
 
         except KeyError:
             # New connection.
-            conn = self.__conns[conn_id] = Connection(info=procstar_info, ws=ws)
+            stats = Stats(
+                connected           =True,
+                first_connect_time  =time,
+                last_connect_time   =time,
+                num_connections     =1,
+            )
+            info = ProcstarInfo(
+                conn        =conn_info,
+                socket      =socket_info,
+                proc        =proc_info,
+                stats       =stats,
+            )
+            conn = self.__conns[conn_id] = Connection(info=info, ws=ws)
             # Add it to the group.
             group = self.__groups.setdefault(group_id, set())
             group.add(conn_id)
@@ -169,6 +243,11 @@ class Connections(Mapping, Subscribeable):
             old_conn.ws = ws
             old_conn.info.socket = socket_info
             conn = old_conn
+
+            # Update stats.
+            conn.info.stats.connected = True
+            conn.info.stats.last_connect_time = time
+            conn.info.stats.num_connections += 1
 
         self._publish((conn_id, conn))
         return conn

@@ -29,6 +29,10 @@
 - [x] add proc_id to metadata
 - [x] shutdown signal handlers also shut down HTTP/ws loops
 - [x] procstar request soft shutdown, when all procs are done (or cleaned up?)
+- [ ] procstar agents view
+  - [x] track time, heartbeat, open state in connection object
+  - [x] show time in web UI
+  - [ ] checkbox to show/hide closed connections
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens

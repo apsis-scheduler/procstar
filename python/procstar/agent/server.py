@@ -12,10 +12,11 @@ import websockets.server
 from   websockets.exceptions import ConnectionClosedError
 
 from   . import DEFAULT_PORT
-from   .conn import Connections, ProcstarInfo, SocketInfo
+from   .conn import Connections
 from   .conn import choose_connection, get_connection
 from   .proc import Processes, Process, ProcessDeletedError
 from   procstar import proto
+from   procstar.lib.time import now
 
 FROM_ENV = object()
 
@@ -134,6 +135,7 @@ class Server:
         Use this bound method with `websockets.server.serve()`.
         """
         assert ws.open
+        time = now()
 
         try:
             # Wait for a Register message.
@@ -165,12 +167,10 @@ class Server:
 
         # Add or re-add the connection.
         try:
-            procstar_info = ProcstarInfo(
-                conn        =register_msg.conn,
-                socket      =SocketInfo.from_ws(ws),
-                proc        =register_msg.proc,
+            conn = self.connections._add(
+                register_msg.conn, register_msg.proc, time, ws
             )
-            conn = self.connections._add(procstar_info, ws)
+            conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
             logger.error(str(exc))
             return
@@ -185,7 +185,12 @@ class Server:
             type, msg = proto.deserialize_message(msg)
             # Process the message.
             logger.info(f"recv: {msg}")
+            conn.info.stats.num_received += 1
             self.processes.on_message(conn.info, msg)
+
+        # Update stats.
+        conn.info.stats.connected = False
+        conn.info.stats.last_disconnect_time = now()
 
         await ws.close()
         assert ws.closed

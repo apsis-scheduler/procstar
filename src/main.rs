@@ -6,7 +6,7 @@ use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
 use procstar::http;
-use procstar::procs::{collect_results, start_procs, SharedProcs};
+use procstar::procs::{restrict_exe, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::shutdown::{install_signal_handler, SignalStyle};
@@ -62,7 +62,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
         };
 
         // Collect results.
-        let result = collect_results(procs).await;
+        let result = procs.collect_results();
 
         if args.print {
             // Print them.

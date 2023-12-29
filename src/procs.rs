@@ -334,6 +334,31 @@ impl SharedProcs {
             .collect::<BTreeMap<_, _>>()
     }
 
+    /// Removes all procs and returns their result.
+    pub fn collect_results(&self) -> res::Res {
+        let (procs, shutdown) = {
+            let mut p = self.0.borrow_mut();
+            let mut procs = BTreeMap::<ProcId, SharedProc>::new();
+            std::mem::swap(&mut procs, &mut p.procs);
+            (procs, p.shutdown_on_idle)
+        };
+
+        let res = procs
+            .iter()
+            .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
+            .collect::<BTreeMap<_, _>>();
+
+        procs.into_keys().for_each(|proc_id| {
+            self.notify(Notification::Delete(proc_id));
+        });
+
+        if shutdown {
+            self.set_shutdown();
+        }
+
+        res
+    }
+
     pub fn subscribe(&self) -> NotificationSub {
         NotificationSub {
             receiver: self.0.borrow().subs.subscribe(),
@@ -585,16 +610,3 @@ pub fn start_procs(
     Ok(tasks)
 }
 
-pub async fn collect_results(procs: &SharedProcs) -> res::Res {
-    let mut result = res::Res::new();
-
-    while let Some((proc_id, proc)) = procs.pop() {
-        let proc = Rc::try_unwrap(proc).unwrap().into_inner();
-        // Build the proc res.
-        result.insert(proc_id.clone(), proc.to_result());
-    }
-    // Nothing should be left running.
-    assert!(procs.len() == 0);
-
-    result
-}

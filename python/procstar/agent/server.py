@@ -249,15 +249,28 @@ class Server:
         return proc
 
 
+    async def send_signal(self, proc_id, signum):
+        try:
+            proc = self.processes[proc_id]
+        except KeyError:
+            raise ValueError(f"no process: {proc_id}")
+        conn = self.connections[proc.conn_id]
+
+        await conn.send(proto.ProcSignalRequest(proc_id, signum))
+
+
     async def delete(self, proc_id):
         """
         Deletes a process.
         """
-        # FIXME: No proc?
-        proc = self.processes[proc_id]
-        # FIXME: No connection?
+        try:
+            proc = self.processes[proc_id]
+        except KeyError:
+            raise ValueError(f"no process: {proc_id}")
         conn = self.connections[proc.conn_id]
+
         await conn.send(proto.ProcDeleteRequest(proc_id))
+
         # Wait for the deletion message.
         try:
             async for _ in proc.results:

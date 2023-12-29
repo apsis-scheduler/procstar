@@ -42,6 +42,13 @@ class ProcResultRequest:
 
 
 @dataclass
+class ProcSignalRequest:
+    proc_id: str
+    signum: int
+
+
+
+@dataclass
 class ProcDeleteRequest:
     proc_id: str
 
@@ -54,6 +61,7 @@ OUTGOING_MESSAGE_TYPES = {
             ProcStart,
             ProcidListRequest,
             ProcResultRequest,
+            ProcSignalRequest,
             ProcDeleteRequest,
     )
 }

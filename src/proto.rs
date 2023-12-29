@@ -5,6 +5,7 @@ use std::vec::Vec;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
+use crate::sig::Signum;
 use crate::spec;
 use crate::spec::ProcId;
 
@@ -97,6 +98,9 @@ pub enum IncomingMessage {
     /// Requests the current result of a process, which may be running.
     ProcResultRequest { proc_id: ProcId },
 
+    /// Requests sending a signal to a process.
+    ProcSignalRequest { proc_id: ProcId, signum: Signum },
+
     /// Requests deletion of a process's records.  The process may not be
     /// running.
     ProcDeleteRequest { proc_id: ProcId },
@@ -164,6 +168,26 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             } else {
                 let proc_id = proc_id.clone();
                 Some(OutgoingMessage::ProcUnknown { proc_id })
+            }
+        }
+
+        IncomingMessage::ProcSignalRequest {
+            ref proc_id,
+            signum,
+        } => {
+            if let Some(proc) = procs.get(&proc_id) {
+                if let Err(err) = proc.borrow().send_signal(signum) {
+                    Some(OutgoingMessage::IncomingMessageError {
+                        msg,
+                        err: err.to_string(),
+                    })
+                } else {
+                    None
+                }
+            } else {
+                Some(OutgoingMessage::ProcUnknown {
+                    proc_id: proc_id.clone(),
+                })
             }
         }
 

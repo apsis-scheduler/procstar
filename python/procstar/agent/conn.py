@@ -240,9 +240,9 @@ class Connections(Mapping, Subscribeable):
                 _ = asyncio.create_task(old_conn.ws.close())
 
             # Use the new websocket with the old connection object.
-            old_conn.ws = ws
-            old_conn.info.socket = socket_info
             conn = old_conn
+            conn.ws = ws
+            conn.info.socket = socket_info
 
             # Update stats.
             conn.info.stats.connected = True

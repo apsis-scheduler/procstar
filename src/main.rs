@@ -116,6 +116,11 @@ async fn main() {
         .init()
         .unwrap();
 
+    // Set the restricted executable, if any.
+    if let Some(exe) = args.restrict_exe.as_ref() {
+        restrict_exe(exe);
+    }
+
     // We run tokio in single-threaded mode.
     let local_set = tokio::task::LocalSet::new();
 

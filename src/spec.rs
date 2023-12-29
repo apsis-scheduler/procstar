@@ -225,6 +225,7 @@ impl Default for Fd {
 #[serde(default)]
 pub struct Proc {
     pub id: Option<String>,
+    pub exe: Option<String>,
     pub argv: Vec<String>,
     pub env: Env,
     pub fds: Vec<(String, Fd)>,

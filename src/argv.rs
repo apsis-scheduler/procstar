@@ -28,6 +28,10 @@ pub struct Args {
     )]
     pub log_level: Option<String>,
 
+    /// Only start processes with executable at PATH
+    #[arg(long, value_name = "PATH")]
+    pub restrict_exe: Option<String>,
+
     /// When no processes are running, print results and exit
     #[arg(short, long)]
     pub print: bool,

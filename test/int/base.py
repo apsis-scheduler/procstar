@@ -91,7 +91,7 @@ class Process(subprocess.Popen):
 
 
 
-def run(spec):
+def run(spec, *, args=()):
     spec = _thunk_jso(spec)
     with TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -103,9 +103,9 @@ def run(spec):
             [
                 str(PROCSTAR_EXE),
                 "--output", output_path,
+                *args,
                 spec_path,
             ],
-            stdout=subprocess.PIPE,
             env=os.environ | {"RUST_BACKTRACE": "1"},
         )
         assert output_path.is_file()
@@ -122,12 +122,12 @@ def run1(spec, *, proc_id="test"):
     :raise Errors:
       The process had errors.
     """
-    proc = run({"specs": {proc_id: spec}})[proc_id]
-    if proc["state"] == "error":
-        raise Errors(proc["errors"])
+    res = run({"specs": {proc_id: spec}})[proc_id]
+    if res["state"] == "error":
+        raise Errors(res["errors"])
     else:
-        assert proc["state"] == "terminated"
-        return proc
+        assert res["state"] == "terminated"
+        return res
 
 
 def run_spec(name):

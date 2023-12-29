@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
 use std::rc::Rc;
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
@@ -487,6 +488,20 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
 
 //------------------------------------------------------------------------------
 
+/// If some, `start_procs()` only starts a process with exactly this executable.
+static RESTRICTED_EXE: RwLock<Option<String>> = RwLock::new(None);
+
+/// Sets the restricted executable.
+pub fn restrict_exe(restricted_exe: &str) {
+    *RESTRICTED_EXE.write().unwrap() = Some(restricted_exe.to_string());
+}
+
+/// Returns the path to the executable to exec for the process.
+fn get_exe(spec: &spec::Proc) -> &str {
+    // Use the explicit exe, if given, else argv[0] per convention.
+    spec.exe.as_ref().unwrap_or(&spec.argv[0])
+}
+
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
 ///
@@ -514,6 +529,7 @@ pub fn start_procs(
 
     for (proc_id, spec) in specs.into_iter() {
         let env = environ::build(std::env::vars(), &spec.env);
+        let exe = get_exe(&spec);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
             error!("failed to create pipe: {}", err);
@@ -536,6 +552,15 @@ pub fn start_procs(
                 // True if we should finally exec.
                 let mut ok_to_exec = true;
 
+                // If a restricted executable is set, make sure ours matches.
+                if let Some(restricted_exe) = RESTRICTED_EXE.read().unwrap().as_ref() {
+                    if exe != restricted_exe {
+                        error_writer
+                            .try_write(format!("restricted executable: {}", restricted_exe));
+                        ok_to_exec = false;
+                    }
+                }
+
                 for (fd, fd_handler) in fd_handlers.into_iter() {
                     fd_handler.in_child().unwrap_or_else(|err| {
                         error_writer.try_write(format!("failed to set up fd {}: {}", fd, err));
@@ -551,10 +576,9 @@ pub fn start_procs(
                 }
 
                 if ok_to_exec {
-                    let exe = &spec.argv[0];
                     // execve() only returns with an error; on success, the program is
                     // replaced.
-                    let err = execve(exe.clone(), spec.argv.clone(), env).unwrap_err();
+                    let err = execve(exe.to_string(), spec.argv.clone(), env).unwrap_err();
                     error_writer.try_write(format!("execve failed: {}: {}", exe, err));
                 }
 

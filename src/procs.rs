@@ -337,6 +337,7 @@ impl SharedProcs {
 
     /// Removes all procs and returns their result.
     pub fn collect_results(&self) -> res::Res {
+        // Swap out all the procs.
         let (procs, shutdown) = {
             let mut p = self.0.borrow_mut();
             let mut procs = BTreeMap::<ProcId, SharedProc>::new();
@@ -344,15 +345,18 @@ impl SharedProcs {
             (procs, p.shutdown_on_idle)
         };
 
+        // Collect results.
         let res = procs
             .iter()
             .map(|(proc_id, proc)| (proc_id.clone(), proc.borrow().to_result()))
             .collect::<BTreeMap<_, _>>();
 
+        // Notify that all procs are being deleted.
         procs.into_keys().for_each(|proc_id| {
             self.notify(Notification::Delete(proc_id));
         });
 
+        // We're now empty, so shut down if flagged.
         if shutdown {
             self.set_shutdown();
         }
@@ -633,4 +637,3 @@ pub fn start_procs(
 
     Ok(tasks)
 }
-

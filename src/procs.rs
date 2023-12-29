@@ -500,6 +500,11 @@ pub fn restrict_exe(restricted_exe: &str) {
     *RESTRICTED_EXE.write().unwrap() = Some(restricted_exe.to_string());
 }
 
+/// Returns the restricted executable, if any.
+pub fn get_restricted_exe() -> Option<String> {
+    RESTRICTED_EXE.read().unwrap().clone()
+}
+
 /// Returns the path to the executable to exec for the process.
 fn get_exe(spec: &spec::Proc) -> &str {
     // Use the explicit exe, if given, else argv[0] per convention.

@@ -15,7 +15,7 @@ use url::Url;
 use crate::err::Error;
 use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
-use crate::procs::{Notification, NotificationSub, SharedProcs};
+use crate::procs::{Notification, NotificationSub, SharedProcs, get_restricted_exe};
 use crate::proto;
 
 //------------------------------------------------------------------------------
@@ -40,7 +40,8 @@ impl Connection {
         let url = url.clone();
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
         let group_id = group_id.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
-        let conn = proto::ConnectionInfo { conn_id, group_id };
+        let restricted_exe = get_restricted_exe();
+        let conn = proto::ConnectionInfo { conn_id, group_id, restricted_exe };
         let proc = ProcessInfo::new_self();
         Connection { url, conn, proc }
     }

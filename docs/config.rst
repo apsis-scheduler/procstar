@@ -3,6 +3,15 @@
 Configuring Procstar
 ====================
 
+Restricted Executable
+---------------------
+
+By default, Procstar can start a process with any executable permitted by the
+OS.  To restrict processes to a single process only, specify the `--restrict-exe
+PATH` command line option.  Any process whose executable doesn't match this path
+explicit fails with an error.
+
+
 WebSocket Connection
 --------------------
 

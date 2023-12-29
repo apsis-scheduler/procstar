@@ -17,6 +17,8 @@ pub struct ConnectionInfo {
     pub conn_id: String,
     /// Procstar group ID.
     pub group_id: String,
+    /// Restricted executable, if any.
+    pub restricted_exe: Option<String>,
 }
 
 //------------------------------------------------------------------------------

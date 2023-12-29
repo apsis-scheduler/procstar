@@ -77,6 +77,7 @@ def serialize_message(msg):
 class ConnectionInfo:
     conn_id: str
     group_id: str
+    restricted_exe: str | None
 
     def to_jso(self):
         return dict(self.__dict__)

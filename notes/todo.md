@@ -29,10 +29,15 @@
 - [x] add proc_id to metadata
 - [x] shutdown signal handlers also shut down HTTP/ws loops
 - [x] procstar request soft shutdown, when all procs are done (or cleaned up?)
-- [ ] procstar agents view
+- [x] procstar agents view
   - [x] track time, heartbeat, open state in connection object
   - [x] show time in web UI
-  - [ ] checkbox to show/hide closed connections
+  - [x] checkbox to show/hide closed connections
+  - [x] auto-refresh agents view
+- [x] specify exe explicitly
+- [x] command-line exe whitelist
+- [ ] shell command variant of procstar program
+- [ ] implement procstar program signal
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
@@ -43,7 +48,7 @@
     - merge `__starting_tasks` and `__running_tasks` into `__run_tasks`
     - use `TaskGroup` for `__waiting_tasks`
 - [x] proxy old `Program` to `IncrementalProgram` and retire the old logic
-- [ ] implement procstar program signal
+- [ ] procstar HTTP client tool
 - [ ] int test for procstar progam, including reconnect
 - [ ] manage outputs better, especially when they're large
     - don't include captured results in output
@@ -51,18 +56,13 @@
     - what is the appropriate UI logic?
 - [ ] output compression in procstar
 - [ ] clean up `Run.STATE`
-- [ ] shell command variant of procstar program
 - [ ] push intermediate Procstar metadata to running runs
 - [ ] manage file descriptor inheritance flag
-- [ ] Procstar web UI
-- [ ] specify exe explicitly
-- [ ] command-line exe whitelist
 - [ ] don't (necessarily) include output text in Procstar res; get separately
 - [ ] replace sigchld_receiver with pidfd-based listener that signals when a
       specific pid completes, so `wait_for_proc()` can inspect it before `wait`ing
 - [ ] bad exe and other starting failures => error state in Apsis
        (this requires fixing procstar)
-- [ ] procstar HTTP client tool
 - [ ] HTTP endpoint describing WS agent?
 
 ### Cleanups

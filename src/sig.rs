@@ -18,6 +18,7 @@ pub const SIGINT: Signum = 2;
 pub const SIGQUIT: Signum = 3;
 pub const SIGKILL: Signum = 9;
 pub const SIGUSR1: Signum = 10;
+pub const SIGUSR2: Signum = 12;
 pub const SIGTERM: Signum = 15;
 
 #[rustfmt::skip]
@@ -36,7 +37,7 @@ lazy_static! {
             ("SIGKILL"  , SIGKILL),
             ("SIGUSR1"  , SIGUSR1),
             ("SIGSEGV"  , 11),
-            ("SIGUSR2"  , 12),
+            ("SIGUSR2"  , SIGUSR2),
             ("SIGPIPE"  , 13),
             ("SIGALRM"  , 14),
             ("SIGTERM"  , SIGTERM),

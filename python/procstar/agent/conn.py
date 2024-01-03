@@ -153,6 +153,9 @@ class Connection:
     async def send(self, msg):
         data = serialize_message(msg)
 
+        if not self.ws.open:
+            raise RuntimeError("connection not open")
+
         try:
             await self.ws.send(data)
         except ConnectionClosedError:

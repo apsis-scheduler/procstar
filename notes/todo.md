@@ -39,46 +39,54 @@
 - [ ] shell command variant of procstar program
 - [x] implement procstar program signal
 - [x] on agent reconnection, update results
-- [ ] if a connection goes away, error its process's runs after a while
-      - age out connections in `procstar.agent.server`
-      - notify proc and raise from `anext(results)` when this happens
-      - erorr out the run
 - [x] intermediate meta updates to running program
 - [x] intermediate output updates to running program
 - [x] intermediate cleanups
     - merge `__starting_tasks` and `__running_tasks` into `__run_tasks`
     - use `TaskGroup` for `__waiting_tasks`
 - [x] proxy old `Program` to `IncrementalProgram` and retire the old logic
-- [ ] procstar HTTP client tool
-- [ ] int test for procstar progam, including reconnect
+- [x] merge feature/procstar-ws-incremental and get result updates under control
+- [x] bad exe and other starting failures => error state in Apsis
+- [x] push intermediate Procstar metadata to running runs
+- [ ] if a connection goes away, error its process's runs after a while
+      - age out connections in `procstar.agent.server`
+      - notify proc and raise from `anext(results)` when this happens
+      - erorr out the run
+- [ ] evaluate & clean up FIXMEs
+    - [ ] procstar Rust
+    - [ ] procstar Python
+    - [x] Apsis procstar agent
+- [ ] Procstar conda package
+- [ ] don't (necessarily) include output text in Procstar res; get separately
 - [ ] manage outputs better, especially when they're large
     - don't include captured results in output
     - API for requesting output
     - what is the appropriate UI logic?
 - [ ] output compression in procstar
-- [ ] clean up `Run.STATE`
-- [ ] push intermediate Procstar metadata to running runs
-- [ ] manage file descriptor inheritance flag
-- [ ] don't (necessarily) include output text in Procstar res; get separately
+- [ ] live-update run log in web UI: either cram this into `RunStore.query_live()`, or create some other protocol?
 - [ ] replace sigchld_receiver with pidfd-based listener that signals when a
       specific pid completes, so `wait_for_proc()` can inspect it before `wait`ing
-- [ ] bad exe and other starting failures => error state in Apsis
-       (this requires fixing procstar)
+- [ ] procstar HTTP client tool
+- [ ] clean up `Run.STATE`
+- [ ] manage file descriptor inheritance flag
 - [ ] HTTP endpoint describing WS agent?
+
 
 ### Cleanups
 
 - [ ] use numerical fds only in specs and results (no stdin/stdout/stderr)
 - [ ] if execve fails, return error code to parent for inclusion in result
-- [ ] age out old connections
-- [ ] should procstar ping the ws server?
 
 
 ### Features
 
+- [ ] API for retrieving fd text (raw, UTF-8, compressed)
+- [ ] API for including fd text in proc results, or not
+- [ ] limit size (start? end? both?) of memory capture
 - [x] include proc ID and group ID in results
 - [x] include info about procstar instance in results: pid host user
 - [x] include rusage or similar (from /proc) in results before completion
+- [ ] close all fds by default?  (see syscall `close_range`)
 - [ ] add starting CWD to result
 - [ ] add env to result
 - [x] measure start, stop, elapsed time and add to result
@@ -86,12 +94,8 @@
 - [ ] pdeath_sig
 - [ ] signal disposition
 - [ ] perf counters in results; see https://github.com/torvalds/linux/blob/master/tools/perf/design.txt
-- [ ] API for retrieving fd text (raw, UTF-8, compressed)
-- [ ] API for including fd text in proc results, or not
 - [x] API for cleaning up jobs
-- [ ] limit size (start? end? both?) of memory capture
 - [ ] set pipe buffer sizes to max; adjust pipe read sizes
-- [ ] close all fds by default?  (see syscall `close_range`)
 - [ ] accept a mapping for fds in spec (optional, since order matters)
 - [ ] capture fd to named (not unlinked) temp file
 - [ ] make `get_result` async

@@ -278,7 +278,14 @@ pub fn set_cloexec(fd: RawFd) -> io::Result<()> {
 
 pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
     match unsafe { libc::kill(pid, signum) } {
-        -1 => Err(io::Error::last_os_error()),
+        -1 => {
+            let err = io::Error::last_os_error();
+            Err(if err.raw_os_error() == Some(3) {  // 3 = ESRCH
+                io::Error::new(io::ErrorKind::NotFound, "No process or process group")
+            } else {
+                err
+            })
+        },
         0 => Ok(()),
         ret => panic!("kill returned {}", ret),
     }

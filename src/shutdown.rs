@@ -46,13 +46,13 @@ pub fn install_signal_handler(
             SignalStyle::TermThenKill => {
                 // Send SIGTERM and wait for processes to terminate.
                 info!("terminating processes");
-                _ = procs.send_signal(SIGTERM);
+                _ = procs.send_signal_all(SIGTERM);
 
                 info!("waiting for running processes");
                 if timeout(TERM_TIMEOUT, procs.wait_running()).await.is_err() {
                     warn!("running processes remain; killing");
                     // Send SIGKILL to stragglers.
-                    _ = procs.send_signal(SIGKILL);
+                    _ = procs.send_signal_all(SIGKILL);
                 }
 
                 // Final wait for processes.
@@ -66,7 +66,7 @@ pub fn install_signal_handler(
 
             SignalStyle::Kill => {
                 info!("killing processes");
-                _ = procs.send_signal(SIGKILL);
+                _ = procs.send_signal_all(SIGKILL);
 
                 // Final wait for processes.
                 if timeout(KILL_TIMEOUT, procs.wait_idle()).await.is_err() {

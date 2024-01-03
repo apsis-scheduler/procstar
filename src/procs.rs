@@ -30,6 +30,7 @@ use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
+    NoProc,
     NoProcId(ProcId),
     ProcRunning(ProcId),
     ProcNotRunning(ProcId),
@@ -39,6 +40,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Io(err) => write!(f, "error: {}", err),
+            Error::NoProc => write!(f, "no process"),
             Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
             Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
             Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
@@ -93,7 +95,14 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
-        Ok(kill(self.pid, signum)?)
+        match kill(self.pid, signum) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(Error::NoProc),
+            Err(err) => {
+                error!("kill: {}", err.kind());
+                Err(Error::from(err))
+            }
+        }
     }
 
     pub fn get_state(&self) -> State {
@@ -378,7 +387,7 @@ impl SharedProcs {
     }
 
     /// Sends a signal to all running procs.
-    pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
+    pub fn send_signal_all(&self, signum: Signum) -> Result<(), Error> {
         let mut result = Ok(());
         self.0.borrow().procs.iter().for_each(|(_, proc)| {
             let proc = proc.borrow();

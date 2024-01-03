@@ -460,11 +460,11 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
         // FIXME: HACK This won't do at all.  We need a way (pidfd?) to
         // determine that this pid has terminated without calling wait(), so we
         // can get its /proc/pid/stat first.
-        // FIXME: Unwrap.
         let proc_stat = ProcStat::load_or_log(pid);
 
         // Check if this pid has terminated, with a nonblocking wait.
         if let Some(wait_info) = wait(pid, false) {
+            info!("proc reaped: {}", pid);
             // Take timestamps right away.
             let stop_time = Utc::now();
             let stop_instant = Instant::now();

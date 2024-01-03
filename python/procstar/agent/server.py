@@ -175,6 +175,17 @@ class Server:
             logger.error(str(exc))
             return
 
+        # Request results for all procs on this connection.
+        try:
+            for proc_id, proc in self.processes.items():
+                if proc.conn_id == register_msg.conn.conn_id:
+                    await conn.send(proto.ProcResultRequest(proc_id))
+
+        except Exception as exc:
+            logger.warning(f"{ws}: {exc}", exc_info=True)
+            await ws.close()
+            return
+
         # Receive messages.
         while True:
             try:

@@ -38,7 +38,7 @@
 - [x] command-line exe whitelist
 - [ ] shell command variant of procstar program
 - [x] implement procstar program signal
-      - [ ] check/fix signal after reconnect
+- [x] on agent reconnection, update results
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens

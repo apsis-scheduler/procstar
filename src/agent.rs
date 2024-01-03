@@ -263,7 +263,8 @@ pub async fn run(
         // Connected.  There's now a websocket sender available.
         sender.replace(Some(new_sender));
 
-        // Once successfully connected, reset the count of attempts.
+        // Once successfully connected, reset the reconnect interval and count.
+        interval= cfg.interval_start;
         count = 0;
 
         loop {

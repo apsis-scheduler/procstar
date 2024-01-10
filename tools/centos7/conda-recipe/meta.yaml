@@ -1,0 +1,32 @@
+# This recipe presupposes Rust and assumes RUSTUP_HOME is set accordingly.
+
+{% set version = "0.1.0" %}
+
+about:
+  home: https://github.com/alexhsamuel/procstar
+  license_family: BSD
+  license: BSD-3-Clause
+  summary: A process nanny and remote process execution agent.
+
+package:
+  name: procstar
+  version: {{ version }}
+
+source:
+  git_url: https://github.com/alexhsamuel/procstar.git
+  git_rev: v{{ version }}
+
+requirements:
+  host:
+    - python
+    - pip
+
+build:
+  number: 0
+  script_env:
+    - RUSTUP_HOME
+  script:
+    - cargo build --release
+    - install -d $PREFIX/bin && install -t $PREFIX/bin target/release/procstar
+    - {{ PYTHON }} -m pip install . -vv
+

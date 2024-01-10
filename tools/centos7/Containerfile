@@ -1,0 +1,24 @@
+FROM centos:7.9.2009
+
+# Install OpenSSL and Devtoolset.
+RUN yum group install "Development Tools" -y && \
+    yum install openssl openssl-devel devtoolset-7 -y && \
+    yum clean all
+
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+ENV PATH $CARGO_HOME/bin:/opt/rh/devtoolset-7/root/usr/bin:$PATH
+
+# Install Rustup and Rust.
+RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \
+    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable && \
+    chmod -R a=rwX $CARGO_HOME
+
+# Install Miniconda.
+RUN curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -sSf -o miniconda.sh && \
+    bash ./miniconda.sh -b -u -p /conda && \
+    rm miniconda.sh && \
+    /conda/bin/conda install conda-build -y
+
+ENV PATH /conda/bin:$PATH
+
+WORKDIR /source

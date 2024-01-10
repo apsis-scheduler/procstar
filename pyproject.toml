@@ -39,8 +39,19 @@ testpaths = "test/"
 select = ["F", "E999"]
 
 [tool.bumpversion]
-current_version = "0.1.2"
+current_version = "0.1.0"
 commit = true
 tag = true
 tag_name = "v{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "python/procstar/__init__.py"
+
+[[tool.bumpversion.files]]
+filename = "Cargo.toml"
+search = "version = \"{current_version}\" # procstar"
+replace = "version = \"{new_version}\" # procstar"
+
+[[tool.bumpversion.files]]
+filename = "tools/conda-recipe/meta.yaml"
 

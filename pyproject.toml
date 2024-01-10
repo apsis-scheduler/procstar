@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "procstar"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Run my stuff!"
 readme = "README.md"
 license = {text = "MIT License"}
@@ -28,6 +28,9 @@ Repository = "https://github.com/alexhsamuel/procstar"
 
 [tool.setuptools]
 package-dir = {"" = "python"}
+
+[tool.setuptools.dynamic]
+version = {attr = "procstar.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = "test/"

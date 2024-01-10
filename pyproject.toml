@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "procstar"
-version = "0.1.0"
+version = "0.0.0"
 description = "Run my stuff!"
 readme = "README.md"
 license = {text = "MIT License"}
@@ -21,7 +21,7 @@ dependencies = [
     "orjson >=3",
     "websockets >=10",
 ]
-optional-dependencies = {dev = ["pytest", "pytest-asyncio", "bump2version", "sphinx", "sphinx-rtd-theme"]}
+optional-dependencies = {dev = ["pytest", "pytest-asyncio", "bump-my-version", "sphinx", "sphinx-rtd-theme"]}
 
 [project.urls]
 Repository = "https://github.com/alexhsamuel/procstar"

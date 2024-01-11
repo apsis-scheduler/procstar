@@ -30,7 +30,9 @@ def get_procstar_path() -> Path:
     try:
         path = os.environ["PROCSTAR"]
     except KeyError:
-        path = shutil.which("procstar")
+        # Note: shutils.which() requires /usr/bin/which, which isn't in the
+        # default CentOS7 image.
+        path = distutils.spawn.find_executable("procstar")
         if path is None:
             path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
 

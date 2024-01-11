@@ -20,7 +20,7 @@ def test_env_override():
 
 def test_env_inherit_names():
     # The USER and SHELL env vars should already be set.
-    user = os.environ["USER"]
+    user = os.environ.setdefault("USER", "testuser")
     assert "SHELL" in os.environ
     res = run_spec("test_env_inherit_names.json")["test"]
     # Some vars not present, so printenv returns a failure code.

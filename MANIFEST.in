@@ -1,0 +1,2 @@
+include python/procstar/agent/localhost.crt
+include python/procstar/agent/localhost.key

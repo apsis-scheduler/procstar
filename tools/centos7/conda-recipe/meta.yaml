@@ -40,6 +40,9 @@ test:
     - procstar.agent
   requires:
     - pytest
+    - pytest-asyncio
+  source_files:
+    - test/int
   commands:
-    - pytest -v {{ SRC_DIR }}/test/int
+    - pytest -v test/int
 

@@ -5,6 +5,7 @@ import logging
 import os
 from   pathlib import Path
 import secrets
+import shutil
 import signal
 import socket
 import tempfile
@@ -29,8 +30,9 @@ def get_procstar_path() -> Path:
     try:
         path = os.environ["PROCSTAR"]
     except KeyError:
-        # FIXME: This is not the right place, or the right way.
-        path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
+        path = shutil.which("procstar")
+        if patch is None:
+            path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
 
     assert os.access(path, os.X_OK), f"missing exe {path}"
     logging.info(f"using {path}")

@@ -31,7 +31,7 @@ def get_procstar_path() -> Path:
         path = os.environ["PROCSTAR"]
     except KeyError:
         path = shutil.which("procstar")
-        if patch is None:
+        if path is None:
             path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
 
     assert os.access(path, os.X_OK), f"missing exe {path}"

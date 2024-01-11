@@ -2,15 +2,7 @@
 
 # Builds Procstar in a CentOS7 container and wraps it into a conda package.
 #
-# Usage: build-conda.sh VERSION
-#
-# where v$VERSION is a git tag.
-
-version=$1
-if [[ -z "$version" ]]; then
-    echo "Usage: $0 VERSION" >&2
-    exit 1
-fi
+# Usage: build-conda.sh
 
 dir=$(dirname $(realpath $0))
 root="$(dirname $(dirname $dir))"

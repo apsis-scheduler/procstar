@@ -53,5 +53,5 @@ search = "version = \"{current_version}\" # procstar"
 replace = "version = \"{new_version}\" # procstar"
 
 [[tool.bumpversion.files]]
-filename = "tools/conda-recipe/meta.yaml"
+filename = "tools/centos7/conda-recipe/meta.yaml"
 

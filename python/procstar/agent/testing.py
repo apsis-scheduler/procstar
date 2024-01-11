@@ -1,11 +1,11 @@
 import asyncio
 from   contextlib import asynccontextmanager, suppress
+import distutils.spawn
 import functools
 import logging
 import os
 from   pathlib import Path
 import secrets
-import shutil
 import signal
 import socket
 import tempfile

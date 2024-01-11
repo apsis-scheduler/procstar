@@ -2,7 +2,7 @@ FROM centos:7.9.2009
 
 # Install OpenSSL and Devtoolset.
 RUN yum group install "Development Tools" -y && \
-    yum install openssl openssl-devel devtoolset-7 -y && \
+    yum install which openssl openssl-devel devtoolset-7 -y && \
     yum clean all
 
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo

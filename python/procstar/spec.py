@@ -2,7 +2,7 @@ import functools
 import json
 import os
 from   pathlib import Path
-import subprocess
+import shutil
 import sys
 import uuid
 
@@ -10,9 +10,8 @@ import uuid
 
 @functools.cache
 def get_bash_path():
-    try:
-        path = subprocess.check_output("which bash", shell=True, text=True)
-    except subprocess.CalledProcessError:
+    path = shutil.which("bash")
+    if path is None:
         raise RuntimeError("no bash in PATH") from None
     path = Path(path.strip())
     assert path.name == "bash"

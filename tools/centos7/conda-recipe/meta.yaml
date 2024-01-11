@@ -20,6 +20,9 @@ requirements:
   host:
     - python
     - pip
+  run:
+    - orjson >=3
+    - websockets >=10
 
 build:
   number: 0
@@ -29,4 +32,13 @@ build:
     - cargo build --release
     - install -d $PREFIX/bin && install -t $PREFIX/bin target/release/procstar
     - {{ PYTHON }} -m pip install . -vv
+
+test:
+  imports:
+    - procstar
+    - procstar.agent
+  requires:
+    - pytest
+  commands:
+    - pytest -v test/int
 

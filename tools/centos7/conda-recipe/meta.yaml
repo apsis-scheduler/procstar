@@ -21,6 +21,7 @@ requirements:
     - python
     - pip
   run:
+    - python
     - orjson >=3
     - websockets >=10
 

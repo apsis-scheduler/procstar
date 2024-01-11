@@ -5,7 +5,7 @@
 # Usage: build-conda.sh
 
 dir=$(dirname $(realpath $0))
-root="$(dirname $(dirname $dir))"
+root=$(dirname $(dirname $dir))
 
 target=$root/target/centos7-conda
 

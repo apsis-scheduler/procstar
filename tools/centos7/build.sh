@@ -3,7 +3,7 @@
 # Builds Procstar in a CentOS7 container.
 
 dir=$(dirname $(realpath $0))
-root="$(dirname $(dirname $dir))"
+root=$(dirname $(dirname $dir))
 target=$root/target/centos7
 
 # Clean up previous build products.

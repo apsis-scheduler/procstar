@@ -41,5 +41,5 @@ test:
   requires:
     - pytest
   commands:
-    - pytest -v test/int
+    - pytest -v {{ SRC_DIR }}/test/int
 

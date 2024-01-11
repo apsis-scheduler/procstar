@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from   pathlib import Path
+import procstar.agent.testing
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ log = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
-PROCSTAR_EXE = Path(__file__).parents[2] / "target/debug/procstar"
+PROCSTAR_EXE = procstar.agent.testing.get_procstar_path()
 SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 

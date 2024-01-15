@@ -9,8 +9,6 @@ use crate::sys::{
     getppid, getuid, BOOT_TIME, PAGE_SIZE,
 };
 
-// FIXME: Use getpwuid and getgrgid to implement username and groupname.
-
 //------------------------------------------------------------------------------
 
 /// General information about a process.

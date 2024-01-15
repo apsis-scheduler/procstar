@@ -8,6 +8,7 @@ use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
 use crate::spec::ProcId;
+use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
 
@@ -26,14 +27,6 @@ pub struct ConnectionInfo {
 
 pub const DEFAULT_PORT: u32 = 59789;
 pub const DEFAULT_GROUP: &str = "default";
-
-// FIXME: Elsewhere.
-fn getenv(name: &str) -> Option<String> {
-    std::env::vars()
-        .filter(|(n, _)| n == name)
-        .next()
-        .map(|(_, v)| v)
-}
 
 /// Expands the agent server hostname.
 pub fn expand_hostname(hostname: &Option<String>) -> Option<String> {

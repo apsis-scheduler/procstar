@@ -371,3 +371,14 @@ lazy_static! {
     };
     pub static ref PAGE_SIZE: u64 = (unsafe { libc::sysconf(libc::_SC_PAGESIZE) }) as u64;
 }
+
+//------------------------------------------------------------------------------
+
+/// Returns the value of an environment variable.
+pub fn getenv(name: &str) -> Option<String> {
+    std::env::vars()
+        .filter(|(n, _)| n == name)
+        .next()
+        .map(|(_, v)| v)
+}
+

@@ -5,7 +5,7 @@ use crate::spec;
 
 //------------------------------------------------------------------------------
 
-pub type Env = BTreeMap<String, String>; // FIXME: Use OsString instead?
+pub type Env = BTreeMap<String, String>;
 
 lazy_static! {
     /// Env vars that are not inherited.

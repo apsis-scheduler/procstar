@@ -91,7 +91,7 @@ pub struct ProcStat {
     /// Group ID of process group.
     pub pgrp: gid_t,
     /// Session ID.
-    pub session: u32, // FIXME
+    pub session: pid_t,
     /// Controlling terminal (major, minor) device number.
     pub tty_nr: (u16, u16),
     /// Group ID of foreground process group on controlling terminal.
@@ -186,8 +186,6 @@ impl ProcStat {
     pub fn parse(text: &str) -> Self {
         let (pid, text) = text.split_once(' ').unwrap();
         let pid = pid.parse::<pid_t>().unwrap();
-
-        // FIXME: Convert some of these to proper units.
 
         let (_, text) = text.split_once('(').unwrap();
         let (comm, text) = text.split_once(')').unwrap();

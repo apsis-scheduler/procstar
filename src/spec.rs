@@ -52,7 +52,7 @@ type Result<T> = std::result::Result<T, Error>;
 pub enum EnvInherit {
     None,
     All,
-    Vars(Vec<String>), // FIXME: Use OsString instead?
+    Vars(Vec<String>),
 }
 
 impl Default for EnvInherit {

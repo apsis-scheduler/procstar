@@ -280,12 +280,13 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
     match unsafe { libc::kill(pid, signum) } {
         -1 => {
             let err = io::Error::last_os_error();
-            Err(if err.raw_os_error() == Some(3) {  // 3 = ESRCH
+            // 3 = ESRCH
+            Err(if err.raw_os_error() == Some(3) {
                 io::Error::new(io::ErrorKind::NotFound, "No process or process group")
             } else {
                 err
             })
-        },
+        }
         0 => Ok(()),
         ret => panic!("kill returned {}", ret),
     }
@@ -293,10 +294,19 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
 
 //------------------------------------------------------------------------------
 
-// FIXME: Don't use nix.
 pub fn get_username() -> Option<String> {
-    let euid = nix::unistd::Uid::effective();
-    nix::unistd::User::from_uid(euid).unwrap().map(|u| u.name)
+    let euid = geteuid();
+    let passwd = unsafe { libc::getpwuid(euid) };
+    if passwd.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { core::ffi::CStr::from_ptr((*passwd).pw_name) }
+                .to_str()
+                .unwrap()
+                .to_owned(),
+        )
+    }
 }
 
 /// Returns the username of the effective UID, or the stringified effective UID
@@ -305,10 +315,14 @@ pub fn get_username_safe() -> String {
     get_username().unwrap_or_else(|| geteuid().to_string())
 }
 
-// FIXME: Don't use nix.
 pub fn get_groupname() -> Option<String> {
-    let egid = nix::unistd::Gid::effective();
-    nix::unistd::Group::from_gid(egid).unwrap().map(|g| g.name)
+    let egid = getegid();
+    let group = unsafe { libc::getgrgid(egid) };
+    if group.is_null() {
+        None
+    } else {
+        Some(unsafe { core::ffi::CStr::from_ptr((*group).gr_name) }.to_str().unwrap().to_owned())
+    }
 }
 
 const HOST_NAME_MAX: usize = 64;
@@ -357,3 +371,14 @@ lazy_static! {
     };
     pub static ref PAGE_SIZE: u64 = (unsafe { libc::sysconf(libc::_SC_PAGESIZE) }) as u64;
 }
+
+//------------------------------------------------------------------------------
+
+/// Returns the value of an environment variable.
+pub fn getenv(name: &str) -> Option<String> {
+    std::env::vars()
+        .filter(|(n, _)| n == name)
+        .next()
+        .map(|(_, v)| v)
+}
+

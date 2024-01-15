@@ -264,7 +264,7 @@ pub async fn run(
         sender.replace(Some(new_sender));
 
         // Once successfully connected, reset the reconnect interval and count.
-        interval= cfg.interval_start;
+        interval = cfg.interval_start;
         count = 0;
 
         loop {

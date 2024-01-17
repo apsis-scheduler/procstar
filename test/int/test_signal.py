@@ -28,6 +28,7 @@ def test_shutdown_signal(signum):
 
     # Start procstar.
     proc = Process({"specs": specs})
+    time.sleep(0.1)
     # Send the signal.
     proc.send_signal(signum)
     res = proc.wait_result()
@@ -47,6 +48,7 @@ def test_idle_signal():
 
     # Start procstar.
     proc = Process({"specs": specs})
+    time.sleep(0.1)
     # Send the signal.
     proc.send_signal(signal.SIGUSR1)
     res = proc.wait_result()

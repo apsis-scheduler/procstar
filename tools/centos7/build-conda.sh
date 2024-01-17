@@ -21,7 +21,7 @@ podman run --rm \
        -v "$dir/conda-recipe:/source" -v "$target:/conda/conda-bld" \
        --workdir /root \
        centos7-cargo \
-       conda build /source
+       conda build --python 3.10 /source
 
 echo
 echo conda package: $(ls $target/linux-64/*.tar.bz2)

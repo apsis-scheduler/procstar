@@ -1,6 +1,8 @@
 FROM centos:7.9.2009
 
-# Install things we need to build.
+# Install things we need to build or run.
+# - Procstar's test setup uses `which` to find executables.
+# - The Rust `native-tls` crate's `vendor` feature includes a vendored OpenSSL, which requires IPC::Cmd to build from source.
 RUN yum group install "Development Tools" -y && \
     yum install which devtoolset-7 perl-IPC-Cmd -y && \
     yum clean all

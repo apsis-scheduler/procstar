@@ -1,8 +1,8 @@
 FROM centos:7.9.2009
 
-# Install OpenSSL and Devtoolset.
+# Install things we need to build.
 RUN yum group install "Development Tools" -y && \
-    yum install which openssl openssl-devel devtoolset-7 -y && \
+    yum install which devtoolset-7 perl-IPC-Cmd -y && \
     yum clean all
 
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo

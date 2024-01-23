@@ -111,6 +111,7 @@ async def test_run_procs():
         assert ress["s1"].fds.stdout.text == ""
         assert 0.25 < ress["s0"].times.elapsed < 0.5
         assert 0.75 < ress["s1"].times.elapsed < 1.0
+        print([ r.fds.stderr.text for r in ress.values() ])
         assert all( r.fds.stderr.text == "" for r in ress.values() )
 
 

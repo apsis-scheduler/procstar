@@ -92,6 +92,9 @@ class Assembly:
         # by conn_id.
         self.conn_procs = {}
 
+        # Temporary files.
+        self.temp_dir = tempfile.TemporaryDirectory()
+
 
     async def start_server(self):
         """
@@ -194,8 +197,13 @@ class Assembly:
             # Start the processes.
             for group_id, conn_id in conns:
                 argv, env = self._build(conn_id, group_id, access_token, args)
-                # FIXME: cwd=tmp_dir
-                proc = await asyncio.create_subprocess_exec(*argv, env=env)
+                conn_dir = Path(self.temp_dir.name) / conn_id
+                conn_dir.mkdir()
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    cwd=conn_dir,
+                    env=env,
+                )
                 procs.add(proc)
                 self.conn_procs[conn_id] = proc
 
@@ -265,6 +273,7 @@ class Assembly:
         """
         await self.stop_instances()
         await self.stop_server()
+        self.temp_dir.cleanup()
 
 
     @classmethod

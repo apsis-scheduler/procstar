@@ -54,6 +54,17 @@ class Proc:
             "2": "stderr",
         }
 
+        OPEN_FLAGS = {
+            "Default",
+            "Read",
+            "Write",
+            "Create",
+            "Replace",
+            "CreateAppend",
+            "Append",
+            "ReadWrite",
+        }
+
         def normalize(fd):
             """
             Normalizes a fd number or name.
@@ -95,7 +106,9 @@ class Proc:
         class Null:
 
             def __init__(self, flags="Default"):
-                self.__flags = flags  # FIXME: Validate.
+                if flags not in Proc.Fd.OPEN_FLAGS:
+                    raise ValueError(f"unknown flags: {flags}")
+                self.__flags = flags
 
 
             def to_jso(self):
@@ -110,8 +123,10 @@ class Proc:
         class File:
 
             def __init__(self, path, flags="Default", mode=0o666):
+                if flags not in Proc.Fd.OPEN_FLAGS:
+                    raise ValueError(f"unknown flags: {flags}")
+
                 self.__path = str(path)
-                # FIXME: Validate.
                 self.__flags = str(flags)
                 self.__mode = int(mode)
 
@@ -130,7 +145,10 @@ class Proc:
         class Dup:
 
             def __init__(self, fd):
-                self.__fd = fd  # FIXME: Validate.
+                fd = int(fd)
+                if not 0 <= fd:
+                    raise ValueError(f"bad fd: {fd}")
+                self.__fd = fd
 
 
             def to_jso(self):
@@ -144,8 +162,14 @@ class Proc:
 
         class Capture:
 
+            MODES = {"tempfile", "memory"}
+            FORMATS = {"text", "base64"}
+
             def __init__(self, mode, format):
-                # FIXME: Validate.
+                if mode not in self.MODES:
+                    raise ValueError(f"bad mode: {mode}")
+                if format not in self.FORMATS:
+                    raise ValueError(f"bad format: {format}")
                 self.__mode = mode
                 self.__format = format
 

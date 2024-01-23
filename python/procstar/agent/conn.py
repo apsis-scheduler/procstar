@@ -162,7 +162,6 @@ class Connection:
             assert self.ws.closed
             # Connection closed.  Don't forget about it; it may reconnect.
             logger.warning(f"{self.info.socket}: connection closed")
-            # FIXME: Mark it as closed?  Or is its internal closed flag enough?
             # FIXME: Think carefully the temporarily dropped connection logic.
         else:
             self.info.stats.num_sent += 1

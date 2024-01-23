@@ -111,12 +111,12 @@ async def test_proc_connect_timeout():
 
         # Don't start the server, but start an instance.
         with pytest.raises(ProcstarError):
-            await asm.start_instance()
+            await asm.start_procstar()
 
         # Start the server.
         await asm.start_server()
         # Now it should work.
-        await asm.start_instance()
+        await asm.start_procstar()
 
 
 if __name__ == "__main__":

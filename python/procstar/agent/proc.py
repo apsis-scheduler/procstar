@@ -196,7 +196,6 @@ class Processes(Mapping):
                 logger.error(f"msg unexpected: {msg}")
 
             case proto.IncomingMessageError():
-                # FIXME: Implement.
                 # FIXME: Proc-specific errors.
                 logger.error(f"msg error: {msg.err}")
 

@@ -174,8 +174,7 @@ class Assembly:
         )
 
 
-    # FIXME: Rename to `start_procstars()`.
-    async def start_instances(self, counts, *, access_token=DEFAULT, args=[]):
+    async def start_procstars(self, counts, *, access_token=DEFAULT, args=[]):
         """
         Starts procstar instances and waits for them to connect.
 
@@ -232,11 +231,11 @@ class Assembly:
                     task.cancel()
 
 
-    def start_instance(self, *, group_id=proto.DEFAULT_GROUP, args=[]):
+    def start_procstar(self, *, group_id=proto.DEFAULT_GROUP, args=[]):
         """
         Starts a single procstar instance.
         """
-        return self.start_instances({group_id: 1}, args=args)
+        return self.start_procstars({group_id: 1}, args=args)
 
 
     async def stop_instance(self, conn_id):
@@ -279,7 +278,7 @@ class Assembly:
         """
         asm = cls(access_token=access_token)
         await asm.start_server()
-        await asm.start_instances(counts)
+        await asm.start_procstars(counts)
         try:
             yield asm
         finally:

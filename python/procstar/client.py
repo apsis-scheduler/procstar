@@ -90,7 +90,7 @@ class Client:
         session.mount(
             "http://",
             requests.adapters.HTTPAdapter(
-                max_retries=requests.adapters.Retry(total=5),
+                max_retries=requests.adapters.Retry(total=5, backoff_factor=1),
             )
         )
         self.__session  = session

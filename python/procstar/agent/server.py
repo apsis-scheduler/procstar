@@ -106,7 +106,7 @@ class Server:
             access_token = os.environ.get("PROCSTAR_AGENT_TOKEN", "")
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        if tls_cert is not None:
+        if cert_path is not None:
             logger.info(f"using TLS cert {cert_path} key {key_path}")
             ssl_context.load_cert_chain(cert_path, key_path)
 

@@ -49,6 +49,9 @@ pub struct Args {
     /// Run an HTTP service
     #[arg(short, long)]
     pub serve: bool,
+    /// Serve HTTP on PORT
+    #[arg(long, value_name = "PORT", default_value_t = 3000)]
+    pub serve_port: u16,
 
     /// Connect to a server as an agent
     #[arg(short, long)]

@@ -19,7 +19,7 @@ async fn maybe_run_http(args: &argv::Args, procs: &SharedProcs) {
     if args.serve {
         // Run the HTTP server until we receive a shutdown signal.
         tokio::select! {
-            res = http::run_http(procs.clone()) => { res.unwrap() },
+            res = http::run_http(procs.clone(), args.serve_port) => { res.unwrap() },
             _ = procs.wait_for_shutdown() => {},
         }
     }

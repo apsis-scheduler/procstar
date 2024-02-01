@@ -203,8 +203,8 @@ impl Router {
 //------------------------------------------------------------------------------
 
 /// Runs the HTTP service.
-pub async fn run_http(procs: SharedProcs) -> Result<(), Box<dyn std::error::Error>> {
-    let addr: std::net::SocketAddr = ([127, 0, 0, 1], 3000).into();
+pub async fn run_http(procs: SharedProcs, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Listening on http://{}", addr);

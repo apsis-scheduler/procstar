@@ -1,5 +1,6 @@
 import contextlib
 import json
+import requests
 from   urllib.parse import quote, quote_plus, urlunsplit
 import uuid
 
@@ -74,6 +75,51 @@ class AsyncClient:
     async def post_signal(self, proc_id, signum):
         async with self.__request("POST", "procs", proc_id, "signals", signum) as rsp:
             rsp.raise_for_status()
+
+
+
+#-------------------------------------------------------------------------------
+
+class Client:
+
+    def __init__(self, addr):
+        host, port      = addr
+        self.__host     = str(host)
+        self.__port     = int(port)
+        session = requests.Session()
+        session.mount(
+            "http://",
+            requests.adapters.HTTPAdapter(
+                max_retries=requests.adapters.Retry(total=5),
+            )
+        )
+        self.__session  = session
+
+
+    def __request(self, method, *path, jso=None, args={}):
+        netloc = f"{self.__host}:{self.__port}"
+        path = "/" + "/".join( quote(p, safe="") for p in path )
+        query = "&".join( f"{k}={quote_plus(v)}" for k, v in args.items() )
+        url = urlunsplit((
+            "http",     # FIXME: HTTPS
+            netloc,
+            path,
+            query,
+            "",         # fragment
+        ))
+        headers = {}
+
+        return self.__session.request(
+            method, url,
+            headers=headers,
+            json=jso,
+        )
+
+
+    def get_procs(self):
+        with self.__request("GET", "procs") as rsp:
+            rsp.raise_for_status()
+            return rsp.json()["data"]["procs"]
 
 
 

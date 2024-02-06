@@ -36,7 +36,7 @@
   - [x] auto-refresh agents view
 - [x] specify exe explicitly
 - [x] command-line exe whitelist
-- [ ] shell command variant of procstar program
+- [x] shell command variant of procstar program
 - [x] implement procstar program signal
 - [x] on agent reconnection, update results
 - [x] intermediate meta updates to running program
@@ -48,6 +48,7 @@
 - [x] merge feature/procstar-ws-incremental and get result updates under control
 - [x] bad exe and other starting failures => error state in Apsis
 - [x] push intermediate Procstar metadata to running runs
+- [x] Procstar conda package
 - [ ] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
@@ -56,7 +57,6 @@
     - [ ] procstar Rust
     - [ ] procstar Python
     - [x] Apsis procstar agent
-- [ ] Procstar conda package
 - [ ] don't (necessarily) include output text in Procstar res; get separately
 - [ ] manage outputs better, especially when they're large
     - don't include captured results in output
@@ -64,12 +64,15 @@
     - what is the appropriate UI logic?
 - [ ] output compression in procstar
 - [ ] live-update run log in web UI: either cram this into `RunStore.query_live()`, or create some other protocol?
-- [ ] replace sigchld_receiver with pidfd-based listener that signals when a
-      specific pid completes, so `wait_for_proc()` can inspect it before `wait`ing
+- [ ] auth in procstar HTTP service
+- [ ] HTTPS in procstar HTTP service
 - [ ] procstar HTTP client tool
-- [ ] clean up `Run.STATE`
-- [ ] manage file descriptor inheritance flag
 - [ ] HTTP endpoint describing WS agent?
+- [ ] clean up `Run.STATE`
+- [ ] replace sigchld_receiver with pidfd-based listener that signals when a
+      specific pid completes, so `wait_for_proc()` can inspect it before
+      `wait`ing; NOTE: requires newer kernel than RHEL7/CentOS7
+- [ ] manage file descriptor inheritance flag
 
 
 ### Cleanups

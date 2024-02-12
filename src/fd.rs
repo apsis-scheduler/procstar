@@ -99,6 +99,8 @@ pub enum FdHandler {
         file_fd: RawFd,
         /// Format for output.
         format: spec::CaptureFormat,
+        /// Whether to attach output to results.
+        attached: bool,
     },
 
     /// Attaches the file descriptor to a pipe; reads data from the pipe and
@@ -143,7 +145,11 @@ const PATH_DEV_NULL: &str = "/dev/null";
 const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 
 /// Creates and opens an unlinked temporary file as a fd handler.
-fn open_unlinked_temp_file(fd: RawFd, format: spec::CaptureFormat) -> Result<FdHandler> {
+fn open_unlinked_temp_file(
+    fd: RawFd,
+    format: spec::CaptureFormat,
+    attached: bool,
+) -> Result<FdHandler> {
     // Open a temp file.
     let (tmp_path, tmp_fd) = sys::mkstemp(PATH_TMP_TEMPLATE)?;
     // Unlink it.
@@ -153,6 +159,7 @@ fn open_unlinked_temp_file(fd: RawFd, format: spec::CaptureFormat) -> Result<FdH
         fd,
         file_fd: tmp_fd,
         format,
+        attached,
     })
 }
 
@@ -188,8 +195,9 @@ impl SharedFdHandler {
             spec::Fd::Capture {
                 mode: spec::CaptureMode::TempFile,
                 format,
+                attached,
                 ..
-            } => open_unlinked_temp_file(fd, format)?,
+            } => open_unlinked_temp_file(fd, format, attached)?,
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
@@ -326,8 +334,17 @@ impl SharedFdHandler {
             | FdHandler::UnmanagedFile { .. } => FdRes::None,
 
             FdHandler::UnlinkedFile {
-                file_fd, format, ..
-            } => FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?),
+                file_fd,
+                format,
+                attached,
+                ..
+            } => {
+                if *attached {
+                    FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
+                } else {
+                    FdRes::Detached
+                }
+            }
 
             FdHandler::CaptureMemory {
                 format,

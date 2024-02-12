@@ -99,10 +99,10 @@ def test_utf8_sanitize(mode):
 
 
 @pytest.mark.parametrize("mode", ["tempfile", "memory"])
-@pytest.mark.parametrize("format", ["text", "base64"])
-def test_detached(mode, format):
+@pytest.mark.parametrize("attached", [None, True, False])
+def test_detached(mode, attached):
     """
-    Tests that detached outputs aren't included in results.
+    Tests that captured outputs are included in results iff attached.
     """
     res = run1({
         "argv": ["/bin/echo", "Hello, world.", "How are you?"],
@@ -110,9 +110,9 @@ def test_detached(mode, format):
             [
                 "stdout", {
                     "capture": {
-                        "mode": "memory",
-                        "format": format,
-                        "attached": False,
+                        "mode": mode,
+                        "format": "text",
+                        **({} if attached is None else {"attached": attached}),
                     },
                 },
             ],
@@ -120,6 +120,10 @@ def test_detached(mode, format):
     })
 
     assert res["status"]["status"] == 0
-    assert res["fds"]["stdout"] is None
+    assert res["fds"]["stdout"] == (
+        {"text": "Hello, world. How are you?\n"}
+        if attached in (True, None)
+        else None
+    )
 
 

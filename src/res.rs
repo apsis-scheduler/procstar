@@ -75,6 +75,8 @@ pub enum FdRes {
 
     File { path: PathBuf },
 
+    Detached,
+
     CaptureUtf8 { text: String },
 
     CaptureBase64 { data: String, encoding: String },

@@ -98,3 +98,28 @@ def test_utf8_sanitize(mode):
     assert out[-3 :] == "def"
 
 
+@pytest.mark.parametrize("mode", ["tempfile", "memory"])
+@pytest.mark.parametrize("format", ["text", "base64"])
+def test_detached(mode, format):
+    """
+    Tests that detached outputs aren't included in results.
+    """
+    res = run1({
+        "argv": ["/bin/echo", "Hello, world.", "How are you?"],
+        "fds": [
+            [
+                "stdout", {
+                    "capture": {
+                        "mode": "memory",
+                        "format": format,
+                        "attached": False,
+                    },
+                },
+            ],
+        ],
+    })
+
+    assert res["status"]["status"] == 0
+    assert res["fds"]["stdout"] is None
+
+

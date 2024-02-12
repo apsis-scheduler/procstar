@@ -207,7 +207,16 @@ pub enum Fd {
 
         #[serde(default)]
         format: CaptureFormat,
+
+        #[serde(default = "Fd::attached_default")]
+        attached: bool,
     },
+}
+
+impl Fd {
+    fn attached_default() -> bool {
+        true
+    }
 }
 
 impl Default for Fd {

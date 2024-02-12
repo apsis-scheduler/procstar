@@ -114,6 +114,8 @@ pub enum FdHandler {
         format: spec::CaptureFormat,
         /// Captured output.
         buf: Vec<u8>,
+        /// Whether to attach output to results.
+        attached: bool,
     },
 }
 
@@ -192,6 +194,7 @@ impl SharedFdHandler {
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
                 format,
+                attached,
             } => {
                 let (read_fd, write_fd) = sys::pipe()?;
                 FdHandler::CaptureMemory {
@@ -200,6 +203,7 @@ impl SharedFdHandler {
                     write_fd,
                     format,
                     buf: Vec::new(),
+                    attached,
                 }
             }
         };
@@ -325,7 +329,18 @@ impl SharedFdHandler {
                 file_fd, format, ..
             } => FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?),
 
-            FdHandler::CaptureMemory { format, buf, .. } => FdRes::from_bytes(*format, buf),
+            FdHandler::CaptureMemory {
+                format,
+                buf,
+                attached,
+                ..
+            } => {
+                if *attached {
+                    FdRes::from_bytes(*format, buf)
+                } else {
+                    FdRes::Detached
+                }
+            }
         })
     }
 }

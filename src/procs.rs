@@ -131,7 +131,7 @@ impl Proc {
             .fd_handlers
             .iter()
             .map(|(fd_num, fd_handler)| {
-                let result = match fd_handler.get_result() {
+                let result = match fd_handler.get_attached_result() {
                     Ok(fd_result) => fd_result,
                     Err(_err) => {
                         // result

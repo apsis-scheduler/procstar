@@ -331,6 +331,7 @@ impl SharedFdHandler {
             | FdHandler::Error { .. }
             | FdHandler::Close { .. }
             | FdHandler::Dup { .. }
+            // FIXME: Return something containing the path.
             | FdHandler::UnmanagedFile { .. } => FdRes::None,
 
             FdHandler::UnlinkedFile {
@@ -359,6 +360,19 @@ impl SharedFdHandler {
                 }
             }
         })
+    }
+
+    pub fn get_attached_result(&self) -> Result<FdRes> {
+        match &*self.0.borrow() {
+            FdHandler::UnlinkedFile { attached, .. }
+            | FdHandler::CaptureMemory { attached, .. }
+                if !attached =>
+            {
+                Ok(FdRes::Detached)
+            }
+
+            _ => self.get_result(),
+        }
     }
 }
 

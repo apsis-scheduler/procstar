@@ -75,10 +75,14 @@ pub enum FdRes {
 
     File { path: PathBuf },
 
+    /// The fd was marked for detached output; captured output is not included
+    /// in results, but may be obtained separately.
     Detached,
 
+    /// UTF-8-encoded output.
     CaptureUtf8 { text: String },
 
+    /// Base64-encoded output.
     CaptureBase64 { data: String, encoding: String },
 }
 

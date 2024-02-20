@@ -13,7 +13,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 use crate::environ;
-use crate::err::SpecError;
+use crate::err::{Error, SpecError};
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::SharedFdHandler;
@@ -24,35 +24,6 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
-
-//------------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub enum Error {
-    Io(std::io::Error),
-    NoProc,
-    NoProcId(ProcId),
-    ProcRunning(ProcId),
-    ProcNotRunning(ProcId),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::Io(err) => write!(f, "error: {}", err),
-            Error::NoProc => write!(f, "no process"),
-            Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
-            Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
-            Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
-        }
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error {
-        Error::Io(err)
-    }
-}
 
 //------------------------------------------------------------------------------
 

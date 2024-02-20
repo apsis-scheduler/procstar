@@ -187,7 +187,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
         IncomingMessage::ProcDeleteRequest { ref proc_id } => {
             match procs.remove_if_not_running(proc_id) {
                 Ok(_) => None,
-                Err(crate::procs::Error::NoProcId(proc_id)) => {
+                Err(crate::err::Error::NoProcId(proc_id)) => {
                     Some(OutgoingMessage::ProcUnknown { proc_id })
                 }
                 Err(err) => Some(OutgoingMessage::IncomingMessageError {

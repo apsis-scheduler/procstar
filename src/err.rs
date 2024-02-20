@@ -1,4 +1,7 @@
+use std::os::fd::RawFd;
+
 use crate::proto;
+use crate::spec::ProcId;
 
 //------------------------------------------------------------------------------
 
@@ -25,12 +28,29 @@ impl std::fmt::Display for SpecError {
 /// or running a process.
 #[derive(Debug)]
 pub enum Error {
+    /// Premature EOF; this is a protocol error.
     Eof,
+    /// Wraps an I/O error.
     Io(std::io::Error),
-    NativeTlsError(native_tls::Error),
-    ParseInt(std::num::ParseIntError),
-    Proto(proto::Error),
+    /// Wraps a JSON parsing error.
     Json(serde_json::Error),
+    /// Wraps a TLS connection error.
+    NativeTlsError(native_tls::Error),
+    /// Unknown file descriptor.
+    NoFd(RawFd),
+    /// Underlying OS process is missing.
+    NoProc,
+    /// Unknown process ID.
+    NoProcId(ProcId),
+    /// Wraps an integer parsing error.
+    ParseInt(std::num::ParseIntError),
+    /// Process in wrong state: must be running, but is not.
+    ProcNotRunning(ProcId),
+    /// Process in wrong state: must not be running, but is.
+    ProcRunning(ProcId),
+    /// Protocol error.
+    Proto(proto::Error),
+    /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
 
@@ -42,13 +62,18 @@ impl Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
+        match self {
             Error::Eof => f.write_str("EOF"),
             Error::Io(ref err) => err.fmt(f),
-            Error::NativeTlsError(ref err) => err.fmt(f),
-            Error::ParseInt(ref err) => err.fmt(f),
-            Error::Proto(ref err) => err.fmt(f),
             Error::Json(ref err) => err.fmt(f),
+            Error::NativeTlsError(ref err) => err.fmt(f),
+            Error::NoFd(fd) => write!(f, "no fd: {}", fd),
+            Error::NoProc => write!(f, "no process"),
+            Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
+            Error::ParseInt(ref err) => err.fmt(f),
+            Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
+            Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
+            Error::Proto(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }

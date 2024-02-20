@@ -147,6 +147,23 @@ impl Proc {
             fds,
         }
     }
+
+    pub fn get_fd_handler(&self, fd: RawFd) -> Option<&SharedFdHandler> {
+        for (fd_num, fd_handler) in self.fd_handlers.iter() {
+            if *fd_num == fd {
+                return Some(fd_handler);
+            }
+        }
+        None
+    }
+
+    pub fn get_fd_data(&self, fd: RawFd) -> Result<Option<Vec<u8>>, crate::err::Error> {
+        if let Some(fd_handler) = self.get_fd_handler(fd) {
+            fd_handler.get_data()
+        } else {
+            Err(Error::NoFd(fd))
+        }
+    }
 }
 
 impl std::fmt::Debug for Proc {

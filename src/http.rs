@@ -6,6 +6,8 @@ use log::*;
 use serde_json::json;
 use std::rc::Rc;
 
+use crate::err::Error;
+use crate::fd::parse_fd;
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
 use crate::spec::{Input, ProcId};
@@ -23,58 +25,55 @@ impl RspError {
     }
 }
 
-type RspResult = Result<serde_json::Value, RspError>;
+// type RspResult = Result<serde_json::Value, RspError>;
+type RspResult = Result<Rsp, RspError>;
+type JsonResult = Result<serde_json::Value, RspError>;
 
-fn make_json_response<T>(status: StatusCode, obj: T) -> Rsp
-where
-    T: serde::Serialize,
+fn wrap_error(status: StatusCode, msg: Option<String>) -> serde_json::Value {
+    json!({
+        "errors": {
+            "status": status.to_string(),
+            "detail": msg,
+        }
+    })
+}
+
+fn json_response(rsp: JsonResult) -> Rsp
 {
-    let body = serde_json::to_string(&obj).unwrap();
+    let (status, data) = match rsp {
+        Ok(data) => (StatusCode::OK, json!({"data": data})),
+        Err(RspError(status, msg)) => (status, wrap_error(status, msg)),
+    };
+
+    let (status, json) = match serde_json::to_string(&data) {
+        Ok(body) => (status, body),
+        Err(error) => {
+            let status = StatusCode::INTERNAL_SERVER_ERROR;
+            let body = serde_json::to_string(&wrap_error(status, Some(error.to_string()))).unwrap();
+            (status, body)
+        }
+    };
     Response::builder()
         .status(status)
         .header(
             hyper::header::CONTENT_TYPE,
             HeaderValue::from_static("application/json"),
         )
-        .body(Full::<Bytes>::from(body))
+        .body(Full::<Bytes>::from(json))
         .unwrap()
 }
 
-fn make_response(rsp: RspResult) -> Rsp {
-    match rsp {
-        Ok(data) => make_json_response(
-            StatusCode::OK,
-            json!({
-                "data": data,
-            }),
-        ),
-
-        Err(err) => {
-            let RspError(status, msg) = err;
-            make_json_response(
-                status,
-                json!({
-                    "errors": json!([
-                        {
-                            "status": status.to_string(),
-                            "detail": msg,
-                        },
-                    ]),
-                }),
-            )
-        }
-    }
-}
+//------------------------------------------------------------------------------
 
 /// Handles `GET /procs`.
-async fn procs_get(procs: SharedProcs) -> RspResult {
+async fn procs_get(procs: SharedProcs) -> JsonResult {
     Ok(json!({
         "procs": procs.to_result(),
     }))
 }
 
 /// Handles `GET /procs/:id`.
-async fn procs_id_get(procs: SharedProcs, proc_id: &str) -> RspResult {
+async fn procs_id_get(procs: SharedProcs, proc_id: &str) -> JsonResult {
     if let Some(proc) = procs.get(proc_id) {
         Ok(json!({
             "procs": {
@@ -87,7 +86,7 @@ async fn procs_id_get(procs: SharedProcs, proc_id: &str) -> RspResult {
 }
 
 /// Handles `DELETE /procs/:id`.
-async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> RspResult {
+async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> JsonResult {
     let proc_id: ProcId = proc_id.to_string();
     match procs.remove_if_not_running(&proc_id) {
         Ok(_) => {
@@ -95,13 +94,13 @@ async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> RspResult {
                 // FIXME
             }))
         }
-        Err(crate::procs::Error::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
+        Err(Error::NoProcId(_)) => Err(RspError(StatusCode::NOT_FOUND, None)),
         Err(err) => Err(RspError::bad_request(&err.to_string())),
     }
 }
 
 /// Handles `POST /procs`.
-async fn procs_post(procs: SharedProcs, input: Input) -> RspResult {
+async fn procs_post(procs: SharedProcs, input: Input) -> JsonResult {
     // FIXME: Check duplicate proc IDs.
     if let Err(err) = start_procs(&input.specs, &procs) {
         Err(RspError::bad_request(&err.to_string()))
@@ -113,7 +112,7 @@ async fn procs_post(procs: SharedProcs, input: Input) -> RspResult {
 }
 
 /// Handles POST /procs/:id/signal/:signum.
-async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &str) -> RspResult {
+async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &str) -> JsonResult {
     let signum = parse_signum(signum).ok_or_else(|| RspError::bad_request("unknwon signum"))?;
     let proc = procs
         .get(proc_id)
@@ -124,6 +123,22 @@ async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &st
     Ok(json!({
         // FIXME
     }))
+}
+
+/// Handles GET /procs/:id/output/:fd/data
+async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> Result<Option<Full<Bytes>>, RspError> {
+    let fd = match parse_fd(fd) {
+        Ok(fd) => fd,
+        Err(err) => return Err(RspError::bad_request(&err.to_string())),
+    };
+    let proc = procs
+        .get(proc_id)
+        .ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
+    let data = proc.borrow().get_fd_data(fd);
+    match data {
+        Ok(data) => Ok(data.map(Full::from)),
+        Err(error) => Err(RspError(StatusCode::INTERNAL_SERVER_ERROR, Some(error.to_string()))),
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -138,6 +153,7 @@ impl Router {
         router.insert("/procs", 0).unwrap();
         router.insert("/procs/:id", 1).unwrap();
         router.insert("/procs/:id/signals/:signum", 2).unwrap();
+        router.insert("/procs/:id/output/:fd/data", 3).unwrap();
         Router { router }
     }
 
@@ -163,40 +179,51 @@ impl Router {
         }
     }
 
-    async fn dispatch(&self, req: Req, procs: SharedProcs) -> RspResult {
+    async fn dispatch(&self, req: Req, procs: SharedProcs) -> Rsp {
         let (parts, body) = req.into_parts();
-        let rsp = match self.router.at(parts.uri.path()) {
+        match self.router.at(parts.uri.path()) {
             Ok(m) => {
                 let param = |p| m.params.get(p).unwrap();
                 match (m.value, parts.method.clone()) {
                     // Match route numbers obtained from the matchit
                     // router, and methods.
-                    (0, Method::GET) => procs_get(procs).await?,
+                    (0, Method::GET) => json_response(procs_get(procs).await),
                     (0, Method::POST) => {
-                        let body = Router::get_body_json(&parts, body).await?;
-                        procs_post(procs, body).await?
+                        // match req.into_parts() {
+                        //     Ok((parts, body)) => json_response(procs_post(procs, body).await),
+                        //     Err(error) => json_response(Err(wrap_error(StatusCode::BAD_REQUEST, error.to_string()))),
+                        // }
+
+                        let (parts, body) = req.into_parts();
+                        let input = match Router::get_body_json(&parts, body).await {
+                            Ok(input) => input,
+                            Err(error) => return json_response(Err(error)),
+                        };
+                        json_response(procs_post(procs, input).await)
                     }
-                    (1, Method::GET) => procs_id_get(procs, param("id")).await?,
-                    (1, Method::DELETE) => procs_id_delete(procs, param("id")).await?,
+                    (1, Method::GET) => json_response(procs_id_get(procs, param("id")).await),
+                    (1, Method::DELETE) => json_response(procs_id_delete(procs, param("id")).await),
 
                     (2, Method::POST) => {
-                        procs_signal_signum_post(procs, param("id"), param("signum")).await?
+                        json_response(procs_signal_signum_post(procs, param("id"), param("signum")).await)
+                    }
+
+                    (3, Method::GET) => {
+                        procs_output_data_get(procs, param("id"), param("signum")).await
                     }
 
                     // Route number (i.e. path match) but no method match.
                     (_, _) => {
-                        return Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None));
+                        json_response(Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)))
                     }
                 }
             }
 
             // No path match.
             Err(_) => {
-                return Err(RspError(StatusCode::NOT_FOUND, None));
+                json_response(Err(RspError(StatusCode::NOT_FOUND, None)))
             }
-        };
-
-        Ok(rsp)
+        }
     }
 }
 
@@ -225,7 +252,7 @@ pub async fn run_http(procs: SharedProcs, port: u16) -> Result<(), Box<dyn std::
             async move {
                 let rsp = router.dispatch(req, procs).await;
                 // FIXME: https://jsonapi.org/format
-                Ok::<Rsp, hyper::Error>(make_response(rsp))
+                Ok::<Rsp, hyper::Error>(rsp)
             }
         });
 

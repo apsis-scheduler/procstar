@@ -324,6 +324,20 @@ impl SharedFdHandler {
         }
     }
 
+    pub fn get_data(&self) -> Result<Option<Vec<u8>>> {
+        Ok(match &*self.0.borrow() {
+            FdHandler::Inherit
+            | FdHandler::Error { .. }
+            | FdHandler::Close { .. }
+            | FdHandler::Dup { .. }
+            | FdHandler::UnmanagedFile { .. } => None,
+
+            FdHandler::UnlinkedFile { file_fd, .. } => Some(read_file_from_start(*file_fd)?),
+
+            FdHandler::CaptureMemory { buf, .. } => Some(buf.clone()),
+        })
+    }
+
     pub fn get_result(&self) -> Result<FdRes> {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {

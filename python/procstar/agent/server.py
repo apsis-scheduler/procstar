@@ -9,7 +9,7 @@ import os
 from   pathlib import Path
 import ssl
 import websockets.server
-from   websockets.exceptions import ConnectionClosedError
+from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from   . import DEFAULT_PORT
 from   .conn import Connections
@@ -148,7 +148,7 @@ class Server:
 
             # Only Register is acceptable.
             type, register_msg = proto.deserialize_message(msg)
-            logger.info(f"recv: {msg}")
+            logger.debug(f"recv: {msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
 
@@ -159,6 +159,8 @@ class Server:
             # Respond with a Registered message.
             data = proto.serialize_message(proto.Registered())
             await ws.send(data)
+
+            logger.info(f"[{register_msg.conn.conn_id}] connected")
 
         except Exception as exc:
             logger.warning(f"{ws}: {exc}", exc_info=True)
@@ -190,8 +192,11 @@ class Server:
         while True:
             try:
                 msg = await ws.recv()
-            except ConnectionClosedError:
+            except ConnectionClosedOK:
                 logger.info(f"[{conn.info.conn.conn_id}] connection closed")
+                break
+            except ConnectionClosedError as err:
+                logger.warning(f"[{conn.info.conn.conn_id}] connection closed: {err}")
                 break
             type, msg = proto.deserialize_message(msg)
             # Process the message.

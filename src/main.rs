@@ -32,7 +32,6 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
             std::process::exit(2);
         });
         let url = url::Url::parse(&format!("wss://{}:{}", hostname, args.agent_port)).unwrap();
-        info!("agent connecting to: {}", url);
 
         let connection =
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());

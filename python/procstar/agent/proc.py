@@ -199,8 +199,8 @@ class Processes(Mapping):
                 # FIXME: Proc-specific errors.
                 logger.error(f"msg error: {msg.err}")
 
-            case proto.Close():
-                pass
+            case _:
+                logger.error(f"unknown msg: {msg}")
 
 
 

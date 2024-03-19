@@ -234,13 +234,14 @@ pub async fn run(
     let mut count = 0;
     loop {
         // (Re)connect to the service.
+        info!("agent connecting: {}", connection.url);
         let (new_sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => {
-                info!("connected: {}", connection.url);
+                info!("agent connected: {}", connection.url);
                 pair
             }
             Err(err) => {
-                warn!("connection failed: {}: {}", connection.url, err);
+                warn!("agent connection failed: {}: {}", connection.url, err);
 
                 count += 1;
                 if cfg.count_max <= count {
@@ -269,6 +270,14 @@ pub async fn run(
 
         loop {
             match receiver.next().await {
+                Some(Ok(Message::Close(_))) => {
+                    if let Err(err) = sender.borrow_mut().as_mut().unwrap().close().await {
+                        warn!("agent connection close error: {}: {:?}", connection.url, err);
+                    } else {
+                        info!("agent connection closed: {}", connection.url);
+                    }
+                    break;
+                },
                 Some(Ok(msg)) => match handle(&procs, msg).await {
                     Ok(Some(rsp))
                         // Handling the incoming message produced a response;
@@ -300,6 +309,7 @@ pub async fn run(
 
         // The connection is closed.  No sender is available.
         sender.replace(None);
+        // FIXME: Do we have to cancel and clean up the noti task?
 
         // Go back and reconnect.
     }

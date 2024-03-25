@@ -154,36 +154,35 @@ fn notification_to_message(
 async fn send_notifications(
     procs: SharedProcs,
     mut sub: NotificationSub,
-    sender: Rc<RefCell<Option<SocketSender>>>,
+    sender: Rc<RefCell<SocketSender>>,
 ) {
     loop {
         // Wait for a notification to arrive on the channel.
         match sub.recv().await {
             Some(noti) => {
-                // Borrow the websocket sender.
-                if let Some(sender) = sender.borrow_mut().as_mut() {
-                    // Generate the outgoing message corresponding to the
-                    // notification.
-                    if let Some(msg) = notification_to_message(&procs, noti) {
-                        // Send the outgoing message.
-                        if let Err(err) = send(sender, msg).await {
-                            warn!("msg send error: {:?}", err);
-                            // Close the websocket.
-                            if let Err(err) = sender.close().await {
-                                warn!("websocket close error: {:?}", err);
-                            }
+                // Generate the outgoing message corresponding to the
+                // notification.
+                if let Some(msg) = notification_to_message(&procs, noti) {
+                    // Borrow the websocket sender.
+                    let sender = &mut sender.borrow_mut();
+                    // Send the outgoing message.
+                    if let Err(err) = send(sender, msg).await {
+                        warn!("msg send error: {:?}", err);
+                        // Close the websocket.
+                        if let Err(err) = sender.close().await {
+                            warn!("websocket close error: {:?}", err);
                         }
-                    } else {
-                        // No outgoing message corresponding to this
-                        // notification.
                     }
                 } else {
-                    // No current websocket sender; we are not currently
-                    // connected.  Drop this notification.
+                    // No outgoing message corresponding to this
+                    // notification.
                 }
             }
             // End of channel.
-            None => break,
+            None => {
+                info!("send_notifications done");
+                break
+            },
         }
     }
 }
@@ -217,25 +216,14 @@ pub async fn run(
     procs: SharedProcs,
     cfg: &ConnectConfig,
 ) -> Result<(), Error> {
-    // Create a shared websocket sender, which is shared between the
-    // notification sender and the main message loop.
-    let sender: Rc<RefCell<Option<SocketSender>>> = Rc::new(RefCell::new(None));
-
-    // Start a task that subscribes to asynchronous notifications, such as when
-    // a process terminates, and sends them as outgoing messages to the
-    // websocket.
-    let _noti_task = tokio::task::spawn_local(send_notifications(
-        procs.clone(),
-        procs.subscribe(),
-        sender.clone(),
-    ));
+    info!("agent starting: {}", connection.url);
 
     let mut interval = cfg.interval_start;
     let mut count = 0;
     loop {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (new_sender, mut receiver) = match connect(&mut connection).await {
+        let (sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -262,16 +250,25 @@ pub async fn run(
             }
         };
         // Connected.  There's now a websocket sender available.
-        sender.replace(Some(new_sender));
+        let sender = Rc::new(RefCell::new(sender));
 
         // Once successfully connected, reset the reconnect interval and count.
         interval = cfg.interval_start;
         count = 0;
 
+        // Start a task that subscribes to asynchronous notifications, such as
+        // when a process terminates, and sends them as outgoing messages to the
+        // websocket.
+        let noti_task = tokio::task::spawn_local(send_notifications(
+            procs.clone(),
+            procs.subscribe(),
+            sender.clone(),
+        ));
+
         loop {
             match receiver.next().await {
                 Some(Ok(Message::Close(_))) => {
-                    if let Err(err) = sender.borrow_mut().as_mut().unwrap().close().await {
+                    if let Err(err) = sender.borrow_mut().close().await {
                         warn!("agent connection close error: {}: {:?}", connection.url, err);
                     } else {
                         info!("agent connection closed: {}", connection.url);
@@ -282,7 +279,7 @@ pub async fn run(
                     Ok(Some(rsp))
                         // Handling the incoming message produced a response;
                         // send it back.
-                        => if let Err(err) = sender.borrow_mut().as_mut().unwrap().send(rsp).await {
+                        => if let Err(err) = sender.borrow_mut().send(rsp).await {
                             warn!("msg send error: {:?}", err);
                             break;
                         },
@@ -306,10 +303,12 @@ pub async fn run(
                 }
             }
         }
+        // The connection is closed.
 
-        // The connection is closed.  No sender is available.
-        sender.replace(None);
-        // FIXME: Do we have to cancel and clean up the noti task?
+        noti_task.abort();
+        if let Err(err) = noti_task.await {
+            error!("noti_task join error: {:?}", err);
+        }
 
         // Go back and reconnect.
     }

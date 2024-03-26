@@ -5,6 +5,8 @@ import pytest
 from   procstar import spec
 from   procstar.agent.testing import Assembly, ProcstarError
 
+SLEEP_EXE = "/usr/bin/sleep"
+
 #-------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -16,11 +18,11 @@ async def test_ws_reconnect():
     async with Assembly.start() as asm:
         proc0 = await asm.server.start(
             "reconnect0",
-            spec.make_proc(["/usr/bin/sleep", "0.2"])
+            spec.make_proc([SLEEP_EXE, "0.2"])
         )
         proc1 = await asm.server.start(
             "reconnect1",
-            spec.make_proc(["/usr/bin/sleep", "0.4"])
+            spec.make_proc([SLEEP_EXE, "0.4"])
         )
 
         with asm.server.connections.subscription() as sub:
@@ -51,11 +53,11 @@ async def test_ws_reconnect_nowait():
     async with Assembly.start() as asm:
         proc0 = await asm.server.start(
             "reconnect0",
-            spec.make_proc(["/usr/bin/sleep", "0.2"])
+            spec.make_proc([SLEEP_EXE, "0.2"])
         )
         proc1 = await asm.server.start(
             "reconnect1",
-            spec.make_proc(["/usr/bin/sleep", "0.4"])
+            spec.make_proc([SLEEP_EXE, "0.4"])
         )
 
         # Close the connection.
@@ -80,11 +82,11 @@ async def test_proc_reconnect():
     async with Assembly.start() as asm:
         proc0 = await asm.server.start(
             "reconnect0",
-            spec.make_proc(["/usr/bin/sleep", "0.2"])
+            spec.make_proc([SLEEP_EXE, "0.2"])
         )
         proc1 = await asm.server.start(
             "reconnect1",
-            spec.make_proc(["/usr/bin/sleep", "0.4"])
+            spec.make_proc([SLEEP_EXE, "0.4"])
         )
 
         # Restart server.

@@ -163,13 +163,11 @@ async fn send_notifications(
                 // Generate the outgoing message corresponding to the
                 // notification.
                 if let Some(msg) = notification_to_message(&procs, noti) {
-                    // Borrow the websocket sender.
-                    let sender = &mut sender.borrow_mut();
                     // Send the outgoing message.
-                    if let Err(err) = send(sender, msg).await {
+                    if let Err(err) = send(&mut sender.borrow_mut(), msg).await {
                         warn!("msg send error: {:?}", err);
                         // Close the websocket.
-                        if let Err(err) = sender.close().await {
+                        if let Err(err) = sender.borrow_mut().close().await {
                             warn!("websocket close error: {:?}", err);
                         }
                     }

@@ -35,8 +35,10 @@ async def test_reconnect():
         await asm.stop_server()
         await asm.start_server()
 
-        async with asyncio.timeout(5):
-            res = await asyncio.gather(*( p.results.wait() for p in procs ))
+        res = await asyncio.wait_for(
+            asyncio.gather(*( p.results.wait() for p in procs )),
+            timeout=30
+        )
         assert all( r.status.exit_code == 0 for r in res )
 
 

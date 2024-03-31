@@ -1,8 +1,6 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use log::*;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
@@ -15,7 +13,7 @@ use url::Url;
 use crate::err::Error;
 use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
-use crate::procs::{get_restricted_exe, Notification, NotificationSub, SharedProcs};
+use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
 
 //------------------------------------------------------------------------------
@@ -84,10 +82,10 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
 }
 
 async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), Error> {
-    // FIXME: ProcResult is too big to log.
+    // FIXME: ProcResult is too big to log AND TO SEND!
     trace!("> {:?}", msg);
     let json = serde_json::to_vec(&msg)?;
-    sender.send(Message::Binary(json)).await.unwrap();
+    sender.send(Message::Binary(json)).await?;
     Ok(())
 }
 
@@ -151,37 +149,25 @@ fn notification_to_message(
 
 /// Background task that receives notification messages through `noti_sender`,
 /// converts them to outgoing messages, and sends them via `sender`.
-async fn send_notifications(
-    procs: SharedProcs,
-    mut sub: NotificationSub,
-    sender: Rc<RefCell<SocketSender>>,
+async fn send_notification(
+    procs: &SharedProcs,
+    sender: &mut SocketSender,
+    noti: Notification,
 ) {
-    loop {
-        // Wait for a notification to arrive on the channel.
-        match sub.recv().await {
-            Some(noti) => {
-                // Generate the outgoing message corresponding to the
-                // notification.
-                if let Some(msg) = notification_to_message(&procs, noti) {
-                    // Send the outgoing message.
-                    if let Err(err) = send(&mut sender.borrow_mut(), msg).await {
-                        warn!("msg send error: {:?}", err);
-                        // Close the websocket.
-                        if let Err(err) = sender.borrow_mut().close().await {
-                            warn!("websocket close error: {:?}", err);
-                        }
-                    }
-                } else {
-                    // No outgoing message corresponding to this
-                    // notification.
-                }
+    // Generate the outgoing message corresponding to the
+    // notification.
+    if let Some(msg) = notification_to_message(&procs, noti) {
+        // Send the outgoing message.
+        if let Err(err) = send(sender, msg).await {
+            warn!("msg send error: {:?}", err);
+            // Close the websocket.
+            if let Err(err) = sender.close().await {
+                warn!("websocket close error: {:?}", err);
             }
-            // End of channel.
-            None => {
-                info!("send_notifications done");
-                break
-            },
         }
+    } else {
+        // No outgoing message corresponding to this
+        // notification.
     }
 }
 
@@ -221,7 +207,7 @@ pub async fn run(
     loop {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (sender, mut receiver) = match connect(&mut connection).await {
+        let (mut sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -248,66 +234,72 @@ pub async fn run(
             }
         };
         // Connected.  There's now a websocket sender available.
-        let sender = Rc::new(RefCell::new(sender));
 
         // Once successfully connected, reset the reconnect interval and count.
         interval = cfg.interval_start;
         count = 0;
 
-        // Start a task that subscribes to asynchronous notifications, such as
-        // when a process terminates, and sends them as outgoing messages to the
-        // websocket.
-        let noti_task = tokio::task::spawn_local(send_notifications(
-            procs.clone(),
-            procs.subscribe(),
-            sender.clone(),
-        ));
+        let mut sub = procs.subscribe();
 
+        // Simultaneously wait for an incoming websocket message or a
+        // notification, dispatching either.
         loop {
-            match receiver.next().await {
-                Some(Ok(Message::Close(_))) => {
-                    if let Err(err) = sender.borrow_mut().close().await {
-                        warn!("agent connection close error: {}: {:?}", connection.url, err);
-                    } else {
-                        info!("agent connection closed: {}", connection.url);
+            tokio::select! {
+                ws_msg = receiver.next() => {
+                    match ws_msg {
+                        Some(Ok(Message::Close(_))) => {
+                            if let Err(err) = sender.close().await {
+                                warn!(
+                                    "agent connection close error: {}: {:?}",
+                                    connection.url, err
+                                );
+                            } else {
+                                info!("agent connection closed: {}", connection.url);
+                            }
+                            break;
+                        }
+                        Some(Ok(msg)) => match handle(&procs, msg).await {
+                            Ok(Some(rsp))
+                                // Handling the incoming message produced a response;
+                                // send it back.
+                                => if let Err(err) = sender.send(rsp).await {
+                                    warn!("msg send error: {:?}", err);
+                                    break;
+                                },
+                            Ok(None)
+                                // Handling the message produced no response.
+                                => {},
+                            Err(err)
+                                // Error while handling the message.
+                                => {
+                                    warn!("msg handle error: {:?}", err);
+                                    break;
+                                },
+                        },
+                        Some(Err(err)) => {
+                            warn!("msg receive error: {:?}", err);
+                            break;
+                        }
+                        None => {
+                            warn!("msg stream end");
+                            break;
+                        }
                     }
-                    break;
                 },
-                Some(Ok(msg)) => match handle(&procs, msg).await {
-                    Ok(Some(rsp))
-                        // Handling the incoming message produced a response;
-                        // send it back.
-                        => if let Err(err) = sender.borrow_mut().send(rsp).await {
-                            warn!("msg send error: {:?}", err);
-                            break;
-                        },
-                    Ok(None)
-                        // Handling the message produced no response.
-                        => {},
-                    Err(err)
-                        // Error while handling the message.
-                        => {
-                            warn!("msg handle error: {:?}", err);
-                            break;
-                        },
+
+                // Wait for a notification to arrive on the channel.
+                sub_noti = sub.recv() => {
+                    match sub_noti {
+                        Some(noti) => send_notification(&procs, &mut sender, noti).await,
+                        None => {
+                            info!("notification subscription closed");
+                            // Do anything else?
+                        }
+                    }
                 },
-                Some(Err(err)) => {
-                    warn!("msg receive error: {:?}", err);
-                    break;
-                }
-                None => {
-                    warn!("msg stream end");
-                    break;
-                }
             }
         }
-        // The connection is closed.
 
-        noti_task.abort();
-        if let Err(err) = noti_task.await {
-            error!("noti_task join error: {:?}", err);
-        }
-
-        // Go back and reconnect.
+        // The connection is closed.  Go back and reconnect.
     }
 }

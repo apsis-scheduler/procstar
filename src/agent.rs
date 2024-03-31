@@ -1,8 +1,6 @@
 use futures::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use log::*;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
@@ -84,10 +82,10 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
 }
 
 async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), Error> {
-    // FIXME: ProcResult is too big to log.
+    // FIXME: ProcResult is too big to log AND TO SEND!
     trace!("> {:?}", msg);
     let json = serde_json::to_vec(&msg)?;
-    sender.send(Message::Binary(json)).await.unwrap();
+    sender.send(Message::Binary(json)).await?;
     Ok(())
 }
 
@@ -153,17 +151,17 @@ fn notification_to_message(
 /// converts them to outgoing messages, and sends them via `sender`.
 async fn send_notification(
     procs: &SharedProcs,
-    sender: &Rc<RefCell<SocketSender>>,
+    sender: &mut SocketSender,
     noti: Notification,
 ) {
     // Generate the outgoing message corresponding to the
     // notification.
     if let Some(msg) = notification_to_message(&procs, noti) {
         // Send the outgoing message.
-        if let Err(err) = send(&mut sender.borrow_mut(), msg).await {
+        if let Err(err) = send(sender, msg).await {
             warn!("msg send error: {:?}", err);
             // Close the websocket.
-            if let Err(err) = sender.borrow_mut().close().await {
+            if let Err(err) = sender.close().await {
                 warn!("websocket close error: {:?}", err);
             }
         }
@@ -209,7 +207,7 @@ pub async fn run(
     loop {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (sender, mut receiver) = match connect(&mut connection).await {
+        let (mut sender, mut receiver) = match connect(&mut connection).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -236,7 +234,6 @@ pub async fn run(
             }
         };
         // Connected.  There's now a websocket sender available.
-        let sender = Rc::new(RefCell::new(sender));
 
         // Once successfully connected, reset the reconnect interval and count.
         interval = cfg.interval_start;
@@ -251,7 +248,7 @@ pub async fn run(
                 ws_msg = receiver.next() => {
                     match ws_msg {
                         Some(Ok(Message::Close(_))) => {
-                            if let Err(err) = sender.borrow_mut().close().await {
+                            if let Err(err) = sender.close().await {
                                 warn!(
                                     "agent connection close error: {}: {:?}",
                                     connection.url, err
@@ -265,7 +262,7 @@ pub async fn run(
                             Ok(Some(rsp))
                                 // Handling the incoming message produced a response;
                                 // send it back.
-                                => if let Err(err) = sender.borrow_mut().send(rsp).await {
+                                => if let Err(err) = sender.send(rsp).await {
                                     warn!("msg send error: {:?}", err);
                                     break;
                                 },
@@ -293,7 +290,7 @@ pub async fn run(
                 // Wait for a notification to arrive on the channel.
                 sub_noti = sub.recv() => {
                     match sub_noti {
-                        Some(noti) => send_notification(&procs, &sender, noti).await,
+                        Some(noti) => send_notification(&procs, &mut sender, noti).await,
                         None => {
                             info!("notification subscription closed");
                             // Do anything else?

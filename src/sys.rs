@@ -321,7 +321,12 @@ pub fn get_groupname() -> Option<String> {
     if group.is_null() {
         None
     } else {
-        Some(unsafe { core::ffi::CStr::from_ptr((*group).gr_name) }.to_str().unwrap().to_owned())
+        Some(
+            unsafe { core::ffi::CStr::from_ptr((*group).gr_name) }
+                .to_str()
+                .unwrap()
+                .to_owned(),
+        )
     }
 }
 
@@ -381,4 +386,3 @@ pub fn getenv(name: &str) -> Option<String> {
         .next()
         .map(|(_, v)| v)
 }
-

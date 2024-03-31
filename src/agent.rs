@@ -179,8 +179,8 @@ async fn send_notifications(
             // End of channel.
             None => {
                 info!("send_notifications done");
-                break
-            },
+                break;
+            }
         }
     }
 }
@@ -267,12 +267,15 @@ pub async fn run(
             match receiver.next().await {
                 Some(Ok(Message::Close(_))) => {
                     if let Err(err) = sender.borrow_mut().close().await {
-                        warn!("agent connection close error: {}: {:?}", connection.url, err);
+                        warn!(
+                            "agent connection close error: {}: {:?}",
+                            connection.url, err
+                        );
                     } else {
                         info!("agent connection closed: {}", connection.url);
                     }
                     break;
-                },
+                }
                 Some(Ok(msg)) => match handle(&procs, msg).await {
                     Ok(Some(rsp))
                         // Handling the incoming message produced a response;

@@ -149,11 +149,7 @@ fn notification_to_message(
 
 /// Background task that receives notification messages through `noti_sender`,
 /// converts them to outgoing messages, and sends them via `sender`.
-async fn send_notification(
-    procs: &SharedProcs,
-    sender: &mut SocketSender,
-    noti: Notification,
-) {
+async fn send_notification(procs: &SharedProcs, sender: &mut SocketSender, noti: Notification) {
     // Generate the outgoing message corresponding to the
     // notification.
     if let Some(msg) = notification_to_message(&procs, noti) {

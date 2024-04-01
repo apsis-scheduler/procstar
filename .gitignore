@@ -3,3 +3,4 @@ work/
 **/*.egg-info
 build/bdist.*
 build/lib
+dist/*

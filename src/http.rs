@@ -25,8 +25,10 @@ impl RspError {
     }
 }
 
-type RspResult = Result<Rsp, RspError>;
+// type RspResult = Result<Rsp, RspError>;
 type JsonResult = Result<serde_json::Value, RspError>;
+
+// FIXME: All this is too complicated.  The handlers should just return a Rsp.
 
 fn wrap_error(status: StatusCode, msg: Option<String>) -> serde_json::Value {
     json!({
@@ -125,19 +127,28 @@ async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &st
 }
 
 /// Handles GET /procs/:id/output/:fd/data
-async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> Result<Option<Full<Bytes>>, RspError> {
+async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> Rsp {
     let fd = match parse_fd(fd) {
         Ok(fd) => fd,
-        Err(err) => return Err(RspError::bad_request(&err.to_string())),
+        Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
     };
-    let proc = procs
-        .get(proc_id)
-        .ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
-    let data = proc.borrow().get_fd_data(fd);
-    match data {
-        Ok(data) => Ok(data.map(Full::from)),
-        Err(error) => Err(RspError(StatusCode::INTERNAL_SERVER_ERROR, Some(error.to_string()))),
-    }
+    let proc = match procs.get(proc_id) {
+        Some(proc) => proc,
+        None => return json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
+    };
+    let data = match proc.borrow().get_fd_data(fd) {
+        Ok(Some(data)) => data,
+        Ok(None) => Vec::<u8>::new(),
+        Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
+    };
+    Response::builder()
+        .status(200)
+        .header(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        )
+        .body(Full::<Bytes>::from(data))
+        .unwrap()
 }
 
 //------------------------------------------------------------------------------
@@ -188,7 +199,6 @@ impl Router {
                     // methods.
                     (0, Method::GET) => json_response(procs_get(procs).await),
                     (0, Method::POST) => {
-                        let (parts, body) = req.into_parts();
                         let input = match Router::get_body_json(&parts, body).await {
                             Ok(input) => input,
                             Err(error) => return json_response(Err(error)),
@@ -202,10 +212,8 @@ impl Router {
                         json_response(procs_signal_signum_post(procs, param("id"), param("signum")).await)
                     }
 
-                    (3, Method::GET) => {
-                        procs_output_data_get(procs, param("id"), param("signum")).await
-                    }
-
+                    (3, Method::GET) =>
+                        procs_output_data_get(procs, param("id"), param("signum")).await,
                     // Route number (i.e. path match) but no method match.
                     (_, _) => {
                         json_response(Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)))

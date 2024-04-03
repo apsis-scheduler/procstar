@@ -77,6 +77,7 @@
 
 ### Cleanups
 
+- [ ] in http.rs, handers should return `Rsp`
 - [ ] use numerical fds only in specs and results (no stdin/stdout/stderr)
 - [ ] if execve fails, return error code to parent for inclusion in result
 

@@ -132,6 +132,7 @@ impl std::fmt::Debug for FdRes {
         match self {
             FdRes::Error => write!(f, "Error"),
             FdRes::None => write!(f, "None"),
+            FdRes::Detached => write!(f, "Detached"),
             FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
             FdRes::CaptureUtf8 { text } => write!(f, "CaptureUtf8 {{ text: {} }}", elide(text)),
             FdRes::CaptureBase64 { data, encoding } => write!(

@@ -2,9 +2,11 @@ import base64
 from   base import run1, SCRIPTS_DIR
 import pytest
 
+from   procstar.spec import MODES
+
 #-------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("mode", ["tempfile", "memory"])
+@pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("format", ["text", "base64"])
 def test_echo(mode, format):
     """
@@ -35,7 +37,7 @@ def test_echo(mode, format):
         assert stdout["text"] == base64.b64encode(text.encode())
 
 
-@pytest.mark.parametrize("mode", ["tempfile", "memory"])
+@pytest.mark.parametrize("mode", MODES)
 def test_interleaved(mode):
     """
     Tests interleaved stdout and stderr.
@@ -75,7 +77,7 @@ def test_interleaved(mode):
     assert err == b"".join( bytes([i]) * i for i in range(256) if i % 3 == 0 )
 
 
-@pytest.mark.parametrize("mode", ["tempfile", "memory"])
+@pytest.mark.parametrize("mode", MODES)
 def test_utf8_sanitize(mode):
     """
     Tests capturing invalid UTF-8 as text.
@@ -98,7 +100,7 @@ def test_utf8_sanitize(mode):
     assert out[-3 :] == "def"
 
 
-@pytest.mark.parametrize("mode", ["tempfile", "memory"])
+@pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("attached", [None, True, False])
 def test_detached(mode, attached):
     """

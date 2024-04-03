@@ -1,8 +1,12 @@
 import base64
-from   base import run1, SCRIPTS_DIR
+from   pathlib import Path
 import pytest
 
 from   procstar.spec import Proc
+from   procstar.testing.proc import run1
+
+SPECS_DIR = Path(__file__).parent / "specs"
+SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 #-------------------------------------------------------------------------------
 

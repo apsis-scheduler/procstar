@@ -1,4 +1,8 @@
-from   base import run1, SCRIPTS_DIR
+from   pathlib import Path
+
+from   procstar.testing.proc import run1
+
+SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 #-------------------------------------------------------------------------------
 
@@ -19,5 +23,6 @@ def test_general():
     utime = rusage["utime"]
     assert 0.25 < utime < 0.5
     assert 1073741824 < rusage["maxrss"] < 1100000000
+
 
 

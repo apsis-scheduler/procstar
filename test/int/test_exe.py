@@ -1,4 +1,4 @@
-from   base import run, run1
+from   procstar.testing.proc import run, run1
 
 #-------------------------------------------------------------------------------
 

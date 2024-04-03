@@ -25,7 +25,6 @@ impl RspError {
     }
 }
 
-// type RspResult = Result<serde_json::Value, RspError>;
 type RspResult = Result<Rsp, RspError>;
 type JsonResult = Result<serde_json::Value, RspError>;
 
@@ -185,15 +184,10 @@ impl Router {
             Ok(m) => {
                 let param = |p| m.params.get(p).unwrap();
                 match (m.value, parts.method.clone()) {
-                    // Match route numbers obtained from the matchit
-                    // router, and methods.
+                    // Match route numbers obtained from the matchit router, and
+                    // methods.
                     (0, Method::GET) => json_response(procs_get(procs).await),
                     (0, Method::POST) => {
-                        // match req.into_parts() {
-                        //     Ok((parts, body)) => json_response(procs_post(procs, body).await),
-                        //     Err(error) => json_response(Err(wrap_error(StatusCode::BAD_REQUEST, error.to_string()))),
-                        // }
-
                         let (parts, body) = req.into_parts();
                         let input = match Router::get_body_json(&parts, body).await {
                             Ok(input) => input,

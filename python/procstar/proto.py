@@ -153,6 +153,17 @@ class ProcResult:
         jso["res"] = Jso.wrap(jso["res"])
         return cls(**jso)
 
+    def __str__(self):
+        # Don't format the entire result, which may be large.
+        name = self.__class__.__name__
+        proc_id = self.proc_id
+        state = self.res.state
+        errors = self.res.errors
+        return (
+            f'{name}(proc_id={proc_id!r}, '
+            f'res=(state={state!r}, errors={errors!r}, ...))'
+        )
+
 
 
 @dataclass

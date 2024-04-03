@@ -65,7 +65,7 @@ impl ResourceUsage {
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(untagged)]
 pub enum FdRes {
@@ -109,6 +109,37 @@ impl FdRes {
                     encoding: "base64".to_string(),
                 }
             }
+        }
+    }
+}
+
+fn elide(str: &String) -> String {
+    let len = str.len();
+    if len <= 64 {
+        format!("{:?}", str)
+    } else {
+        format!(
+            "{:?}… (len {})",
+            String::from_utf8_lossy(&str.as_bytes()[..63]),
+            len
+        )
+    }
+}
+
+// Custom Debug to avoid writing large text/data payloads.
+impl std::fmt::Debug for FdRes {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            FdRes::Error => write!(f, "Error"),
+            FdRes::None => write!(f, "None"),
+            FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
+            FdRes::CaptureUtf8 { text } => write!(f, "CaptureUtf8 {{ text: {} }}", elide(text)),
+            FdRes::CaptureBase64 { data, encoding } => write!(
+                f,
+                "CaptureBase64 {{ encoding: {:?}, data: {} }}",
+                encoding,
+                elide(data)
+            ),
         }
     }
 }

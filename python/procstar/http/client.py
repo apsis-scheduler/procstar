@@ -1,4 +1,5 @@
 import contextlib
+import httpx
 import json
 import requests
 from   urllib.parse import quote, quote_plus, urlunsplit
@@ -8,7 +9,10 @@ import uuid
 
 class AsyncClient:
 
-    def __init__(self, addr, http_client):
+    def __init__(self, addr, http_client=None):
+        if http_client is None:
+            http_client = httpx.Client()
+
         host, port          = addr
         self.__host         = str(host)
         self.__port         = int(port)
@@ -41,6 +45,12 @@ class AsyncClient:
         )
         yield rsp
         # FIXME: Close rsp?
+
+
+    async def get_procs(self):
+        async with self.__request("GET", "procs") as rsp:
+            rsp.raise_for_status()
+            return rsp.json()["data"]["procs"]
 
 
     async def post_proc(self, spec, *, proc_id=None):

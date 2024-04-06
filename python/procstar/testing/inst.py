@@ -1,4 +1,6 @@
+import contextlib
 import functools
+import httpx
 import logging
 import random
 import signal
@@ -68,9 +70,13 @@ class Instance:
         return procstar.http.client.Client(("localhost", self.serve_port))
 
 
-    @functools.cached_property
-    def async_client(self):
-        return procstar.http.client.AsyncClient(("localhost", self.serve_port))
+    @contextlib.asynccontextmanager
+    async def async_client(self):
+        async with httpx.AsyncClient() as http_client:
+            yield procstar.http.client.AsyncClient(
+                ("localhost", self.serve_port),
+                http_client
+            )
 
 
 

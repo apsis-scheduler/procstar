@@ -1,5 +1,4 @@
 import contextlib
-import httpx
 import json
 import requests
 from   urllib.parse import quote, quote_plus, urlunsplit
@@ -9,10 +8,7 @@ import uuid
 
 class AsyncClient:
 
-    def __init__(self, addr, http_client=None):
-        if http_client is None:
-            http_client = httpx.Client()
-
+    def __init__(self, addr, http_client):
         host, port          = addr
         self.__host         = str(host)
         self.__port         = int(port)
@@ -53,7 +49,13 @@ class AsyncClient:
             return rsp.json()["data"]["procs"]
 
 
-    async def post_proc(self, spec, *, proc_id=None):
+    async def start_proc(self, spec, *, proc_id=None):
+        """
+        :param proc_id:
+          The proc ID to use.  If none, one is generated.
+        :return:
+          The proc ID.
+        """
         if proc_id is None:
             proc_id = str(uuid.uuid4())
         jso = {
@@ -82,7 +84,7 @@ class AsyncClient:
             rsp.raise_for_status()
 
 
-    async def post_signal(self, proc_id, signum):
+    async def send_signal(self, proc_id, signum):
         async with self.__request("POST", "procs", proc_id, "signals", signum) as rsp:
             rsp.raise_for_status()
 

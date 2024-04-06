@@ -1,5 +1,4 @@
 import contextlib
-import json
 import requests
 from   urllib.parse import quote, quote_plus, urlunsplit
 import uuid
@@ -29,15 +28,13 @@ class AsyncClient:
         ))
         headers = {}
         content = None
-        if jso is not None:
-            headers["content-type"] = "application/json"
-            content = json.dumps(jso)
 
         # FIXME: Handle errors.
         rsp = await self.__http_client.request(
             method, url,
-            headers=headers,
-            content=content,
+            headers =headers,
+            content =content,
+            json    =jso,
         )
         yield rsp
         # FIXME: Close rsp?
@@ -79,13 +76,23 @@ class AsyncClient:
             return rsp.json()["data"]["procs"][proc_id]
 
 
+    async def get_output_data(self, proc_id, fd):
+        async with self.__request(
+                "GET", "procs", proc_id, "output", fd, "data"
+        ) as rsp:
+            rsp.raise_for_status()
+            return rsp.content if rsp.encoding is None else rsp.text
+
+
     async def delete_proc(self, proc_id):
         async with self.__request("DELETE", "procs", proc_id) as rsp:
             rsp.raise_for_status()
 
 
     async def send_signal(self, proc_id, signum):
-        async with self.__request("POST", "procs", proc_id, "signals", signum) as rsp:
+        async with self.__request(
+                "POST", "procs", proc_id, "signals", signum
+        ) as rsp:
             rsp.raise_for_status()
 
 

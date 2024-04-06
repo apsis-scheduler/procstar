@@ -35,7 +35,9 @@ def _build(shutdown, serve, serve_port=None):
         if serve_port is not None:
             argv.extend(["--serve-port", str(serve_port)])
 
-    env = {}
+    env = {
+        "RUST_BACKTRACE": "1",
+    }
 
     return argv, env
 
@@ -59,7 +61,9 @@ class Instance:
 
 
     def close(self):
-        self.proc.send_signal(signal.SIGTERM)
+        # KILL is drastic but otherwise there's a shutdown delay if any
+        # undeleted procs remain.
+        self.proc.send_signal(signal.SIGKILL)
         self.proc.wait()
         self.proc = None
         self.dir.cleanup()

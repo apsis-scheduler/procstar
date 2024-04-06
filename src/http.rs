@@ -39,8 +39,7 @@ fn wrap_error(status: StatusCode, msg: Option<String>) -> serde_json::Value {
     })
 }
 
-fn json_response(rsp: JsonResult) -> Rsp
-{
+fn json_response(rsp: JsonResult) -> Rsp {
     let (status, data) = match rsp {
         Ok(data) => (StatusCode::OK, json!({"data": data})),
         Err(RspError(status, msg)) => (status, wrap_error(status, msg)),
@@ -136,16 +135,20 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
         Some(proc) => proc,
         None => return json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
     };
-    let data = match proc.borrow().get_fd_data(fd) {
+    let (data, is_text) = match proc.borrow().get_fd_data(fd) {
         Ok(Some(data)) => data,
-        Ok(None) => Vec::<u8>::new(),
+        Ok(None) => (Vec::<u8>::new(), false),
         Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
     };
     Response::builder()
         .status(200)
         .header(
             hyper::header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
+            HeaderValue::from_static(if is_text {
+                "text/plain; charset=UTF-8"
+            } else {
+                "application/octet-stream"
+            }),
         )
         .body(Full::<Bytes>::from(data))
         .unwrap()
@@ -208,23 +211,20 @@ impl Router {
                     (1, Method::GET) => json_response(procs_id_get(procs, param("id")).await),
                     (1, Method::DELETE) => json_response(procs_id_delete(procs, param("id")).await),
 
-                    (2, Method::POST) => {
-                        json_response(procs_signal_signum_post(procs, param("id"), param("signum")).await)
-                    }
+                    (2, Method::POST) => json_response(
+                        procs_signal_signum_post(procs, param("id"), param("signum")).await,
+                    ),
 
-                    (3, Method::GET) =>
-                        procs_output_data_get(procs, param("id"), param("signum")).await,
-                    // Route number (i.e. path match) but no method match.
-                    (_, _) => {
-                        json_response(Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None)))
+                    (3, Method::GET) => {
+                        procs_output_data_get(procs, param("id"), param("fd")).await
                     }
+                    // Route number (i.e. path match) but no method match.
+                    (_, _) => json_response(Err(RspError(StatusCode::METHOD_NOT_ALLOWED, None))),
                 }
             }
 
             // No path match.
-            Err(_) => {
-                json_response(Err(RspError(StatusCode::NOT_FOUND, None)))
-            }
+            Err(_) => json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
         }
     }
 }

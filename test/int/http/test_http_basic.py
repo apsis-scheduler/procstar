@@ -1,6 +1,8 @@
 from   contextlib import closing
 import pytest
-from   procstar.spec import make_proc
+import sys
+
+from   procstar.spec import make_proc, Proc
 from   procstar.testing.inst import Instance
 
 #-------------------------------------------------------------------------------
@@ -51,5 +53,28 @@ async def test_procs_async():
             assert res1["fds"]["stdout"]["text"] == "Hello, world!\n"
             assert res1["fds"]["stderr"]["text"] == ""
             await client.delete_proc(proc_id1)
+
+
+@pytest.mark.asyncio
+async def test_detached_output():
+    with closing(Instance()) as inst:
+        async with inst.async_client() as client:
+            spec = make_proc(
+                [
+                    sys.executable,
+                    "-c", "print(1048576 * 'x')"
+                ],
+                fds={
+                    "stdout": Proc.Fd.Capture("memory", "text", attached=False),
+                }
+            )
+            proc_id = await client.start_proc(spec)
+            res = await poll(client, proc_id)
+
+            assert res["status"]["exit_code"] == 0
+            assert res["fds"]["stdout"] == None
+            assert res["fds"]["stderr"]["text"] == ""
+
+            assert await client.get_output_data(proc_id, "stdout") == "x" * 1048576 + "\n"
 
 

@@ -1,7 +1,8 @@
-from   base import Process
 import pytest
 import signal
 import time
+
+from   procstar.testing.proc import Process
 
 #-------------------------------------------------------------------------------
 

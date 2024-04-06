@@ -1,9 +1,14 @@
-from   base import run1, SCRIPTS_DIR, run_spec
+from   pathlib import Path
+
+from   procstar.testing.proc import run1, run_spec
+
+SPECS_DIR = Path(__file__).parent / "specs"
+SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 #-------------------------------------------------------------------------------
 
 def test_echo_hello():
-    res = run_spec("echo-hello.json")
+    res = run_spec(SPECS_DIR / "echo-hello.json")
     assert res["test"]["status"]
 
 

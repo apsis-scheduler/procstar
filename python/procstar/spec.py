@@ -1,9 +1,7 @@
 import functools
-import json
 import os
 from   pathlib import Path
 import shutil
-import sys
 import uuid
 
 #-------------------------------------------------------------------------------
@@ -165,20 +163,22 @@ class Proc:
             MODES = {"tempfile", "memory"}
             FORMATS = {"text", "base64"}
 
-            def __init__(self, mode, format):
+            def __init__(self, mode, format, attached=True):
                 if mode not in self.MODES:
                     raise ValueError(f"bad mode: {mode}")
                 if format not in self.FORMATS:
                     raise ValueError(f"bad format: {format}")
                 self.__mode = mode
                 self.__format = format
+                self.__attached = bool(attached)
 
 
             def to_jso(self):
                 return {
                     "capture": {
-                        "mode": self.__mode,
-                        "format": self.__format,
+                        "mode"      : self.__mode,
+                        "format"    : self.__format,
+                        "attached"  : self.__attached,
                     }
                 }
 

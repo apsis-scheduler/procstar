@@ -1,5 +1,9 @@
-from   base import run, SCRIPTS_DIR
+from   pathlib import Path
 import sys
+
+from   procstar.testing.proc import run
+
+SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 #-------------------------------------------------------------------------------
 

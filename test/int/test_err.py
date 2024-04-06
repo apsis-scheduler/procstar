@@ -1,6 +1,6 @@
 import pytest
 
-from   base import run1, Errors
+from   procstar.testing.proc import run1, Errors
 
 #-------------------------------------------------------------------------------
 

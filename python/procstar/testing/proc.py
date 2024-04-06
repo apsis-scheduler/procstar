@@ -3,16 +3,16 @@ import json
 import logging
 import os
 from   pathlib import Path
-import procstar.agent.testing
 import subprocess
 import sys
 import tempfile
+
+from   . import get_procstar_path
 
 log = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
-PROCSTAR_EXE = procstar.agent.testing.get_procstar_path()
 SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
@@ -62,7 +62,7 @@ class Process(subprocess.Popen):
         stdin_read_fd, stdin_write_fd = os.pipe()
         super().__init__(
             [
-                str(PROCSTAR_EXE),
+                str(get_procstar_path()),
                 "--print",
                 "--log-level", "trace",
                 "-",
@@ -102,7 +102,7 @@ def run(spec, *, args=()):
         output_path = tmp_dir / "out.json"
         subprocess.run(
             [
-                str(PROCSTAR_EXE),
+                str(get_procstar_path()),
                 "--output", output_path,
                 *args,
                 spec_path,
@@ -131,8 +131,8 @@ def run1(spec, *, proc_id="test"):
         return res
 
 
-def run_spec(name):
-    with open(SPECS_DIR / name) as file:
+def run_spec(path):
+    with open(path) as file:
         spec = json.load(file)
     return run(spec)
 

@@ -157,7 +157,8 @@ impl Proc {
         None
     }
 
-    pub fn get_fd_data(&self, fd: RawFd) -> Result<Option<Vec<u8>>, crate::err::Error> {
+    /// Returns data for an fd, if available, and whether it is UTF-8 text.
+    pub fn get_fd_data(&self, fd: RawFd) -> Result<Option<(Vec<u8>, bool)>, crate::err::Error> {
         if let Some(fd_handler) = self.get_fd_handler(fd) {
             fd_handler.get_data()
         } else {

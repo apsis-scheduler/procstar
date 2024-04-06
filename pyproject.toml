@@ -21,7 +21,7 @@ dependencies = [
     "orjson >=3",
     "websockets >=10",
 ]
-optional-dependencies = {dev = ["build", "pytest", "pytest-asyncio", "bump-my-version", "sphinx", "sphinx-rtd-theme"]}
+optional-dependencies = {dev = ["build", "httpx", "pytest", "pytest-asyncio", "bump-my-version", "sphinx", "sphinx-rtd-theme"]}
 
 [project.urls]
 Repository = "https://github.com/alexhsamuel/procstar"

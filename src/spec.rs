@@ -237,7 +237,7 @@ pub struct Proc {
     pub exe: Option<String>,
     pub argv: Vec<String>,
     pub env: Env,
-    pub fds: Vec<(String, Fd)>,
+    pub fds: Vec<(FdName, Fd)>,
 }
 
 pub type Procs = BTreeMap<ProcId, Proc>;
@@ -247,6 +247,7 @@ pub type Procs = BTreeMap<ProcId, Proc>;
 //------------------------------------------------------------------------------
 
 pub type ProcId = String;
+pub type FdName = String;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]

@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
+use crate::fd::parse_fd;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::ProcId;
+use crate::spec::{FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -94,6 +95,9 @@ pub enum IncomingMessage {
     /// Requests sending a signal to a process.
     ProcSignalRequest { proc_id: ProcId, signum: Signum },
 
+    /// Requests sending (part of) captured fd data for a process.
+    ProcFdDataRequest { proc_id: ProcId, fd: FdName },
+
     /// Requests deletion of a process's records.  The process may not be
     /// running.
     ProcDeleteRequest { proc_id: ProcId },
@@ -125,6 +129,9 @@ pub enum OutgoingMessage {
 
     /// The current result of a process, which may or may not have terminated.
     ProcResult { proc_id: ProcId, res: ProcRes },
+
+    /// A portion of the captured fd data for a process.
+    ProcFdData { proc_id: ProcId, fd: FdName, data: Vec<u8> },
 
     /// A process has been deleted.
     ProcDelete { proc_id: ProcId },
@@ -181,6 +188,24 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                 Some(OutgoingMessage::ProcUnknown {
                     proc_id: proc_id.clone(),
                 })
+            }
+        }
+
+        IncomingMessage::ProcFdDataRequest { ref proc_id, fd: ref fd_name } => {
+            match parse_fd(fd_name) {
+                Ok(fd) => {
+                    if let Some(proc) = procs.get(proc_id) {
+                        match proc.borrow().get_fd_data(fd) {
+                            Ok(Some((data, _is_text))) =>
+                                Some(OutgoingMessage::ProcFdData { proc_id: proc_id.clone(), fd: fd_name.clone(), data }),
+                            Ok(None) => Some(OutgoingMessage::IncomingMessageError { msg, err: "no fd data".to_owned() }),
+                            Err(err) => Some(OutgoingMessage::IncomingMessageError { msg, err: err.to_string() }),
+                        }
+                    } else {
+                        Some(OutgoingMessage::ProcUnknown { proc_id: proc_id.clone() })
+                    }
+                },
+                Err(err) => Some(OutgoingMessage::IncomingMessageError { msg, err: err.to_string() }),
             }
         }
 

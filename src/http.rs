@@ -10,7 +10,7 @@ use crate::err::Error;
 use crate::fd::parse_fd;
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
-use crate::spec::{Input, ProcId};
+use crate::spec::{Input, ProcId, CaptureFormat};
 
 //------------------------------------------------------------------------------
 
@@ -135,20 +135,19 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
         Some(proc) => proc,
         None => return json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
     };
-    let (data, is_text) = match proc.borrow().get_fd_data(fd) {
+    let (data, format) = match proc.borrow().get_fd_data(fd) {
         Ok(Some(data)) => data,
-        Ok(None) => (Vec::<u8>::new(), false),
+        Ok(None) => (Vec::<u8>::new(), CaptureFormat::Text),
         Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
     };
     Response::builder()
         .status(200)
         .header(
             hyper::header::CONTENT_TYPE,
-            HeaderValue::from_static(if is_text {
-                "text/plain; charset=UTF-8"
-            } else {
-                "application/octet-stream"
-            }),
+            match format {
+                CaptureFormat::Base64 => "application/octet-stream",
+                CaptureFormat::Text => "text/plain; charset=UTF-8",
+            }
         )
         .body(Full::<Bytes>::from(data))
         .unwrap()

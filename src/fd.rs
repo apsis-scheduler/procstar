@@ -325,7 +325,7 @@ impl SharedFdHandler {
     }
 
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
-    pub fn get_data(&self) -> Result<Option<(Vec<u8>, bool)>> {
+    pub fn get_data(&self) -> Result<Option<(Vec<u8>, spec::CaptureFormat)>> {
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit
             | FdHandler::Error { .. }
@@ -335,15 +335,9 @@ impl SharedFdHandler {
 
             FdHandler::UnlinkedFile {
                 file_fd, format, ..
-            } => Some((
-                read_file_from_start(*file_fd)?,
-                std::matches!(*format, spec::CaptureFormat::Text),
-            )),
+            } => Some((read_file_from_start(*file_fd)?, *format)),
 
-            FdHandler::CaptureMemory { buf, format, .. } => Some((
-                buf.clone(),
-                std::matches!(format, spec::CaptureFormat::Text),
-            )),
+            FdHandler::CaptureMemory { buf, format, .. } => Some((buf.clone(), *format)),
         })
     }
 

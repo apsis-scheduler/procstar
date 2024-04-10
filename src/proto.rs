@@ -8,7 +8,7 @@ use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{FdName, ProcId};
+use crate::spec::{CaptureFormat, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -134,7 +134,8 @@ pub enum OutgoingMessage {
     ProcFdData {
         proc_id: ProcId,
         fd: FdName,
-        data: Vec<u8>,
+        data: String,
+        format: CaptureFormat,
     },
 
     /// A process has been deleted.
@@ -202,10 +203,11 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             Ok(fd) => {
                 if let Some(proc) = procs.get(proc_id) {
                     match proc.borrow().get_fd_data(fd) {
-                        Ok(Some((data, _is_text))) => Some(OutgoingMessage::ProcFdData {
+                        Ok(Some((data, format))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            data,
+                            data: String::from_utf8_lossy(&data).to_string(), // FIXME
+                            format,
                         }),
                         Ok(None) => Some(OutgoingMessage::IncomingMessageError {
                             msg,

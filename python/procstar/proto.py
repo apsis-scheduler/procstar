@@ -49,6 +49,12 @@ class ProcSignalRequest:
 
 
 @dataclass
+class ProcFdDataRequest:
+    proc_id: str
+    fd: str
+
+
+@dataclass
 class ProcDeleteRequest:
     proc_id: str
 
@@ -62,6 +68,7 @@ OUTGOING_MESSAGE_TYPES = {
             ProcidListRequest,
             ProcResultRequest,
             ProcSignalRequest,
+            ProcFdDataRequest,
             ProcDeleteRequest,
     )
 }
@@ -167,6 +174,15 @@ class ProcResult:
 
 
 @dataclass
+class ProcFdData:
+    proc_id: str
+    fd: str
+    data: str
+    format: str
+
+
+
+@dataclass
 class ProcDelete:
     proc_id: str
 
@@ -178,6 +194,7 @@ INCOMING_MESSAGE_TYPES = {
             IncomingMessageError,
             ProcDelete,
             ProcResult,
+            ProcFdData,
             ProcUnknown,
             ProcidList,
             Register,

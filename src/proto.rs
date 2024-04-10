@@ -131,7 +131,11 @@ pub enum OutgoingMessage {
     ProcResult { proc_id: ProcId, res: ProcRes },
 
     /// A portion of the captured fd data for a process.
-    ProcFdData { proc_id: ProcId, fd: FdName, data: Vec<u8> },
+    ProcFdData {
+        proc_id: ProcId,
+        fd: FdName,
+        data: Vec<u8>,
+    },
 
     /// A process has been deleted.
     ProcDelete { proc_id: ProcId },
@@ -191,23 +195,38 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             }
         }
 
-        IncomingMessage::ProcFdDataRequest { ref proc_id, fd: ref fd_name } => {
-            match parse_fd(fd_name) {
-                Ok(fd) => {
-                    if let Some(proc) = procs.get(proc_id) {
-                        match proc.borrow().get_fd_data(fd) {
-                            Ok(Some((data, _is_text))) =>
-                                Some(OutgoingMessage::ProcFdData { proc_id: proc_id.clone(), fd: fd_name.clone(), data }),
-                            Ok(None) => Some(OutgoingMessage::IncomingMessageError { msg, err: "no fd data".to_owned() }),
-                            Err(err) => Some(OutgoingMessage::IncomingMessageError { msg, err: err.to_string() }),
-                        }
-                    } else {
-                        Some(OutgoingMessage::ProcUnknown { proc_id: proc_id.clone() })
+        IncomingMessage::ProcFdDataRequest {
+            ref proc_id,
+            fd: ref fd_name,
+        } => match parse_fd(fd_name) {
+            Ok(fd) => {
+                if let Some(proc) = procs.get(proc_id) {
+                    match proc.borrow().get_fd_data(fd) {
+                        Ok(Some((data, _is_text))) => Some(OutgoingMessage::ProcFdData {
+                            proc_id: proc_id.clone(),
+                            fd: fd_name.clone(),
+                            data,
+                        }),
+                        Ok(None) => Some(OutgoingMessage::IncomingMessageError {
+                            msg,
+                            err: "no fd data".to_owned(),
+                        }),
+                        Err(err) => Some(OutgoingMessage::IncomingMessageError {
+                            msg,
+                            err: err.to_string(),
+                        }),
                     }
-                },
-                Err(err) => Some(OutgoingMessage::IncomingMessageError { msg, err: err.to_string() }),
+                } else {
+                    Some(OutgoingMessage::ProcUnknown {
+                        proc_id: proc_id.clone(),
+                    })
+                }
             }
-        }
+            Err(err) => Some(OutgoingMessage::IncomingMessageError {
+                msg,
+                err: err.to_string(),
+            }),
+        },
 
         IncomingMessage::ProcDeleteRequest { ref proc_id } => {
             match procs.remove_if_not_running(proc_id) {

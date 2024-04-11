@@ -57,11 +57,13 @@
     - [ ] procstar Rust
     - [ ] procstar Python
     - [x] Apsis procstar agent
-- [ ] don't (necessarily) include output text in Procstar res; get separately
 - [ ] manage outputs better, especially when they're large
-    - don't include captured results in output
-    - API for requesting output
-    - what is the appropriate UI logic?
+    - [x] don't include captured results in output
+    - [x] HTTP API for requesting full output
+    - [ ] HTTP API for requesting part output
+    - [ ] WebSocket API for requesting full output
+    - [ ] WebSocket API for requesting part output
+- [ ] incremental output in Apsis Procstar program
 - [ ] output compression in procstar
 - [ ] live-update run log in web UI: either cram this into `RunStore.query_live()`, or create some other protocol?
 - [ ] auth in procstar HTTP service

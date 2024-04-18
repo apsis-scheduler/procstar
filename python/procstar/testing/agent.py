@@ -140,6 +140,7 @@ class Assembly:
                 "--group-id", group_id,
                 "--conn-id", conn_id,
                 "--connect-count-max", "1",
+                "--log-level", "trace",
                 *args,
             ],
             {

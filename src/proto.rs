@@ -134,6 +134,7 @@ pub enum OutgoingMessage {
     ProcFdData {
         proc_id: ProcId,
         fd: FdName,
+        // FIXME: OsString; don't require valid UTF-8.
         data: String,
         format: CaptureFormat,
     },

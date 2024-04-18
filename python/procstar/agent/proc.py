@@ -34,6 +34,20 @@ class ProcessDeletedError(RuntimeError):
 
 
 
+class FdData:
+
+    def __init__(self):
+        self.data = None
+        self.format = None
+
+
+    def append(self, msg: proto.ProcFdData):
+        # FIXME: For now, just replace.
+        self.data = msg.data
+        self.format = msg.format
+
+
+
 class Results:
     """
     Single-consumer async iterable of results of a process.
@@ -47,6 +61,7 @@ class Results:
     def __init__(self):
         self.latest = None
         self.__queue = asyncio.Queue()
+        self.__fd_data = {}
 
 
     def __aiter__(self):
@@ -60,10 +75,20 @@ class Results:
         :raise ProcessDeletedError:
           The process was deleted before returning another result.
         """
-        match await (msg := self.__queue.get()):
+        match msg := await self.__queue.get():
             case proto.ProcResult(_, result):
                 self.latest = result
                 return result
+
+            case proto.ProcFdData(fd):
+                try:
+                    fd_data = self.__fd_data[fd]
+                except KeyError:
+                    fd_data = self.__fd_data[fd] = FdData()
+                logger.debug(f"fd data append: {fd}")
+                fd_data.append(msg)
+                # FIXME: Return something more explicit, so we know what happened.
+                return self.latest
 
             case proto.ProcDelete(proc_id):
                 raise ProcessDeletedError(proc_id)
@@ -181,6 +206,10 @@ class Processes(Mapping):
             case proto.ProcResult(proc_id):
                 logger.debug(f"msg proc result: {proc_id}")
                 msg.res.procstar = procstar_info
+                get_proc(proc_id).results._on_message(msg)
+
+            case proto.ProcFdData(proc_id, fd):
+                logger.debug(f"msg proc fd data: {proc_id} {fd}")
                 get_proc(proc_id).results._on_message(msg)
 
             case proto.ProcDelete(proc_id):

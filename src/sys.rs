@@ -250,6 +250,19 @@ pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
 
 //------------------------------------------------------------------------------
 
+pub fn fstat(fd: fd_t) -> io::Result<libc::stat> {
+    unsafe {
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        match { libc::fstat(fd, stat.as_mut_ptr()) } {
+            -1 => Err(io::Error::last_os_error()),
+            0 => Ok(stat.assume_init()),
+            ret => panic!("fstat returned {}", ret),
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+
 pub fn fcntl_getfd(fd: RawFd) -> io::Result<i32> {
     match unsafe { libc::fcntl(fd, libc::F_GETFD) } {
         -1 => Err(io::Error::last_os_error()),

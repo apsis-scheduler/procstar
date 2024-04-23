@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::sig;
-use crate::spec::{CaptureFormat, ProcId};
+use crate::spec::{CaptureFormat, ProcId, FdName};
 use crate::state::State;
 
 //------------------------------------------------------------------------------
@@ -67,11 +67,9 @@ impl ResourceUsage {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum FdRes {
     Error,
-
-    None,
 
     File {
         path: PathBuf,
@@ -79,15 +77,17 @@ pub enum FdRes {
 
     /// The fd was marked for detached output; captured output is not included
     /// in results, but may be obtained separately.
-    Detached,
+    Detached {
+        length: i64,
+    },
 
     /// UTF-8-encoded output.
-    CaptureUtf8 {
+    Text {
         text: String,
     },
 
     /// Base64-encoded output.
-    CaptureBase64 {
+    Data {
         data: String,
         encoding: String,
     },
@@ -99,12 +99,12 @@ impl FdRes {
             CaptureFormat::Text => {
                 // FIXME: Handle errors.
                 let text = String::from_utf8_lossy(&buffer).to_string();
-                FdRes::CaptureUtf8 { text }
+                FdRes::Text { text }
             }
             CaptureFormat::Base64 => {
                 // FIXME: Handle errors.
                 let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
-                FdRes::CaptureBase64 {
+                FdRes::Data {
                     data,
                     encoding: "base64".to_string(),
                 }
@@ -131,13 +131,12 @@ impl std::fmt::Debug for FdRes {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             FdRes::Error => write!(f, "Error"),
-            FdRes::None => write!(f, "None"),
-            FdRes::Detached => write!(f, "Detached"),
+            FdRes::Detached { length } => write!(f, "Detached {{ length: {} }}", length),
             FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
-            FdRes::CaptureUtf8 { text } => write!(f, "CaptureUtf8 {{ text: {} }}", elide(text)),
-            FdRes::CaptureBase64 { data, encoding } => write!(
+            FdRes::Text { text } => write!(f, "Text {{ text: {} }}", elide(text)),
+            FdRes::Data { data, encoding } => write!(
                 f,
-                "CaptureBase64 {{ encoding: {:?}, data: {} }}",
+                "Data {{ encoding: {:?}, data: {} }}",
                 encoding,
                 elide(data)
             ),
@@ -220,7 +219,7 @@ pub struct ProcRes {
 
     /// Fd results.
     /// FIXME: Associative map from fd instead?
-    pub fds: BTreeMap<String, FdRes>,
+    pub fds: BTreeMap<FdName, Option<FdRes>>,
 }
 
 impl ProcRes {

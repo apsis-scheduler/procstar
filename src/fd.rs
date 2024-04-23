@@ -177,6 +177,10 @@ fn read_file_from_start(fd: RawFd) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
+fn get_file_length(fd: RawFd) -> Result<i64> {
+    Ok(sys::fstat(fd)?.st_size)
+}
+
 impl SharedFdHandler {
     pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
         let fd_handler = match spec {
@@ -341,7 +345,7 @@ impl SharedFdHandler {
         })
     }
 
-    pub fn get_result(&self) -> Result<FdRes> {
+    pub fn get_result(&self) -> Result<Option<FdRes>> {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit
@@ -349,7 +353,7 @@ impl SharedFdHandler {
             | FdHandler::Close { .. }
             | FdHandler::Dup { .. }
             // FIXME: Return something containing the path.
-            | FdHandler::UnmanagedFile { .. } => FdRes::None,
+            | FdHandler::UnmanagedFile { .. } => None,
 
             FdHandler::UnlinkedFile {
                 file_fd,
@@ -357,11 +361,11 @@ impl SharedFdHandler {
                 attached,
                 ..
             } => {
-                if *attached {
+                Some(if *attached {
                     FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
                 } else {
-                    FdRes::Detached
-                }
+                    FdRes::Detached { length: get_file_length(*file_fd)? }
+                })
             }
 
             FdHandler::CaptureMemory {
@@ -370,26 +374,13 @@ impl SharedFdHandler {
                 attached,
                 ..
             } => {
-                if *attached {
+                Some(if *attached {
                     FdRes::from_bytes(*format, buf)
                 } else {
-                    FdRes::Detached
-                }
+                    FdRes::Detached { length: buf.len() as i64 }
+                })
             }
         })
-    }
-
-    pub fn get_attached_result(&self) -> Result<FdRes> {
-        match &*self.0.borrow() {
-            FdHandler::UnlinkedFile { attached, .. }
-            | FdHandler::CaptureMemory { attached, .. }
-                if !attached =>
-            {
-                Ok(FdRes::Detached)
-            }
-
-            _ => self.get_result(),
-        }
     }
 }
 

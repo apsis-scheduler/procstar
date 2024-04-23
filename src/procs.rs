@@ -102,14 +102,14 @@ impl Proc {
             .fd_handlers
             .iter()
             .map(|(fd_num, fd_handler)| {
-                let result = match fd_handler.get_attached_result() {
+                let result = match fd_handler.get_result() {
                     Ok(fd_result) => fd_result,
                     Err(_err) => {
                         // result
                         //     .errors
                         //     .push(format!("failed to clean up fd {}: {}", fd.get_fd(), err));
                         // FIXME: Put the error in here.
-                        res::FdRes::Error {}
+                        Some(res::FdRes::Error {})
                     }
                 };
                 (fd::get_fd_name(*fd_num), result)

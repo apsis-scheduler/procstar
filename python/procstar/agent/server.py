@@ -29,27 +29,38 @@ logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
-def _get_tls_from_env():
-    """
-    Returns TLS cert and key file paths from environment, or none if absent.
-    """
-    try:
-        cert_path = Path(os.environ["PROCSTAR_AGENT_CERT"])
-    except KeyError:
-        # No cert available.
+def _expand_tls_cert(tls_cert):
+    if tls_cert is None:
         return None, None
+    if tls_cert is FROM_ENV:
+        cert_path, key_path = FROM_ENV, FROM_ENV
+    else:
+        cert_path, key_path = tls_cert
+
+    if cert_path is FROM_ENV:
+        try:
+            cert_path = Path(os.environ["PROCSTAR_AGENT_CERT"])
+        except KeyError:
+            # No cert available.
+            logging.warning("no agent cert available")
+            return None, None
+    else:
+        cert_path = Path(cert_path)
     cert_path = cert_path.absolute()
     if not cert_path.is_file():
-        raise RuntimeError(f"PROCSTAR_AGENT_CERT file {cert_path} missing")
+        raise RuntimeError(f"missing TLS cert: {cert_path}")
 
-    try:
-        key_path = Path(os.environ["PROCSTAR_AGENT_KEY"])
-    except KeyError:
-        # Assume it's next to the cert file.
-        key_path = cert_path.with_suffix(".key")
+    if key_path is FROM_ENV:
+        try:
+            key_path = Path(os.environ["PROCSTAR_AGENT_KEY"])
+        except KeyError:
+            # Assume it's next to the cert file.
+            key_path = cert_path.with_suffix(".key")
+    else:
+        key_path = Path(key_path)
     key_path = key_path.absolute()
     if not key_path.is_file():
-        raise RuntimeError(f"PROCSTAR_AGENT_KEY file {key_path} missing")
+        raise RuntimeError(f"missing TLS key: {key_path}")
 
     return cert_path, key_path
 
@@ -95,19 +106,16 @@ class Server:
         if port is FROM_ENV:
             port = int(os.environ.get("PROCSTAR_AGENT_PORT", DEFAULT_PORT))
 
-        if tls_cert is FROM_ENV:
-            cert_path, key_path = _get_tls_from_env()
-        elif tls_cert is None:
-            cert_path, key_path = None, None
-        else:
-            cert_path, key_path = tls_cert
-
         if access_token is FROM_ENV:
             access_token = os.environ.get("PROCSTAR_AGENT_TOKEN", "")
 
+        cert_path, key_path = _expand_tls_cert(tls_cert)
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        if cert_path is not None:
-            logger.info(f"using TLS cert {cert_path} key {key_path}")
+        if cert_path is None:
+            logger.warning("no cert; not using TLS")
+        else:
+            logger.info(f"using TLS cert {cert_path}")
+            logger.info(f"using TLS key {key_path}")
             ssl_context.load_cert_chain(cert_path, key_path)
 
         # For debugging TLS handshake.

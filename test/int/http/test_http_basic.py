@@ -72,7 +72,7 @@ async def test_detached_output():
             res = await poll(client, proc_id)
 
             assert res["status"]["exit_code"] == 0
-            assert res["fds"]["stdout"] == None
+            assert res["fds"]["stdout"]["type"] == "detached"
             assert res["fds"]["stderr"]["text"] == ""
 
             assert await client.get_output_data(proc_id, "stdout") == "x" * 1048576 + "\n"

@@ -30,7 +30,7 @@ async def test_fd_output(mode):
 
         result = await(anext(proc.results))
         assert result.status.exit_code == 0
-        assert result.fds.stdout is None  # detached
+        assert result.fds.stdout.type == "detached"
 
         conn_id = asm.server.processes[proc_id].conn_id
         conn = asm.server.connections[conn_id]

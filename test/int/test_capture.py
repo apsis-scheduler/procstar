@@ -127,9 +127,9 @@ def test_detached(mode, attached):
 
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"] == (
-        {"text": "Hello, world. How are you?\n"}
+        {"type": "text", "text": "Hello, world. How are you?\n"}
         if attached in (True, None)
-        else None
+        else {"type": "detached", "length": 27}
     )
 
 

@@ -126,7 +126,7 @@ class Results:
 
 
     async def get_fd_res(self, name):
-        fd = getattr(self.result.fds, name)
+        fd = getattr(self.latest.fds, name)
         return fd
 
 

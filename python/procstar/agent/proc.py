@@ -38,13 +38,13 @@ class FdData:
 
     def __init__(self):
         self.data = None
-        self.format = None
+        self.encoding = None
 
 
     def append(self, msg: proto.ProcFdData):
         # FIXME: For now, just replace.
         self.data = msg.data
-        self.format = msg.format
+        self.encoding = msg.encoding
 
 
 
@@ -123,6 +123,11 @@ class Results:
         async for result in self:
             if result.state != "running":
                 return result
+
+
+    async def get_fd_res(self, name):
+        fd = getattr(self.result.fds, name)
+        return fd
 
 
 

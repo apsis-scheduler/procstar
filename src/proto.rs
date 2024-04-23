@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::vec::Vec;
 
 use crate::fd::parse_fd;
@@ -8,7 +10,7 @@ use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureFormat, FdName, ProcId};
+use crate::spec::{CaptureEncoding, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -134,9 +136,8 @@ pub enum OutgoingMessage {
     ProcFdData {
         proc_id: ProcId,
         fd: FdName,
-        // FIXME: OsString; don't require valid UTF-8.
-        data: String,
-        format: CaptureFormat,
+        data: OsString,
+        encoding: Option<CaptureEncoding>,
     },
 
     /// A process has been deleted.
@@ -204,11 +205,11 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             Ok(fd) => {
                 if let Some(proc) = procs.get(proc_id) {
                     match proc.borrow().get_fd_data(fd) {
-                        Ok(Some((data, format))) => Some(OutgoingMessage::ProcFdData {
+                        Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            data: String::from_utf8_lossy(&data).to_string(), // FIXME
-                            format,
+                            data: OsString::from_vec(data),
+                            encoding,
                         }),
                         Ok(None) => Some(OutgoingMessage::IncomingMessageError {
                             msg,

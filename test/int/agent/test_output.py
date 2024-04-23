@@ -10,7 +10,7 @@ from   procstar.testing.agent import Assembly
 @pytest.mark.asyncio
 async def test_fd_output(mode):
     """
-    Tests 
+    Tests
     """
     proc_id = "test_fd_output"
 
@@ -20,11 +20,11 @@ async def test_fd_output(mode):
             make_proc(
                 ["/usr/bin/echo", "Hello, world!"],
                 fds={
-                    "stdout": Proc.Fd.Capture(mode, "text", attached=False),
+                    "stdout": Proc.Fd.Capture(mode, "utf8", attached=False),
                 },
             ).to_jso()
         )
- 
+
         result = await anext(proc.results)
         assert result.status is None
 

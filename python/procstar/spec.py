@@ -161,15 +161,15 @@ class Proc:
         class Capture:
 
             MODES = {"tempfile", "memory"}
-            FORMATS = {"text", "base64"}
+            ENCODINGS = {None, "utf8"}
 
-            def __init__(self, mode, format, attached=True):
+            def __init__(self, mode, encoding, attached=True):
                 if mode not in self.MODES:
                     raise ValueError(f"bad mode: {mode}")
-                if format not in self.FORMATS:
-                    raise ValueError(f"bad format: {format}")
+                if encoding not in self.ENCODINGS:
+                    raise ValueError(f"bad encoding: {encoding}")
                 self.__mode = mode
-                self.__format = format
+                self.__encoding = encoding
                 self.__attached = bool(attached)
 
 
@@ -177,7 +177,7 @@ class Proc:
                 return {
                     "capture": {
                         "mode"      : self.__mode,
-                        "format"    : self.__format,
+                        "encoding"  : self.__encoding,
                         "attached"  : self.__attached,
                     }
                 }
@@ -227,9 +227,9 @@ def make_proc(what, /, *, env_vars={}, fds={}):
     if "stdin" not in fds:
         fds["stdin"] = Proc.Fd.Null()
     if "stdout" not in fds:
-        fds["stdout"] = Proc.Fd.Capture("memory", "text")
+        fds["stdout"] = Proc.Fd.Capture("memory", "utf8")
     if "stderr" not in fds:
-        fds["stderr"] = Proc.Fd.Capture("memory", "text")
+        fds["stderr"] = Proc.Fd.Capture("memory", "utf8")
     # FIXME: Close the rest.
 
     env = Proc.Env(inherit=Proc.Env.MINIMUM_ENV_VARS, vars=env_vars)

@@ -13,7 +13,11 @@ def test_multiple():
             f"{i}": {
                 "argv": ["/bin/echo", f"This is process #{i}."],
                 "fds": [
-                    ["stdout", {"capture": {"mode": "memory"}}],
+                    [
+                        "stdout", {
+                            "capture": {"mode": "memory", "encoding": "utf8"}
+                        }
+                    ],
                 ],
             }
             for i in range(8)
@@ -35,7 +39,11 @@ def test_subprocs1():
             f"{i}": {
                 "argv": [sys.executable, str(SCRIPTS_DIR / "subprocs1.py")],
                 "fds": [
-                    ["stdout", {"capture": {"mode": "memory"}}],
+                    [
+                        "stdout", {
+                            "capture": {"mode": "memory", "encoding": "utf8"}
+                        }
+                    ],
                 ],
             }
             for i in range(8)
@@ -64,7 +72,11 @@ def test_concurrent_print():
                     "--print", f"{1 << i}x{(1 << (22 - i)) + 1}",
                 ],
                 "fds": [
-                    ["stdout", {"capture": {"mode": "memory"}}],
+                    [
+                        "stdout", {
+                            "capture": {"mode": "memory", "encoding": "utf8"}
+                        }
+                    ],
                 ],
             }
             for i in range(8)

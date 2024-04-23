@@ -98,7 +98,7 @@ pub enum FdHandler {
         /// Fd open to the file.
         file_fd: RawFd,
         /// Format for output.
-        format: spec::CaptureFormat,
+        encoding: Option<spec::CaptureEncoding>,
         /// Whether to attach output to results.
         attached: bool,
     },
@@ -113,7 +113,7 @@ pub enum FdHandler {
         /// Write end of the pipe.
         write_fd: RawFd,
         /// Format for output.
-        format: spec::CaptureFormat,
+        encoding: Option<spec::CaptureEncoding>,
         /// Captured output.
         buf: Vec<u8>,
         /// Whether to attach output to results.
@@ -147,7 +147,7 @@ const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 /// Creates and opens an unlinked temporary file as a fd handler.
 fn open_unlinked_temp_file(
     fd: RawFd,
-    format: spec::CaptureFormat,
+    encoding: Option<spec::CaptureEncoding>,
     attached: bool,
 ) -> Result<FdHandler> {
     // Open a temp file.
@@ -158,7 +158,7 @@ fn open_unlinked_temp_file(
     Ok(FdHandler::UnlinkedFile {
         fd,
         file_fd: tmp_fd,
-        format,
+        encoding,
         attached,
     })
 }
@@ -198,14 +198,14 @@ impl SharedFdHandler {
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::TempFile,
-                format,
+                encoding,
                 attached,
                 ..
-            } => open_unlinked_temp_file(fd, format, attached)?,
+            } => open_unlinked_temp_file(fd, encoding, attached)?,
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
-                format,
+                encoding,
                 attached,
             } => {
                 let (read_fd, write_fd) = sys::pipe()?;
@@ -213,7 +213,7 @@ impl SharedFdHandler {
                     fd,
                     read_fd,
                     write_fd,
-                    format,
+                    encoding,
                     buf: Vec::new(),
                     attached,
                 }
@@ -329,7 +329,7 @@ impl SharedFdHandler {
     }
 
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
-    pub fn get_data(&self) -> Result<Option<(Vec<u8>, spec::CaptureFormat)>> {
+    pub fn get_data(&self) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>> {
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit
             | FdHandler::Error { .. }
@@ -338,10 +338,10 @@ impl SharedFdHandler {
             | FdHandler::UnmanagedFile { .. } => None,
 
             FdHandler::UnlinkedFile {
-                file_fd, format, ..
-            } => Some((read_file_from_start(*file_fd)?, *format)),
+                file_fd, encoding, ..
+            } => Some((read_file_from_start(*file_fd)?, *encoding)),
 
-            FdHandler::CaptureMemory { buf, format, .. } => Some((buf.clone(), *format)),
+            FdHandler::CaptureMemory { buf, encoding, .. } => Some((buf.clone(), *encoding)),
         })
     }
 
@@ -357,25 +357,25 @@ impl SharedFdHandler {
 
             FdHandler::UnlinkedFile {
                 file_fd,
-                format,
+                encoding,
                 attached,
                 ..
             } => {
                 Some(if *attached {
-                    FdRes::from_bytes(*format, &read_file_from_start(*file_fd)?)
+                    FdRes::from_bytes(*encoding, &read_file_from_start(*file_fd)?)
                 } else {
                     FdRes::Detached { length: get_file_length(*file_fd)? }
                 })
             }
 
             FdHandler::CaptureMemory {
-                format,
+                encoding,
                 buf,
                 attached,
                 ..
             } => {
                 Some(if *attached {
-                    FdRes::from_bytes(*format, buf)
+                    FdRes::from_bytes(*encoding, buf)
                 } else {
                     FdRes::Detached { length: buf.len() as i64 }
                 })

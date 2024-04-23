@@ -178,7 +178,7 @@ class ProcFdData:
     proc_id: str
     fd: str
     data: str
-    format: str
+    encoding: str
 
 
 

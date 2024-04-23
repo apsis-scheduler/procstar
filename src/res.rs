@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::sig;
-use crate::spec::{CaptureFormat, ProcId, FdName};
+use crate::spec::{CaptureEncoding, FdName, ProcId};
 use crate::state::State;
 
 //------------------------------------------------------------------------------
@@ -84,6 +84,7 @@ pub enum FdRes {
     /// UTF-8-encoded output.
     Text {
         text: String,
+        encoding: String,
     },
 
     /// Base64-encoded output.
@@ -94,14 +95,17 @@ pub enum FdRes {
 }
 
 impl FdRes {
-    pub fn from_bytes(format: CaptureFormat, buffer: &Vec<u8>) -> FdRes {
-        match format {
-            CaptureFormat::Text => {
+    pub fn from_bytes(encoding: Option<CaptureEncoding>, buffer: &Vec<u8>) -> FdRes {
+        match encoding {
+            Some(CaptureEncoding::Utf8) => {
                 // FIXME: Handle errors.
                 let text = String::from_utf8_lossy(&buffer).to_string();
-                FdRes::Text { text }
+                FdRes::Text {
+                    text,
+                    encoding: "UTF-8".to_string(),
+                }
             }
-            CaptureFormat::Base64 => {
+            None => {
                 // FIXME: Handle errors.
                 let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
                 FdRes::Data {
@@ -133,7 +137,12 @@ impl std::fmt::Debug for FdRes {
             FdRes::Error => write!(f, "Error"),
             FdRes::Detached { length } => write!(f, "Detached {{ length: {} }}", length),
             FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
-            FdRes::Text { text } => write!(f, "Text {{ text: {} }}", elide(text)),
+            FdRes::Text { text, encoding } => write!(
+                f,
+                "Text {{ text: {}, encoding: {} }}",
+                elide(text),
+                encoding
+            ),
             FdRes::Data { data, encoding } => write!(
                 f,
                 "Data {{ encoding: {:?}, data: {} }}",

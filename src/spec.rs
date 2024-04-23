@@ -156,14 +156,13 @@ impl Default for CaptureMode {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
-pub enum CaptureFormat {
-    Text,
-    Base64,
+pub enum CaptureEncoding {
+    Utf8,
 }
 
-impl Default for CaptureFormat {
+impl Default for CaptureEncoding {
     fn default() -> Self {
-        Self::Text
+        Self::Utf8
     }
 }
 
@@ -206,7 +205,7 @@ pub enum Fd {
         mode: CaptureMode,
 
         #[serde(default)]
-        format: CaptureFormat,
+        encoding: Option<CaptureEncoding>,
 
         #[serde(default = "Fd::attached_default")]
         attached: bool,

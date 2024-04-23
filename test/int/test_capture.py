@@ -11,8 +11,8 @@ SCRIPTS_DIR = Path(__file__).parent / "scripts"
 #-------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("mode", Proc.Fd.Capture.MODES)
-@pytest.mark.parametrize("format", ["text", "base64"])
-def test_echo(mode, format):
+@pytest.mark.parametrize("encoding", Proc.Fd.Capture.ENCODINGS)
+def test_echo(mode, encoding):
     """
     Tests basic capture of stdout.
     """
@@ -23,7 +23,7 @@ def test_echo(mode, format):
                 "stdout", {
                     "capture": {
                         "mode": mode,
-                        "format": format,
+                        "encoding": encoding,
                     }
                 }
             ],
@@ -34,11 +34,11 @@ def test_echo(mode, format):
 
     stdout = res["fds"]["stdout"]
     text = "Hello, world. How are you?\n"
-    if mode == "text":
+    if encoding == "utf8":
         assert stdout["text"] == text
-    elif mode == "base64":
+    elif encoding == None:
         assert stdout["encoding"] == "base64"
-        assert stdout["text"] == base64.b64encode(text.encode())
+        assert stdout["data"] == base64.b64encode(text.encode()).decode()
 
 
 @pytest.mark.parametrize("mode", Proc.Fd.Capture.MODES)
@@ -58,7 +58,7 @@ def test_interleaved(mode):
                 "stdout", {
                     "capture": {
                         "mode": mode,
-                        "format": "base64",
+                        "encoding": None,
                     }
                 },
             ],
@@ -66,7 +66,6 @@ def test_interleaved(mode):
                 "stderr", {
                     "capture": {
                         "mode": mode,
-                        "format": "base64",
                     }
                 },
             ]
@@ -92,7 +91,7 @@ def test_utf8_sanitize(mode):
             "abc\200\200def",
         ],
         "fds": [
-            ["stdout", {"capture": {"mode": mode}}],
+            ["stdout", {"capture": {"mode": mode, "encoding": "utf8"}}],
         ],
     })
 
@@ -117,7 +116,7 @@ def test_detached(mode, attached):
                 "stdout", {
                     "capture": {
                         "mode": mode,
-                        "format": "text",
+                        "encoding": "utf8",
                         **({} if attached is None else {"attached": attached}),
                     },
                 },
@@ -127,7 +126,7 @@ def test_detached(mode, attached):
 
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"] == (
-        {"type": "text", "text": "Hello, world. How are you?\n"}
+        {"type": "text", "encoding": "UTF-8", "text": "Hello, world. How are you?\n"}
         if attached in (True, None)
         else {"type": "detached", "length": 27}
     )

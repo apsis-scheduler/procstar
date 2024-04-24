@@ -15,6 +15,7 @@ use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
+use crate::proto::{IncomingMessage, OutgoingMessage, ConnectionInfo};
 
 //------------------------------------------------------------------------------
 
@@ -28,7 +29,7 @@ pub struct Connection {
     /// The remote server URL to which we connect.
     url: Url,
     /// Information about the connection.
-    conn: proto::ConnectionInfo,
+    conn: ConnectionInfo,
     /// Information about this process running procstar.
     proc: ProcessInfo,
 }
@@ -39,7 +40,7 @@ impl Connection {
         let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
         let group_id = group_id.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
         let restricted_exe = get_restricted_exe();
-        let conn = proto::ConnectionInfo {
+        let conn = ConnectionInfo {
             conn_id,
             group_id,
             restricted_exe,
@@ -49,27 +50,33 @@ impl Connection {
     }
 }
 
+fn deserialize(data: &Vec<u8>) -> Result<IncomingMessage, Error> {
+    Ok(rmp_serde::decode::from_slice::<IncomingMessage>(data)?)
+}
+
+fn serialize(msg: &OutgoingMessage) -> Result<Vec<u8>, Error> {
+    Ok(rmp_serde::to_vec_named(msg)?)
+}
+
 /// Handler for incoming messages on a websocket client connection.
 async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Error> {
     match msg {
-        Message::Binary(json) => {
-            let msg = serde_json::from_slice::<proto::IncomingMessage>(&json);
-            if let Ok(ref msg) = msg {
-                trace!("< {:?}", msg);
-            } else {
-                if let Ok(json) = std::str::from_utf8(json.as_slice()) {
-                    error!("< {}", json);
-                } else {
-                    error!("< {:?}", msg);
+        Message::Binary(ref data) => {
+            match deserialize(data) {
+                Ok(msg) => {
+                    trace!("< {:?}", msg);
+                    if let Some(rsp) = proto::handle_incoming(procs, &msg).await {
+                        // FIXME: ProcResult is too big to log.
+                        trace!("> {:?}", rsp);
+                        Ok(Some(Message::Binary(serialize(&rsp)?)))
+                    } else {
+                        Ok(None)
+                    }
                 }
-            }
-            if let Some(rsp) = proto::handle_incoming(procs, msg?).await {
-                // FIXME: ProcResult is too big to log.
-                trace!("> {:?}", rsp);
-                let json = serde_json::to_vec(&rsp)?;
-                Ok(Some(Message::Binary(json)))
-            } else {
-                Ok(None)
+                Err(ref err) => {
+                    error!("< {}: {:?}", err, msg);
+                    Ok(None)
+                }
             }
         }
         Message::Ping(payload) => Ok(Some(Message::Pong(payload))),
@@ -81,11 +88,10 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
     }
 }
 
-async fn send(sender: &mut SocketSender, msg: proto::OutgoingMessage) -> Result<(), Error> {
+async fn send(sender: &mut SocketSender, msg: OutgoingMessage) -> Result<(), Error> {
     // FIXME: ProcResult is too big to log AND TO SEND!
     trace!("> {:?}", msg);
-    let json = serde_json::to_vec(&msg)?;
-    sender.send(Message::Binary(json)).await?;
+    sender.send(Message::Binary(serialize(&msg)?)).await?;
     Ok(())
 }
 
@@ -96,7 +102,7 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
     let (mut sender, mut receiver) = ws_stream.split();
 
     // Send a register message.
-    let register = proto::OutgoingMessage::Register {
+    let register = OutgoingMessage::Register {
         conn: connection.conn.clone(),
         proc: connection.proc.clone(),
         access_token: get_access_token(),
@@ -106,9 +112,9 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
     // The first message we received should be Registered.
     let msg = receiver.next().await;
     match msg {
-        Some(Ok(Message::Binary(json))) => {
-            match serde_json::from_slice::<proto::IncomingMessage>(&json)? {
-                proto::IncomingMessage::Registered => Ok((sender, receiver)),
+        Some(Ok(Message::Binary(ref data))) => {
+            match deserialize(data)? {
+                IncomingMessage::Registered => Ok((sender, receiver)),
                 _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
             }
         }
@@ -128,14 +134,14 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
 fn notification_to_message(
     procs: &SharedProcs,
     noti: Notification,
-) -> Option<proto::OutgoingMessage> {
+) -> Option<OutgoingMessage> {
     match noti {
         Notification::Start(proc_id) | Notification::NotRunning(proc_id) => {
             // Look up the proc.
             if let Some(proc) = procs.get(&proc_id) {
                 // Got it.  Send its result.
                 let res = proc.borrow().to_result();
-                Some(proto::OutgoingMessage::ProcResult { proc_id, res })
+                Some(OutgoingMessage::ProcResult { proc_id, res })
             } else {
                 // The proc has disappeared since the notification was sent;
                 // it must have been deleted.
@@ -143,7 +149,7 @@ fn notification_to_message(
             }
         }
 
-        Notification::Delete(proc_id) => Some(proto::OutgoingMessage::ProcDelete { proc_id }),
+        Notification::Delete(proc_id) => Some(OutgoingMessage::ProcDelete { proc_id }),
     }
 }
 

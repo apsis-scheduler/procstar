@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 use std::vec::Vec;
 
 use crate::fd::parse_fd;
@@ -78,7 +76,7 @@ impl std::fmt::Display for Error {
 /// Incoming messages, originating from the websocket server.  Despite this
 /// name, these messages are requests, to which we, the websocket client,
 /// respond.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum IncomingMessage {
     /// The instance was successfully registered.
@@ -136,7 +134,8 @@ pub enum OutgoingMessage {
     ProcFdData {
         proc_id: ProcId,
         fd: FdName,
-        data: OsString,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
         encoding: Option<CaptureEncoding>,
     },
 
@@ -144,17 +143,27 @@ pub enum OutgoingMessage {
     ProcDelete { proc_id: ProcId },
 }
 
-pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
+fn incoming_error(msg: &IncomingMessage, err: &str) -> OutgoingMessage {
+    OutgoingMessage::IncomingMessageError {
+        msg: msg.clone(),
+        err: err.to_string(),
+    }
+}
+
+pub async fn handle_incoming(
+    procs: &SharedProcs,
+    msg: &IncomingMessage,
+) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
-            msg,
+            msg: msg.clone(),
             err: "unexpected".to_owned(),
         }),
 
         IncomingMessage::ProcStart { ref specs } => {
             if let Err(err) = start_procs(specs, procs) {
                 Some(OutgoingMessage::IncomingMessageError {
-                    msg,
+                    msg: msg.clone(),
                     err: err.to_string(),
                 })
             } else {
@@ -183,11 +192,8 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             signum,
         } => {
             if let Some(proc) = procs.get(&proc_id) {
-                if let Err(err) = proc.borrow().send_signal(signum) {
-                    Some(OutgoingMessage::IncomingMessageError {
-                        msg,
-                        err: err.to_string(),
-                    })
+                if let Err(err) = proc.borrow().send_signal(*signum) {
+                    Some(incoming_error(msg, &err.to_string()))
                 } else {
                     None
                 }
@@ -208,17 +214,11 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                         Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            data: OsString::from_vec(data),
+                            data,
                             encoding,
                         }),
-                        Ok(None) => Some(OutgoingMessage::IncomingMessageError {
-                            msg,
-                            err: "no fd data".to_owned(),
-                        }),
-                        Err(err) => Some(OutgoingMessage::IncomingMessageError {
-                            msg,
-                            err: err.to_string(),
-                        }),
+                        Ok(None) => Some(incoming_error(msg, "no fd data")),
+                        Err(err) => Some(incoming_error(msg, &err.to_string())),
                     }
                 } else {
                     Some(OutgoingMessage::ProcUnknown {
@@ -226,10 +226,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                     })
                 }
             }
-            Err(err) => Some(OutgoingMessage::IncomingMessageError {
-                msg,
-                err: err.to_string(),
-            }),
+            Err(err) => Some(incoming_error(msg, &err.to_string())),
         },
 
         IncomingMessage::ProcDeleteRequest { ref proc_id } => {
@@ -238,10 +235,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                 Err(crate::err::Error::NoProcId(proc_id)) => {
                     Some(OutgoingMessage::ProcUnknown { proc_id })
                 }
-                Err(err) => Some(OutgoingMessage::IncomingMessageError {
-                    msg,
-                    err: err.to_string(),
-                }),
+                Err(err) => Some(incoming_error(msg, &err.to_string())),
             }
         }
     }

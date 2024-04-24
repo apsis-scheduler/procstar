@@ -47,7 +47,7 @@ type Result<T> = std::result::Result<T, Error>;
 // Env spec
 //------------------------------------------------------------------------------
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub enum EnvInherit {
     None,
@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for EnvInherit {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields, default)]
 pub struct Env {
     pub inherit: EnvInherit,
@@ -228,7 +228,7 @@ impl Default for Fd {
 // Process spec
 //------------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct Proc {

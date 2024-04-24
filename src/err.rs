@@ -50,6 +50,10 @@ pub enum Error {
     ProcRunning(ProcId),
     /// Protocol error.
     Proto(proto::Error),
+    /// Wraps a RMP (MessagePack) decoding error.
+    RMPDecode(rmp_serde::decode::Error),
+    /// Wraps a RMP (MessagePack) encoding error.
+    RMPEncode(rmp_serde::encode::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
@@ -74,6 +78,8 @@ impl std::fmt::Display for Error {
             Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
             Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
             Error::Proto(ref err) => err.fmt(f),
+            Error::RMPDecode(ref err) => err.fmt(f),
+            Error::RMPEncode(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }
@@ -106,6 +112,18 @@ impl From<proto::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Error {
         Error::Json(err)
+    }
+}
+
+impl From<rmp_serde::decode::Error> for Error {
+    fn from(err: rmp_serde::decode::Error) -> Error {
+        Error::RMPDecode(err)
+    }
+}
+
+impl From<rmp_serde::encode::Error> for Error {
+    fn from(err: rmp_serde::encode::Error) -> Error {
+        Error::RMPEncode(err)
     }
 }
 

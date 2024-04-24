@@ -1,5 +1,5 @@
 from   dataclasses import dataclass
-import orjson
+import msgpack
 from   typing import Dict, List
 
 from   .lib.json import Jso
@@ -83,7 +83,7 @@ def serialize_message(msg):
     cls = msg.__class__
     type = cls.__name__
     assert OUTGOING_MESSAGE_TYPES[type] is cls
-    return orjson.dumps({"type": type} | msg.__dict__)
+    return msgpack.dumps({"type": type} | msg.__dict__)
 
 
 #-------------------------------------------------------------------------------
@@ -215,8 +215,8 @@ def deserialize_message(msg):
         raise ProtocolError(f"wrong ws msg type: {type(msg)}")
     # Parse JSON.
     try:
-        jso = orjson.loads(msg)
-    except orjson.JSONDecodeError as err:
+        jso = msgpack.loads(msg)
+    except msgpack.UnpackException as err:
         raise ProtocolError(f"ws msg JSON error: {err}") from None
     if not isinstance(jso, dict):
         raise ProtocolError("msg not a dict")

@@ -37,12 +37,12 @@ async def test_fd_output(mode):
 
         await conn.send(proto.ProcFdDataRequest(proc_id, "stdout"))
         await asm.server.delete(proc_id)
-        assert False
 
 
 if __name__ == "__main__":
-    import asyncio, logging
-    logging.basicConfig(level=logging.DEBUG)
+    import asyncio
+    from procstar.lib import logging
+    logging.configure(level="debug")
     asyncio.run(test_fd_output("tempfile"))
 
 

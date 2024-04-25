@@ -128,7 +128,7 @@ class Server:
             partial(self._serve_connection, access_token),
             host, port,
             ssl=ssl_context,
-            max_size=64 * 1024**2
+            max_size=None,  # no message size limit
         )
 
 

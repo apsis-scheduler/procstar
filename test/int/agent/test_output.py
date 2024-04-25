@@ -1,9 +1,12 @@
+import logging
 import pytest
 import sys
 
 from   procstar import proto
 from   procstar.spec import Proc, make_proc
 from   procstar.testing.agent import Assembly
+
+logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
 
@@ -53,7 +56,7 @@ async def test_fd_output_large(mode):
     Tests retrieval of large detached output.
     """
     PROC_ID = "test_fd_output_large"
-    SIZE = 16 * 1024**2
+    SIZE = 64 * 1024**2
 
     async with Assembly.start() as asm:
         proc = await asm.server.start(

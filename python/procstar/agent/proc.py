@@ -125,7 +125,7 @@ class Results:
                 return result
 
 
-    async def get_fd_res(self, name) -> (bytes, str):
+    async def get_fd_res(self, name) -> (bytes, str | None):
         """
         Returns the data and encoding of the named fd.
         """

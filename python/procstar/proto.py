@@ -3,6 +3,8 @@ import msgpack
 from   typing import Dict, List
 
 from   .lib.json import Jso
+from   .lib.py import format_ctor
+from   .lib.string import elide
 
 #-------------------------------------------------------------------------------
 
@@ -183,6 +185,18 @@ class ProcFdData:
     stop: int
     encoding: str
     data: str
+
+    def __str__(self):
+        # Don't formet the entire data, which may be large.
+        return format_ctor(
+            self,
+            proc_id =self.proc_id,
+            fd      =self.fd,
+            start   =self.start,
+            stop    =self.stop,
+            encoding=self.encoding,
+            data    =elide(self.data, 64, ellipsis=b"...", pos=0.8),
+        )
 
 
 

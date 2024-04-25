@@ -9,6 +9,7 @@ use crate::procinfo::{ProcStat, ProcStatm};
 use crate::sig;
 use crate::spec::{CaptureEncoding, FdName, ProcId};
 use crate::state::State;
+use crate::string::elide;
 
 //------------------------------------------------------------------------------
 
@@ -123,19 +124,6 @@ impl FdRes {
             None => "base64",
         }.to_string();
         FdRes::Detached { length, encoding }
-    }
-}
-
-fn elide(str: &String) -> String {
-    let len = str.len();
-    if len <= 64 {
-        format!("{:?}", str)
-    } else {
-        format!(
-            "{:?}… (len {})",
-            String::from_utf8_lossy(&str.as_bytes()[..63]),
-            len
-        )
     }
 }
 

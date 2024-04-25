@@ -13,6 +13,7 @@ pub mod procinfo;
 pub mod procs;
 pub mod proto;
 pub mod res;
+pub mod string;
 pub mod shutdown;
 pub mod sig;
 pub mod spec;

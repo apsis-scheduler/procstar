@@ -1,3 +1,4 @@
+use derive_debug::Dbg;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
@@ -114,7 +115,7 @@ pub enum IncomingMessage {
 /// Outgoing messages, originating here and sent to the websocket server.
 /// Despite this naming, these messages are primarily responses to requests
 /// originating with the server.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Dbg, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     /// An incoming message could not be processed.
@@ -143,6 +144,7 @@ pub enum OutgoingMessage {
         start: i64,
         stop: i64,
         encoding: Option<CaptureEncoding>,
+        #[dbg(placeholder = "...")]
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },

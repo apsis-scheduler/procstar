@@ -80,7 +80,7 @@ class Results:
                 self.latest = result
                 return result
 
-            case proto.ProcFdData(fd):
+            case proto.ProcFdData(_proc_id, fd):
                 try:
                     fd_data = self.__fd_data[fd]
                 except KeyError:
@@ -125,9 +125,28 @@ class Results:
                 return result
 
 
-    async def get_fd_res(self, name):
-        fd = getattr(self.latest.fds, name)
-        return fd
+    async def get_fd_res(self, name) -> (bytes, str):
+        """
+        Returns the data and encoding of the named fd.
+        """
+        match getattr(self.latest.fds, name):
+            case object(type="detached", encoding=encoding):
+                try:
+                    fd_data = self.__fd_data[name]
+                except KeyError:
+                    # FIXME: Encoding should be in result.
+                    return b"", encoding
+                else:
+                    return fd_data.data, fd_data.encoding
+
+            case object(type="text", text=text, encoding=encoding):
+                return text.decode(encoding), encoding
+
+            case object(type="data", data=data, encoding=encoding):
+                if encoding is None:
+                    return data, None
+                else:
+                    assert False, f"not implemented: encoding={encoding}"
 
 
 

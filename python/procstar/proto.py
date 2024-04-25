@@ -52,6 +52,8 @@ class ProcSignalRequest:
 class ProcFdDataRequest:
     proc_id: str
     fd: str
+    start: int = 0
+    stop: int | None = None
 
 
 @dataclass
@@ -177,8 +179,10 @@ class ProcResult:
 class ProcFdData:
     proc_id: str
     fd: str
-    data: str
+    start: int
+    stop: int
     encoding: str
+    data: str
 
 
 

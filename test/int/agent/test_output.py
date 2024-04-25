@@ -35,8 +35,14 @@ async def test_fd_output(mode):
         conn_id = asm.server.processes[proc_id].conn_id
         conn = asm.server.connections[conn_id]
 
+        # Request the entire stdout.
         await conn.send(proto.ProcFdDataRequest(proc_id, "stdout"))
+
         await asm.server.delete(proc_id)
+
+        output, encoding = await proc.results.get_fd_res("stdout")
+        assert output == b"Hello, world!\n"
+        assert encoding == "utf-8"
 
 
 if __name__ == "__main__":

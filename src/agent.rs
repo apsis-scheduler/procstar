@@ -15,7 +15,7 @@ use crate::net::{get_access_token, get_tls_connector};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
-use crate::proto::{IncomingMessage, OutgoingMessage, ConnectionInfo};
+use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
 
 //------------------------------------------------------------------------------
 
@@ -112,12 +112,10 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
     // The first message we received should be Registered.
     let msg = receiver.next().await;
     match msg {
-        Some(Ok(Message::Binary(ref data))) => {
-            match deserialize(data)? {
-                IncomingMessage::Registered => Ok((sender, receiver)),
-                _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
-            }
-        }
+        Some(Ok(Message::Binary(ref data))) => match deserialize(data)? {
+            IncomingMessage::Registered => Ok((sender, receiver)),
+            _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
+        },
         Some(Ok(Message::Close(_))) => Err(proto::Error::WrongMessageType(
             "websocket closed".to_owned(),
         ))?,
@@ -131,10 +129,7 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
 }
 
 /// Constructs an outgoing message corresponding to a notification message.
-fn notification_to_message(
-    procs: &SharedProcs,
-    noti: Notification,
-) -> Option<OutgoingMessage> {
+fn notification_to_message(procs: &SharedProcs, noti: Notification) -> Option<OutgoingMessage> {
     match noti {
         Notification::Start(proc_id) | Notification::NotRunning(proc_id) => {
             // Look up the proc.

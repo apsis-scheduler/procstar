@@ -79,6 +79,7 @@ pub enum FdRes {
     /// in results, but may be obtained separately.
     Detached {
         length: i64,
+        encoding: String,
     },
 
     /// UTF-8-encoded output.
@@ -102,7 +103,7 @@ impl FdRes {
                 let text = String::from_utf8_lossy(&buffer).to_string();
                 FdRes::Text {
                     text,
-                    encoding: "UTF-8".to_string(),
+                    encoding: "utf-8".to_string(),
                 }
             }
             None => {
@@ -114,6 +115,14 @@ impl FdRes {
                 }
             }
         }
+    }
+
+    pub fn detached(length: i64, encoding: Option<CaptureEncoding>) -> FdRes {
+        let encoding = match encoding {
+            Some(CaptureEncoding::Utf8) => "utf-8",
+            None => "base64",
+        }.to_string();
+        FdRes::Detached { length, encoding }
     }
 }
 
@@ -135,7 +144,11 @@ impl std::fmt::Debug for FdRes {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             FdRes::Error => write!(f, "Error"),
-            FdRes::Detached { length } => write!(f, "Detached {{ length: {} }}", length),
+            FdRes::Detached { length, encoding } => write!(
+                f,
+                "Detached {{ length: {}, encoding: {} }}",
+                length, encoding
+            ),
             FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
             FdRes::Text { text, encoding } => write!(
                 f,

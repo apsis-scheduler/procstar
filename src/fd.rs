@@ -164,14 +164,26 @@ fn open_unlinked_temp_file(
 }
 
 /// Reads the contents of a file from the beginning, from its open fd.
-fn read_file_from_start(fd: RawFd) -> Result<Vec<u8>> {
+fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> Result<Vec<u8>> {
     // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
     let mut file = unsafe { fs::File::from_raw_fd(fd) };
     // Seek to front.
-    file.rewind()?;
-    // Read the contents.
-    let mut buf = Vec::<u8>::new();
-    file.read_to_end(&mut buf)?;
+    file.seek(std::io::SeekFrom::Start(start))?;
+    let buf = if let Some(stop) = stop {
+        // Read to indicated stop position.
+        if stop < start {
+            return Err(Error::Eof);
+        }
+        let mut buf = vec![0; (stop - start) as usize];
+        file.read_exact(&mut buf)?;
+        buf
+    } else {
+        // Read entire contents.
+        let mut buf = Vec::<u8>::new();
+        file.read_to_end(&mut buf)?;
+        buf
+    };
+
     // Take back ownership of the fd.
     assert!(file.into_raw_fd() == fd);
     Ok(buf)
@@ -329,7 +341,11 @@ impl SharedFdHandler {
     }
 
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
-    pub fn get_data(&self) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>> {
+    pub fn get_data(
+        &self,
+        start: usize,
+        stop: Option<usize>,
+    ) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>> {
         Ok(match &*self.0.borrow() {
             FdHandler::Inherit
             | FdHandler::Error { .. }
@@ -339,9 +355,15 @@ impl SharedFdHandler {
 
             FdHandler::UnlinkedFile {
                 file_fd, encoding, ..
-            } => Some((read_file_from_start(*file_fd)?, *encoding)),
+            } => Some((
+                read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
+                *encoding,
+            )),
 
-            FdHandler::CaptureMemory { buf, encoding, .. } => Some((buf.clone(), *encoding)),
+            FdHandler::CaptureMemory { buf, encoding, .. } => {
+                let stop = stop.unwrap_or_else(|| buf.len());
+                Some((buf[start..stop].to_vec(), *encoding))
+            }
         })
     }
 
@@ -362,9 +384,9 @@ impl SharedFdHandler {
                 ..
             } => {
                 Some(if *attached {
-                    FdRes::from_bytes(*encoding, &read_file_from_start(*file_fd)?)
+                    FdRes::from_bytes(*encoding, &read_from_file(*file_fd, 0, None)?)
                 } else {
-                    FdRes::Detached { length: get_file_length(*file_fd)? }
+                    FdRes::detached(get_file_length(*file_fd)?, *encoding)
                 })
             }
 
@@ -377,7 +399,7 @@ impl SharedFdHandler {
                 Some(if *attached {
                     FdRes::from_bytes(*encoding, buf)
                 } else {
-                    FdRes::Detached { length: buf.len() as i64 }
+                    FdRes::detached(buf.len() as i64, *encoding)
                 })
             }
         })

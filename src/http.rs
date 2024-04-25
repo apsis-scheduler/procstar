@@ -135,7 +135,7 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
         Some(proc) => proc,
         None => return json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
     };
-    let (data, encoding) = match proc.borrow().get_fd_data(fd) {
+    let (data, encoding) = match proc.borrow().get_fd_data(fd, 0, None) {
         Ok(Some(data)) => data,
         Ok(None) => (Vec::<u8>::new(), None),
         Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
@@ -146,7 +146,7 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
             hyper::header::CONTENT_TYPE,
             match encoding {
                 None => "application/octet-stream",
-                Some(CaptureEncoding::Utf8) => "text/plain; charset=UTF-8",
+                Some(CaptureEncoding::Utf8) => "text/plain; charset=utf-8",
             },
         )
         .body(Full::<Bytes>::from(data))

@@ -95,8 +95,14 @@ pub enum IncomingMessage {
     /// Requests sending a signal to a process.
     ProcSignalRequest { proc_id: ProcId, signum: Signum },
 
-    /// Requests sending (part of) captured fd data for a process.
-    ProcFdDataRequest { proc_id: ProcId, fd: FdName },
+    /// Requests sending (part of) captured fd data for a process, from position
+    /// `start` until position `stop`, or until the end of `position` is none.
+    ProcFdDataRequest {
+        proc_id: ProcId,
+        fd: FdName,
+        start: i64,
+        stop: Option<i64>,
+    },
 
     /// Requests deletion of a process's records.  The process may not be
     /// running.
@@ -134,9 +140,11 @@ pub enum OutgoingMessage {
     ProcFdData {
         proc_id: ProcId,
         fd: FdName,
+        start: i64,
+        stop: i64,
+        encoding: Option<CaptureEncoding>,
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
-        encoding: Option<CaptureEncoding>,
     },
 
     /// A process has been deleted.
@@ -207,15 +215,22 @@ pub async fn handle_incoming(
         IncomingMessage::ProcFdDataRequest {
             ref proc_id,
             fd: ref fd_name,
+            start,
+            stop,
         } => match parse_fd(fd_name) {
             Ok(fd) => {
                 if let Some(proc) = procs.get(proc_id) {
-                    match proc.borrow().get_fd_data(fd) {
+                    match proc
+                        .borrow()
+                        .get_fd_data(fd, *start as usize, stop.map(|s| s as usize))
+                    {
                         Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            data,
+                            start: *start,
+                            stop: stop.unwrap_or_else(|| *start + (data.len() as i64)),
                             encoding,
+                            data,
                         }),
                         Ok(None) => Some(incoming_error(msg, "no fd data")),
                         Err(err) => Some(incoming_error(msg, &err.to_string())),

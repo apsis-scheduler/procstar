@@ -161,9 +161,11 @@ impl Proc {
     pub fn get_fd_data(
         &self,
         fd: RawFd,
+        start: usize,
+        stop: Option<usize>,
     ) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>, crate::err::Error> {
         if let Some(fd_handler) = self.get_fd_handler(fd) {
-            fd_handler.get_data()
+            fd_handler.get_data(start, stop)
         } else {
             Err(Error::NoFd(fd))
         }

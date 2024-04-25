@@ -67,7 +67,7 @@ class Process(subprocess.Popen):
                 "--log-level", "trace",
                 "-",
             ],
-            encoding="UTF-8",
+            encoding="utf-8",
             stdin   =os.fdopen(stdin_read_fd, "r", encoding="utf-8"),
             stdout  =subprocess.PIPE,
             stderr  =subprocess.PIPE,

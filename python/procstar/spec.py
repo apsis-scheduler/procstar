@@ -161,7 +161,7 @@ class Proc:
         class Capture:
 
             MODES = {"tempfile", "memory"}
-            ENCODINGS = {None, "utf8"}
+            ENCODINGS = {None, "utf-8"}
 
             def __init__(self, mode, encoding, attached=True):
                 if mode not in self.MODES:
@@ -227,9 +227,9 @@ def make_proc(what, /, *, env_vars={}, fds={}):
     if "stdin" not in fds:
         fds["stdin"] = Proc.Fd.Null()
     if "stdout" not in fds:
-        fds["stdout"] = Proc.Fd.Capture("memory", "utf8")
+        fds["stdout"] = Proc.Fd.Capture("memory", "utf-8")
     if "stderr" not in fds:
-        fds["stderr"] = Proc.Fd.Capture("memory", "utf8")
+        fds["stderr"] = Proc.Fd.Capture("memory", "utf-8")
     # FIXME: Close the rest.
 
     env = Proc.Env(inherit=Proc.Env.MINIMUM_ENV_VARS, vars=env_vars)

@@ -6,7 +6,7 @@ def test_exe():
     # This argv[0] is bogus.
     res = run({"specs": {"test_exe": {
         "argv": ["foobar", "Hello, world!"],
-        "fds": [["stdout", {"capture": {"encoding": "utf8"}}]],
+        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
     }}})
     assert res["test_exe"]["state"] == "error"
 
@@ -14,7 +14,7 @@ def test_exe():
     res = run1({
         "exe": "/usr/bin/echo",
         "argv": ["foobar", "Hello, world!"],
-        "fds": [["stdout", {"capture": {"encoding": "utf8"}}]],
+        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
     })
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"]["text"] == "Hello, world!\n"
@@ -25,7 +25,7 @@ def test_exe_argv0():
     res = run1({
         "exe": "/usr/bin/bash",
         "argv": ["Not really bash!", "-c", "echo $0"],
-        "fds": [["stdout", {"capture": {"encoding": "utf8"}}]],
+        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
     })
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"]["text"] == "Not really bash!\n"
@@ -36,7 +36,7 @@ def test_restrict_exe():
         "specs": {
             "test": {
                 "argv": ["/usr/bin/echo", "Hello, world!"],
-                "fds": [["stdout", {"capture": {"encoding": "utf8"}}]],
+                "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
             }
         }
     }
@@ -61,7 +61,7 @@ def test_restrict_exe_multi():
             },
             "echo": {
                 "argv": ["/usr/bin/echo", "Hello, world!"],
-                "fds": [["stdout", {"capture": {"encoding": "utf8"}}]],
+                "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
             },
             "true": {
                 "argv": ["/usr/bin/true"],

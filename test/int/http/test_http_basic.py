@@ -65,7 +65,7 @@ async def test_detached_output():
                     "-c", "print(1048576 * 'x')"
                 ],
                 fds={
-                    "stdout": Proc.Fd.Capture("memory", "utf8", attached=False),
+                    "stdout": Proc.Fd.Capture("memory", "utf-8", attached=False),
                 }
             )
             proc_id = await client.start_proc(spec)

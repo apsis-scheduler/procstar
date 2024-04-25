@@ -9,7 +9,7 @@
         }
       },
       "fds": [
-        ["stdout", {"capture": {"mode": "memory", "encoding": "utf8"}}]
+        ["stdout", {"capture": {"mode": "memory", "encoding": "utf-8"}}]
       ]
     }
   }

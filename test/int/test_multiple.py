@@ -15,7 +15,7 @@ def test_multiple():
                 "fds": [
                     [
                         "stdout", {
-                            "capture": {"mode": "memory", "encoding": "utf8"}
+                            "capture": {"mode": "memory", "encoding": "utf-8"}
                         }
                     ],
                 ],
@@ -41,7 +41,7 @@ def test_subprocs1():
                 "fds": [
                     [
                         "stdout", {
-                            "capture": {"mode": "memory", "encoding": "utf8"}
+                            "capture": {"mode": "memory", "encoding": "utf-8"}
                         }
                     ],
                 ],
@@ -74,7 +74,7 @@ def test_concurrent_print():
                 "fds": [
                     [
                         "stdout", {
-                            "capture": {"mode": "memory", "encoding": "utf8"}
+                            "capture": {"mode": "memory", "encoding": "utf-8"}
                         }
                     ],
                 ],

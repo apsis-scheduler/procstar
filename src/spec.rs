@@ -157,6 +157,7 @@ impl Default for CaptureMode {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum CaptureEncoding {
+    #[serde(rename = "utf-8")]
     Utf8,
 }
 

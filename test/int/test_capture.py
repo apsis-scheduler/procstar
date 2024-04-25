@@ -34,7 +34,7 @@ def test_echo(mode, encoding):
 
     stdout = res["fds"]["stdout"]
     text = "Hello, world. How are you?\n"
-    if encoding == "utf8":
+    if encoding == "utf-8":
         assert stdout["text"] == text
     elif encoding == None:
         assert stdout["encoding"] == "base64"
@@ -91,7 +91,7 @@ def test_utf8_sanitize(mode):
             "abc\200\200def",
         ],
         "fds": [
-            ["stdout", {"capture": {"mode": mode, "encoding": "utf8"}}],
+            ["stdout", {"capture": {"mode": mode, "encoding": "utf-8"}}],
         ],
     })
 
@@ -116,7 +116,7 @@ def test_detached(mode, attached):
                 "stdout", {
                     "capture": {
                         "mode": mode,
-                        "encoding": "utf8",
+                        "encoding": "utf-8",
                         **({} if attached is None else {"attached": attached}),
                     },
                 },
@@ -126,9 +126,9 @@ def test_detached(mode, attached):
 
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"] == (
-        {"type": "text", "encoding": "UTF-8", "text": "Hello, world. How are you?\n"}
+        {"type": "text", "encoding": "utf-8", "text": "Hello, world. How are you?\n"}
         if attached in (True, None)
-        else {"type": "detached", "length": 27}
+        else {"type": "detached", "encoding": "utf-8", "length": 27}
     )
 
 

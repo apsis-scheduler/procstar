@@ -20,7 +20,7 @@ async def test_fd_output(mode):
             make_proc(
                 ["/usr/bin/echo", "Hello, world!"],
                 fds={
-                    "stdout": Proc.Fd.Capture(mode, "utf8", attached=False),
+                    "stdout": Proc.Fd.Capture(mode, "utf-8", attached=False),
                 },
             ).to_jso()
         )

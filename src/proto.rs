@@ -167,20 +167,20 @@ pub enum OutgoingMessage {
     ProcDelete { proc_id: ProcId },
 }
 
-fn incoming_error(msg: &IncomingMessage, err: &str) -> OutgoingMessage {
+fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
     OutgoingMessage::IncomingMessageError {
-        msg: msg.clone(),
+        msg,
         err: err.to_string(),
     }
 }
 
 pub async fn handle_incoming(
     procs: &SharedProcs,
-    msg: &IncomingMessage,
+    msg: IncomingMessage,
 ) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
-            msg: msg.clone(),
+            msg: msg,
             err: "unexpected".to_owned(),
         }),
 
@@ -216,7 +216,7 @@ pub async fn handle_incoming(
             signum,
         } => {
             if let Some(proc) = procs.get(&proc_id) {
-                if let Err(err) = proc.borrow().send_signal(*signum) {
+                if let Err(err) = proc.borrow().send_signal(signum) {
                     Some(incoming_error(msg, &err.to_string()))
                 } else {
                     None
@@ -233,20 +233,20 @@ pub async fn handle_incoming(
             fd: ref fd_name,
             start,
             stop,
-            compression,
+            ref compression,
         } => match parse_fd(fd_name) {
             Ok(fd) => {
                 assert!(compression.is_none());  // FIXME
                 if let Some(proc) = procs.get(proc_id) {
                     match proc
                         .borrow()
-                        .get_fd_data(fd, *start as usize, stop.map(|s| s as usize))
+                        .get_fd_data(fd, start as usize, stop.map(|s| s as usize))
                     {
                         Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            start: *start,
-                            stop: stop.unwrap_or_else(|| *start + (data.len() as i64)),
+                            start: start,
+                            stop: stop.unwrap_or_else(|| start + (data.len() as i64)),
                             encoding,
                             compression: compression.clone(),
                             data,

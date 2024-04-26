@@ -65,7 +65,7 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
             match deserialize(data) {
                 Ok(msg) => {
                     trace!("< {:?}", msg);
-                    if let Some(rsp) = proto::handle_incoming(procs, &msg).await {
+                    if let Some(rsp) = proto::handle_incoming(procs, msg).await {
                         // FIXME: ProcResult is too big to log.
                         trace!("> {:?}", rsp);
                         Ok(Some(Message::Binary(serialize(&rsp)?)))

@@ -177,7 +177,7 @@ fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
 pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
-            msg: msg,
+            msg,
             err: "unexpected".to_owned(),
         }),
 

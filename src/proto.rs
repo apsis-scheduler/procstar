@@ -74,6 +74,14 @@ impl std::fmt::Display for Error {
 
 //------------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum CompressionType {
+    #[serde(rename = "br")]
+    Brotli,
+}
+
+//------------------------------------------------------------------------------
+
 /// Incoming messages, originating from the websocket server.  Despite this
 /// name, these messages are requests, to which we, the websocket client,
 /// respond.
@@ -103,6 +111,7 @@ pub enum IncomingMessage {
         fd: FdName,
         start: i64,
         stop: Option<i64>,
+        compression: Option<CompressionType>,
     },
 
     /// Requests deletion of a process's records.  The process may not be
@@ -148,6 +157,7 @@ pub enum OutgoingMessage {
         start: i64,
         stop: i64,
         encoding: Option<CaptureEncoding>,
+        compression: Option<CompressionType>,
         #[serde(with = "serde_bytes")]
         #[dbg(formatter = "format_data")]
         data: Vec<u8>,
@@ -223,8 +233,10 @@ pub async fn handle_incoming(
             fd: ref fd_name,
             start,
             stop,
+            compression,
         } => match parse_fd(fd_name) {
             Ok(fd) => {
+                assert!(compression.is_none());  // FIXME
                 if let Some(proc) = procs.get(proc_id) {
                     match proc
                         .borrow()
@@ -236,6 +248,7 @@ pub async fn handle_incoming(
                             start: *start,
                             stop: stop.unwrap_or_else(|| *start + (data.len() as i64)),
                             encoding,
+                            compression: compression.clone(),
                             data,
                         }),
                         Ok(None) => Some(incoming_error(msg, "no fd data")),

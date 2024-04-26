@@ -56,6 +56,7 @@ class ProcFdDataRequest:
     fd: str
     start: int = 0
     stop: int | None = None
+    compression: str | None = None
 
 
 @dataclass
@@ -183,7 +184,8 @@ class ProcFdData:
     fd: str
     start: int
     stop: int
-    encoding: str
+    encoding: str | None
+    compression: str | None
     data: str
 
     def __str__(self):

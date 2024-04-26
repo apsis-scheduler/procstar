@@ -171,6 +171,12 @@ fn get_default_mode() -> c_int {
     0o666
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum CompressionType {
+    #[serde(rename = "br")]
+    Brotli,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
@@ -207,6 +213,9 @@ pub enum Fd {
 
         #[serde(default)]
         encoding: Option<CaptureEncoding>,
+
+        #[serde(default)]
+        compression: Option<CompressionType>,
 
         #[serde(default = "Fd::attached_default")]
         attached: bool,

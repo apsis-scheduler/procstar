@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::fd::parse_fd;
+use crate::fd::{parse_fd, FdData};
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureEncoding, FdName, ProcId};
+use crate::spec::{CaptureEncoding, CompressionType, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -74,14 +74,6 @@ impl std::fmt::Display for Error {
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum CompressionType {
-    #[serde(rename = "br")]
-    Brotli,
-}
-
-//------------------------------------------------------------------------------
-
 /// Incoming messages, originating from the websocket server.  Despite this
 /// name, these messages are requests, to which we, the websocket client,
 /// respond.
@@ -111,7 +103,6 @@ pub enum IncomingMessage {
         fd: FdName,
         start: i64,
         stop: Option<i64>,
-        compression: Option<CompressionType>,
     },
 
     /// Requests deletion of a process's records.  The process may not be
@@ -230,16 +221,18 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
             fd: ref fd_name,
             start,
             stop,
-            ref compression,
         } => match parse_fd(fd_name) {
             Ok(fd) => {
-                assert!(compression.is_none()); // FIXME
                 if let Some(proc) = procs.get(proc_id) {
                     match proc
                         .borrow()
                         .get_fd_data(fd, start as usize, stop.map(|s| s as usize))
                     {
-                        Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
+                        Ok(Some(FdData {
+                            data,
+                            encoding,
+                            compression,
+                        })) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
                             start,

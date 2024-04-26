@@ -160,25 +160,31 @@ class Proc:
 
         class Capture:
 
-            MODES = {"tempfile", "memory"}
-            ENCODINGS = {None, "utf-8"}
+            MODES           = {"tempfile", "memory"}
+            ENCODINGS       = {None, "utf-8"}
+            COMPRESSIONS    = {None, "br"}
 
-            def __init__(self, mode, encoding, attached=True):
+            def __init__(self, mode, encoding, compression=None, attached=True):
                 if mode not in self.MODES:
                     raise ValueError(f"bad mode: {mode}")
                 if encoding not in self.ENCODINGS:
                     raise ValueError(f"bad encoding: {encoding}")
-                self.__mode = mode
-                self.__encoding = encoding
-                self.__attached = bool(attached)
+                if compression not in self.COMPRESSIONS:
+                    raise ValueError(f"bad compression: {compression}")
+
+                self.__mode         = mode
+                self.__encoding     = encoding
+                self.__compression  = compression
+                self.__attached     = bool(attached)
 
 
             def to_jso(self):
                 return {
                     "capture": {
-                        "mode"      : self.__mode,
-                        "encoding"  : self.__encoding,
-                        "attached"  : self.__attached,
+                        "mode"          : self.__mode,
+                        "encoding"      : self.__encoding,
+                        "compression"   : self.__compression,
+                        "attached"      : self.__attached,
                     }
                 }
 

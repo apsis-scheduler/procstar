@@ -16,7 +16,7 @@ use crate::environ;
 use crate::err::{Error, SpecError};
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
-use crate::fd::SharedFdHandler;
+use crate::fd::{FdData, SharedFdHandler};
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
@@ -163,7 +163,7 @@ impl Proc {
         fd: RawFd,
         start: usize,
         stop: Option<usize>,
-    ) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>, crate::err::Error> {
+    ) -> Result<Option<FdData>, crate::err::Error> {
         if let Some(fd_handler) = self.get_fd_handler(fd) {
             fd_handler.get_data(start, stop)
         } else {

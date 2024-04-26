@@ -7,7 +7,7 @@ use serde_json::json;
 use std::rc::Rc;
 
 use crate::err::Error;
-use crate::fd::parse_fd;
+use crate::fd::{parse_fd, FdData};
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
 use crate::spec::{CaptureEncoding, Input, ProcId};
@@ -135,21 +135,22 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
         Some(proc) => proc,
         None => return json_response(Err(RspError(StatusCode::NOT_FOUND, None))),
     };
-    let (data, encoding) = match proc.borrow().get_fd_data(fd, 0, None) {
-        Ok(Some(data)) => data,
-        Ok(None) => (Vec::<u8>::new(), None),
+    let fd_data = match proc.borrow().get_fd_data(fd, 0, None) {
+        Ok(Some(fd_data)) => fd_data,
+        Ok(None) => FdData::empty(),
         Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
     };
+    assert!(fd_data.compression.is_none()); // FIXME: Indicate compresison in header.
     Response::builder()
         .status(200)
         .header(
             hyper::header::CONTENT_TYPE,
-            match encoding {
+            match fd_data.encoding {
                 None => "application/octet-stream",
                 Some(CaptureEncoding::Utf8) => "text/plain; charset=utf-8",
             },
         )
-        .body(Full::<Bytes>::from(data))
+        .body(Full::<Bytes>::from(fd_data.data))
         .unwrap()
 }
 

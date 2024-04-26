@@ -56,7 +56,6 @@ class ProcFdDataRequest:
     fd: str
     start: int = 0
     stop: int | None = None
-    compression: str | None = None
 
 
 @dataclass

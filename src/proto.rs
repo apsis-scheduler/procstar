@@ -245,7 +245,7 @@ pub async fn handle_incoming(
                         Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            start: start,
+                            start,
                             stop: stop.unwrap_or_else(|| start + (data.len() as i64)),
                             encoding,
                             compression: compression.clone(),

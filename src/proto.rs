@@ -112,6 +112,10 @@ pub enum IncomingMessage {
 
 //------------------------------------------------------------------------------
 
+fn format_data(_data: &Vec<u8>) -> String {
+    return "...".to_owned();
+}
+
 /// Outgoing messages, originating here and sent to the websocket server.
 /// Despite this naming, these messages are primarily responses to requests
 /// originating with the server.
@@ -144,8 +148,8 @@ pub enum OutgoingMessage {
         start: i64,
         stop: i64,
         encoding: Option<CaptureEncoding>,
-        #[dbg(placeholder = "...")]
         #[serde(with = "serde_bytes")]
+        #[dbg(formatter = "format_data")]
         data: Vec<u8>,
     },
 

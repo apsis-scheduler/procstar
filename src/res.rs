@@ -124,7 +124,8 @@ impl FdRes {
         let encoding = match encoding {
             Some(CaptureEncoding::Utf8) => "utf-8",
             None => "base64",
-        }.to_string();
+        }
+        .to_string();
         FdRes::Detached { length, encoding }
     }
 }

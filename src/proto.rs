@@ -174,10 +174,7 @@ fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
     }
 }
 
-pub async fn handle_incoming(
-    procs: &SharedProcs,
-    msg: IncomingMessage,
-) -> Option<OutgoingMessage> {
+pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
             msg: msg,
@@ -236,7 +233,7 @@ pub async fn handle_incoming(
             ref compression,
         } => match parse_fd(fd_name) {
             Ok(fd) => {
-                assert!(compression.is_none());  // FIXME
+                assert!(compression.is_none()); // FIXME
                 if let Some(proc) = procs.get(proc_id) {
                     match proc
                         .borrow()

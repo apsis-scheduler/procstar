@@ -1,9 +1,7 @@
 use libc::c_int;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{Read, Seek};
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
@@ -176,37 +174,6 @@ fn open_unlinked_temp_file(
         encoding,
         attached,
     })
-}
-
-/// Reads the contents of a file, starting from position `start`, until position
-/// `stop` or the end.
-fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> Result<Vec<u8>> {
-    // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
-    let mut file = unsafe { fs::File::from_raw_fd(fd) };
-    // Seek to front.
-    file.seek(std::io::SeekFrom::Start(start))?;
-    let buf = if let Some(stop) = stop {
-        // Read to indicated stop position.
-        if stop < start {
-            return Err(Error::Eof);
-        }
-        let mut buf = vec![0; (stop - start) as usize];
-        file.read_exact(&mut buf)?;
-        buf
-    } else {
-        // Read entire contents.
-        let mut buf = Vec::<u8>::new();
-        file.read_to_end(&mut buf)?;
-        buf
-    };
-
-    // Take back ownership of the fd.
-    assert!(file.into_raw_fd() == fd);
-    Ok(buf)
-}
-
-fn get_file_length(fd: RawFd) -> Result<i64> {
-    Ok(sys::fstat(fd)?.st_size)
 }
 
 //------------------------------------------------------------------------------
@@ -478,7 +445,7 @@ impl SharedFdHandler {
             FdHandler::UnlinkedFile {
                 file_fd, encoding, ..
             } => Some(FdData {
-                data: read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
+                data: sys::read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
                 encoding: *encoding,
             }),
 
@@ -503,9 +470,9 @@ impl SharedFdHandler {
                 attached,
                 ..
             } => Some(if *attached {
-                FdRes::from_bytes(*encoding, &read_from_file(*file_fd, 0, None)?)
+                FdRes::from_bytes(*encoding, &sys::read_from_file(*file_fd, 0, None)?)
             } else {
-                FdRes::detached(get_file_length(*file_fd)?, *encoding)
+                FdRes::detached(sys::get_file_length(*file_fd)?, *encoding)
             }),
 
             FdHandler::CaptureMemory {

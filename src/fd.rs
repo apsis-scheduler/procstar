@@ -178,7 +178,8 @@ fn open_unlinked_temp_file(
     })
 }
 
-/// Reads the contents of a file from the beginning, from its open fd.
+/// Reads the contents of a file, starting from position `start`, until position
+/// `stop` or the end.
 fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> Result<Vec<u8>> {
     // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
     let mut file = unsafe { fs::File::from_raw_fd(fd) };

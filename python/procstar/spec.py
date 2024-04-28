@@ -86,18 +86,14 @@ class Proc:
         class Inherit:
 
             def to_jso(self):
-                return {
-                    "inherit": {},
-                }
+                return {}
 
 
 
         class Close:
 
             def to_jso(self):
-                return {
-                    "close": {},
-                }
+                return {}
 
 
 
@@ -183,6 +179,27 @@ class Proc:
                     }
                 }
 
+
+
+        class PipeWrite:
+
+            def to_jso(self):
+                return {}
+
+
+
+        class PipeRead:
+
+            def __init__(self, proc_id, fd):
+                self.__proc_id = proc_id
+                self.__fd = fd
+
+
+            def to_jso(self):
+                return {
+                    "proc_id": self.__proc_id,
+                    "fd": self.__fd,
+                }
 
 
 

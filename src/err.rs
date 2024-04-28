@@ -1,6 +1,7 @@
 use std::os::fd::RawFd;
 
 use crate::proto;
+use crate::spec;
 use crate::spec::ProcId;
 
 //------------------------------------------------------------------------------
@@ -54,6 +55,8 @@ pub enum Error {
     RMPDecode(rmp_serde::decode::Error),
     /// Wraps a RMP (MessagePack) encoding error.
     RMPEncode(rmp_serde::encode::Error),
+    /// Wraps a proc spec error.
+    Spec(spec::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
@@ -80,6 +83,7 @@ impl std::fmt::Display for Error {
             Error::Proto(ref err) => err.fmt(f),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
+            Error::Spec(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }
@@ -124,6 +128,12 @@ impl From<rmp_serde::decode::Error> for Error {
 impl From<rmp_serde::encode::Error> for Error {
     fn from(err: rmp_serde::encode::Error) -> Error {
         Error::RMPEncode(err)
+    }
+}
+
+impl From<spec::Error> for Error {
+    fn from(err: spec::Error) -> Error {
+        Error::Spec(err)
     }
 }
 

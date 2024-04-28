@@ -1,9 +1,10 @@
 use libc::c_int;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
+use std::os::fd::RawFd;
 use std::path::Path;
 use std::string::String;
 use std::vec::Vec;
@@ -16,15 +17,25 @@ use crate::sys::fd_t;
 
 #[derive(Debug)]
 pub enum Error {
+    BadFd(String),
+    DuplicateFd(FdName),
+    DuplicateProcId(ProcId),
     Io(std::io::Error),
     Json(serde_json::error::Error),
+    UnmatchedReadFd(ProcId, FdName),
+    UnmatchedWriteFd(ProcId, FdName),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => err.fmt(f),
-            Error::Json(ref err) => err.fmt(f),
+        match self {
+            Error::BadFd(name) => f.write_str(&format!("bad fd: {}", name)),
+            Error::DuplicateFd(fd) => f.write_str(&format!("duplicate fd: {}", fd)),
+            Error::Io(err) => err.fmt(f),
+            Error::Json(err) => err.fmt(f),
+            Error::DuplicateProcId(proc_id) => f.write_str(&format!("duplicate proc id: {}", proc_id)),
+            Error::UnmatchedReadFd(proc_id, fd) => f.write_str(&format!("unmatched read pipe: {} {}", proc_id, fd)),
+            Error::UnmatchedWriteFd(proc_id, fd) => f.write_str(&format!("unmatched write pipe: {} {}", proc_id, fd)),
         }
     }
 }
@@ -211,6 +222,19 @@ pub enum Fd {
         #[serde(default = "Fd::attached_default")]
         attached: bool,
     },
+
+    /// Write from this process to another through a pipe.
+    #[serde(rename = "pipe-write")]
+    PipeWrite,
+
+    /// Read from this process from another through a pipe.
+    #[serde(rename = "pipe-read")]
+    PipeRead {
+        /// The proc whose pipe from which to read.
+        proc_id: ProcId,
+        /// The fd of the proc writing to the pipe, from which to read.
+        fd: FdName,
+    },
 }
 
 impl Fd {
@@ -223,6 +247,57 @@ impl Default for Fd {
     fn default() -> Self {
         Self::Inherit
     }
+}
+
+pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, Error> {
+    match fd {
+        "stdin" => Ok(0),
+        "stdout" => Ok(1),
+        "stderr" => Ok(2),
+        _ => fd.parse::<RawFd>().map_err(|_| { Error::BadFd(fd.to_owned()) }),
+    }
+}
+
+pub fn validate_procs_fds(procs: &Procs) -> std::result::Result::<(), Error> {
+    // Check for duplicate fds.
+    for (_proc_id, proc) in procs.iter() {
+        let mut fds = HashSet::<RawFd>::new();
+        for (fd_name, _) in proc.fds.iter() {
+            if !fds.insert(parse_fd(fd_name)?) {
+                return Err(Error::DuplicateFd(fd_name.clone()));
+            }
+        }
+    }
+
+    // Collect write pipes.
+    let mut pipes = HashSet::<(ProcId, RawFd)>::new();
+    for (proc_id, proc) in procs.iter() {
+        for (fd_name, fd) in proc.fds.iter() {
+            match fd {
+                Fd::PipeWrite => assert!(!pipes.insert((proc_id.clone(), parse_fd(fd_name)?))),
+                _ => (),
+            }
+        }
+    }
+    // Match up read pipes.
+    for (proc_id, proc) in procs.iter() {
+        for (_, fd) in proc.fds.iter() {
+            match fd {
+                Fd::PipeRead { proc_id: from_proc_id, fd: from_fd_name } =>
+                    if !pipes.remove(&(from_proc_id.clone(), parse_fd(from_fd_name)?)) {
+                        // A read pipe with no matching write pipe.
+                        return Err(Error::UnmatchedReadFd(proc_id.clone(), from_fd_name.clone()));
+                    },
+                _ => (),
+            }
+        }
+    }
+    // Remaining write pipes are unmatched.
+    for (proc_id, fd_num) in pipes.into_iter() {
+        return Err(Error::UnmatchedWriteFd(proc_id.clone(), fd_num.to_string()));
+    }
+
+    Ok(())
 }
 
 //------------------------------------------------------------------------------

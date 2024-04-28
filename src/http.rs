@@ -7,10 +7,10 @@ use serde_json::json;
 use std::rc::Rc;
 
 use crate::err::Error;
-use crate::fd::{parse_fd, FdData};
+use crate::fd::FdData;
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
-use crate::spec::{CaptureEncoding, Input, ProcId};
+use crate::spec::{CaptureEncoding, Input, ProcId, parse_fd};
 
 //------------------------------------------------------------------------------
 

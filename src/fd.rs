@@ -13,18 +13,10 @@ use tokio_pipe::PipeRead;
 use crate::err::{Error, Result};
 use crate::res::FdRes;
 use crate::spec;
+use crate::spec::parse_fd;
 use crate::sys;
 
 //------------------------------------------------------------------------------
-
-pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, std::num::ParseIntError> {
-    match fd {
-        "stdin" => Ok(0),
-        "stdout" => Ok(1),
-        "stderr" => Ok(2),
-        _ => fd.parse::<RawFd>(),
-    }
-}
 
 pub fn get_fd_name(fd: RawFd) -> String {
     match fd {
@@ -242,7 +234,10 @@ impl SharedFdHandler {
                     buf: Vec::new(),
                     attached,
                 }
-            }
+            },
+
+            spec::Fd::PipeWrite => panic!(),
+            spec::Fd::PipeRead { proc_id, fd } => panic!(),
         };
         Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
     }

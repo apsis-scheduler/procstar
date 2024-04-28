@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::fd::{parse_fd, FdData};
+use crate::fd::FdData;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureEncoding, FdName, ProcId};
+use crate::spec::{CaptureEncoding, FdName, ProcId, parse_fd};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------

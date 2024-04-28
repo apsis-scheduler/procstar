@@ -13,7 +13,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 use crate::environ;
-use crate::err::{Error, SpecError};
+use crate::err::Error;
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
 use crate::fd::{FdData, SharedFdHandler};
@@ -522,7 +522,7 @@ fn get_exe(spec: &spec::Proc) -> &str {
 pub fn start_procs(
     specs: &spec::Procs,
     procs: &SharedProcs,
-) -> Result<Vec<tokio::task::JoinHandle<()>>, SpecError> {
+) -> Result<Vec<tokio::task::JoinHandle<()>>, spec::Error> {
     // First check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
     let dup_proc_ids = specs
@@ -530,9 +530,11 @@ pub fn start_procs(
         .filter(|&p| old_proc_ids.contains(p))
         .map(|p| p.to_string())
         .collect::<Vec<_>>();
-    if !dup_proc_ids.is_empty() {
-        return Err(SpecError::DupId(dup_proc_ids));
+    for proc_id in dup_proc_ids.into_iter() {
+        return Err(spec::Error::DuplicateProcId(proc_id));
     }
+
+    spec::validate_procs_fds(specs)?;
 
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());

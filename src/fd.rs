@@ -366,70 +366,51 @@ impl SharedFdHandler {
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
     pub fn get_data(&self, start: usize, stop: Option<usize>) -> Result<Option<FdData>> {
         Ok(match &*self.0.borrow() {
-            FdHandler::Inherit
-            | FdHandler::Error { .. }
-            | FdHandler::Close { .. }
-            | FdHandler::Dup { .. }
-            | FdHandler::UnmanagedFile { .. } => None,
-
             FdHandler::UnlinkedFile {
-                file_fd,
-                encoding,
-                ..
+                file_fd, encoding, ..
             } => Some(FdData {
                 data: read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
                 encoding: *encoding,
             }),
 
-            FdHandler::CaptureMemory {
-                buf,
-                encoding,
-                ..
-            } => {
+            FdHandler::CaptureMemory { buf, encoding, .. } => {
                 let stop = stop.unwrap_or_else(|| buf.len());
                 Some(FdData {
                     data: buf[start..stop].to_vec(),
                     encoding: *encoding,
                 })
             }
+
+            _ => None,
         })
     }
 
     pub fn get_result(&self) -> Result<Option<FdRes>> {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
-            FdHandler::Inherit
-            | FdHandler::Error { .. }
-            | FdHandler::Close { .. }
-            | FdHandler::Dup { .. }
-            // FIXME: Return something containing the path.
-            | FdHandler::UnmanagedFile { .. } => None,
-
             FdHandler::UnlinkedFile {
                 file_fd,
                 encoding,
                 attached,
                 ..
-            } => {
-                Some(if *attached {
-                    FdRes::from_bytes(*encoding, &read_from_file(*file_fd, 0, None)?)
-                } else {
-                    FdRes::detached(get_file_length(*file_fd)?, *encoding)
-                })
-            }
+            } => Some(if *attached {
+                FdRes::from_bytes(*encoding, &read_from_file(*file_fd, 0, None)?)
+            } else {
+                FdRes::detached(get_file_length(*file_fd)?, *encoding)
+            }),
 
             FdHandler::CaptureMemory {
                 encoding,
                 buf,
                 attached,
                 ..
-            } => {
-                Some(if *attached {
-                    FdRes::from_bytes(*encoding, buf)
-                } else {
-                    FdRes::detached(buf.len() as i64, *encoding)
-                })
-            }
+            } => Some(if *attached {
+                FdRes::from_bytes(*encoding, buf)
+            } else {
+                FdRes::detached(buf.len() as i64, *encoding)
+            }),
+
+            _ => None,
         })
     }
 }

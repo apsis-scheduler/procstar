@@ -57,7 +57,10 @@ pub struct FdData {
 
 impl FdData {
     pub fn empty() -> Self {
-        Self { data: Vec::new(), encoding: None, }
+        Self {
+            data: Vec::new(),
+            encoding: None,
+        }
     }
 }
 

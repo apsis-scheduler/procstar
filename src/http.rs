@@ -10,7 +10,7 @@ use crate::err::Error;
 use crate::fd::FdData;
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
-use crate::spec::{CaptureEncoding, Input, ProcId, parse_fd};
+use crate::spec::{parse_fd, CaptureEncoding, Input, ProcId};
 
 //------------------------------------------------------------------------------
 

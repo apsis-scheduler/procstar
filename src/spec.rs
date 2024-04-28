@@ -33,9 +33,15 @@ impl fmt::Display for Error {
             Error::DuplicateFd(fd) => f.write_str(&format!("duplicate fd: {}", fd)),
             Error::Io(err) => err.fmt(f),
             Error::Json(err) => err.fmt(f),
-            Error::DuplicateProcId(proc_id) => f.write_str(&format!("duplicate proc id: {}", proc_id)),
-            Error::UnmatchedReadFd(proc_id, fd) => f.write_str(&format!("unmatched read pipe: {} {}", proc_id, fd)),
-            Error::UnmatchedWriteFd(proc_id, fd) => f.write_str(&format!("unmatched write pipe: {} {}", proc_id, fd)),
+            Error::DuplicateProcId(proc_id) => {
+                f.write_str(&format!("duplicate proc id: {}", proc_id))
+            }
+            Error::UnmatchedReadFd(proc_id, fd) => {
+                f.write_str(&format!("unmatched read pipe: {} {}", proc_id, fd))
+            }
+            Error::UnmatchedWriteFd(proc_id, fd) => {
+                f.write_str(&format!("unmatched write pipe: {} {}", proc_id, fd))
+            }
         }
     }
 }
@@ -254,9 +260,12 @@ pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, Error> {
         "stdin" => Ok(0),
         "stdout" => Ok(1),
         "stderr" => Ok(2),
-        _ => fd.parse::<RawFd>().map_err(|_| { Error::BadFd(fd.to_owned()) }),
+        _ => fd.parse::<RawFd>().map_err(|_| Error::BadFd(fd.to_owned())),
     }
 }
+
+/// Set of proc fds that are connected to the ends of pipes.
+pub type PipeFds = HashSet<(ProcId, RawFd)>;
 
 /// Validates fd descriptors in procs.
 ///
@@ -264,7 +273,9 @@ pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, Error> {
 /// - a fd specified more than once for one proc
 /// - an unmatched read pipe or write pipe
 ///
-pub fn validate_procs_fds(procs: &Procs) -> std::result::Result::<(), Error> {
+/// Returns the set of (proc id, raw fd) that are connected to the write ends of
+/// pipes.
+pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
     // Check for duplicate fds.
     for (_proc_id, proc) in procs.iter() {
         let mut fds = HashSet::<RawFd>::new();

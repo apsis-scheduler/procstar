@@ -9,7 +9,7 @@ use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureEncoding, FdName, ProcId, parse_fd};
+use crate::spec::{parse_fd, CaptureEncoding, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -227,10 +227,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                         .borrow()
                         .get_fd_data(fd, start as usize, stop.map(|s| s as usize))
                     {
-                        Ok(Some(FdData {
-                            data,
-                            encoding,
-                        })) => Some(OutgoingMessage::ProcFdData {
+                        Ok(Some(FdData { data, encoding })) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
                             start,

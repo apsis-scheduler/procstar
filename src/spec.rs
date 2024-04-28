@@ -287,30 +287,38 @@ pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
     }
 
     // Collect write pipes.
-    let mut pipes = HashSet::<(ProcId, RawFd)>::new();
+    let mut unmatched_pipes = PipeFds::new();
     for (proc_id, proc) in procs.iter() {
         for (fd_name, fd) in proc.fds.iter() {
             match fd {
-                Fd::PipeWrite => assert!(!pipes.insert((proc_id.clone(), parse_fd(fd_name)?))),
+                Fd::PipeWrite => {
+                    let key = (proc_id.clone(), parse_fd(fd_name)?);
+                    assert!(unmatched_pipes.insert(key));
+                }
                 _ => (),
             }
         }
     }
     // Match up read pipes.
-    for (proc_id, proc) in procs.iter() {
+    for (_proc_id, proc) in procs.iter() {
         for (_, fd) in proc.fds.iter() {
             match fd {
-                Fd::PipeRead { proc_id: from_proc_id, fd: from_fd_name } =>
-                    if !pipes.remove(&(from_proc_id.clone(), parse_fd(from_fd_name)?)) {
+                Fd::PipeRead {
+                    proc_id: from_proc_id,
+                    fd: from_fd_name,
+                } => {
+                    let key = (from_proc_id.clone(), parse_fd(from_fd_name)?);
+                    if !unmatched_pipes.remove(&key) {
                         // A read pipe with no matching write pipe.
-                        return Err(Error::UnmatchedReadFd(proc_id.clone(), from_fd_name.clone()));
-                    },
+                        return Err(Error::UnmatchedReadFd(key.0, from_fd_name.clone()));
+                    };
+                }
                 _ => (),
             }
         }
     }
     // Remaining write pipes are unmatched.
-    for (proc_id, fd_num) in pipes.into_iter() {
+    for (proc_id, fd_num) in unmatched_pipes.into_iter() {
         return Err(Error::UnmatchedWriteFd(proc_id.clone(), fd_num.to_string()));
     }
 

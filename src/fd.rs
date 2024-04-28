@@ -124,6 +124,18 @@ pub enum FdHandler {
         /// Whether to attach output to results.
         attached: bool,
     },
+
+    /// Attaches the file descriptor to the write end of a pipe; the read end is
+    /// attached to another process.
+    PipeWrite {
+        fd: RawFd,
+    },
+
+    /// Attaches the file descriptor to the read end of a pipe; the write end is
+    /// attached to another process.
+    PipeRead {
+        fd: RawFd,
+    },
 }
 
 impl FdHandler {

@@ -258,6 +258,12 @@ pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, Error> {
     }
 }
 
+/// Validates fd descriptors in procs.
+///
+/// Checks for:
+/// - a fd specified more than once for one proc
+/// - an unmatched read pipe or write pipe
+///
 pub fn validate_procs_fds(procs: &Procs) -> std::result::Result::<(), Error> {
     // Check for duplicate fds.
     for (_proc_id, proc) in procs.iter() {

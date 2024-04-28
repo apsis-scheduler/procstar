@@ -140,7 +140,6 @@ async fn procs_output_data_get(procs: SharedProcs, proc_id: &str, fd: &str) -> R
         Ok(None) => FdData::empty(),
         Err(err) => return json_response(Err(RspError::bad_request(&err.to_string()))),
     };
-    assert!(fd_data.compression.is_none()); // FIXME: Indicate compresison in header.
     Response::builder()
         .status(200)
         .header(

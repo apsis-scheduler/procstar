@@ -184,7 +184,6 @@ class ProcFdData:
     start: int
     stop: int
     encoding: str | None
-    compression: str | None
     data: str
 
     def __str__(self):

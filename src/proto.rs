@@ -9,7 +9,7 @@ use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureEncoding, CompressionType, FdName, ProcId};
+use crate::spec::{CaptureEncoding, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -148,7 +148,6 @@ pub enum OutgoingMessage {
         start: i64,
         stop: i64,
         encoding: Option<CaptureEncoding>,
-        compression: Option<CompressionType>,
         #[serde(with = "serde_bytes")]
         #[dbg(formatter = "format_data")]
         data: Vec<u8>,
@@ -231,14 +230,12 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
                         Ok(Some(FdData {
                             data,
                             encoding,
-                            compression,
                         })) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
                             start,
                             stop: stop.unwrap_or_else(|| start + (data.len() as i64)),
                             encoding,
-                            compression: compression.clone(),
                             data,
                         }),
                         Ok(None) => Some(incoming_error(msg, "no fd data")),

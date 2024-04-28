@@ -61,12 +61,11 @@ fn get_oflags(flags: &spec::OpenFlag, fd: RawFd) -> libc::c_int {
 pub struct FdData {
     pub data: Vec<u8>,
     pub encoding: Option<spec::CaptureEncoding>,
-    pub compression: Option<spec::CompressionType>,
 }
 
 impl FdData {
     pub fn empty() -> Self {
-        Self { data: Vec::new(), encoding: None, compression: None }
+        Self { data: Vec::new(), encoding: None, }
     }
 }
 
@@ -113,8 +112,6 @@ pub enum FdHandler {
         file_fd: RawFd,
         /// Format for output.
         encoding: Option<spec::CaptureEncoding>,
-        /// Output compression.
-        compression: Option<spec::CompressionType>,
         /// Whether to attach output to results.
         attached: bool,
     },
@@ -130,8 +127,6 @@ pub enum FdHandler {
         write_fd: RawFd,
         /// Format for output.
         encoding: Option<spec::CaptureEncoding>,
-        /// Output compression.
-        compression: Option<spec::CompressionType>,
         /// Captured output.
         buf: Vec<u8>,
         /// Whether to attach output to results.
@@ -166,10 +161,8 @@ const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
 fn open_unlinked_temp_file(
     fd: RawFd,
     encoding: Option<spec::CaptureEncoding>,
-    compression: Option<spec::CompressionType>,
     attached: bool,
 ) -> Result<FdHandler> {
-    assert!(compression.is_none()); // FIXME
     // Open a temp file.
     let (tmp_path, tmp_fd) = sys::mkstemp(PATH_TMP_TEMPLATE)?;
     // Unlink it.
@@ -180,7 +173,6 @@ fn open_unlinked_temp_file(
         file_fd: tmp_fd,
         encoding,
         attached,
-        compression,
     })
 }
 
@@ -232,25 +224,21 @@ impl SharedFdHandler {
             spec::Fd::Capture {
                 mode: spec::CaptureMode::TempFile,
                 encoding,
-                compression,
                 attached,
                 ..
-            } => open_unlinked_temp_file(fd, encoding, compression, attached)?,
+            } => open_unlinked_temp_file(fd, encoding, attached)?,
 
             spec::Fd::Capture {
                 mode: spec::CaptureMode::Memory,
                 encoding,
-                compression,
                 attached,
             } => {
-                assert!(compression.is_none()); // FIXME
                 let (read_fd, write_fd) = sys::pipe()?;
                 FdHandler::CaptureMemory {
                     fd,
                     read_fd,
                     write_fd,
                     encoding,
-                    compression,
                     buf: Vec::new(),
                     attached,
                 }
@@ -377,25 +365,21 @@ impl SharedFdHandler {
             FdHandler::UnlinkedFile {
                 file_fd,
                 encoding,
-                compression,
                 ..
             } => Some(FdData {
                 data: read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
                 encoding: *encoding,
-                compression: compression.clone(),
             }),
 
             FdHandler::CaptureMemory {
                 buf,
                 encoding,
-                compression,
                 ..
             } => {
                 let stop = stop.unwrap_or_else(|| buf.len());
                 Some(FdData {
                     data: buf[start..stop].to_vec(),
                     encoding: *encoding,
-                    compression: compression.clone(),
                 })
             }
         })

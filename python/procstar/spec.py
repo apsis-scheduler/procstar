@@ -162,19 +162,15 @@ class Proc:
 
             MODES           = {"tempfile", "memory"}
             ENCODINGS       = {None, "utf-8"}
-            COMPRESSIONS    = {None, "br"}
 
-            def __init__(self, mode, encoding, compression=None, attached=True):
+            def __init__(self, mode, encoding, attached=True):
                 if mode not in self.MODES:
                     raise ValueError(f"bad mode: {mode}")
                 if encoding not in self.ENCODINGS:
                     raise ValueError(f"bad encoding: {encoding}")
-                if compression not in self.COMPRESSIONS:
-                    raise ValueError(f"bad compression: {compression}")
 
                 self.__mode         = mode
                 self.__encoding     = encoding
-                self.__compression  = compression
                 self.__attached     = bool(attached)
 
 
@@ -183,7 +179,6 @@ class Proc:
                     "capture": {
                         "mode"          : self.__mode,
                         "encoding"      : self.__encoding,
-                        "compression"   : self.__compression,
                         "attached"      : self.__attached,
                     }
                 }

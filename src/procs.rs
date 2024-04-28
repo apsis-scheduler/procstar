@@ -509,10 +509,12 @@ pub fn get_restricted_exe() -> Option<String> {
 }
 
 /// Returns the path to the executable to exec for the process.
-fn get_exe(spec: &spec::Proc) -> &str {
+fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
     // Use the explicit exe, if given, else argv[0] per convention.
-    spec.exe.as_ref().unwrap_or(&spec.argv[0])
+    exe.unwrap_or(argv[0].clone())
 }
+
+//------------------------------------------------------------------------------
 
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
@@ -520,7 +522,7 @@ fn get_exe(spec: &spec::Proc) -> &str {
 /// Because this function starts tasks with `spawn_local`, it must be run within
 /// a `LocalSet`.
 pub fn start_procs(
-    specs: &spec::Procs,
+    specs: spec::Procs,
     procs: &SharedProcs,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, spec::Error> {
     // First check that proc IDs aren't already in use.
@@ -534,26 +536,34 @@ pub fn start_procs(
         return Err(spec::Error::DuplicateProcId(proc_id));
     }
 
-    spec::validate_procs_fds(specs)?;
+    spec::validate_procs_fds(&specs)?;
 
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
     let mut tasks = Vec::new();
 
+    let mut pipes = fd::Pipes::new();
+
     for (proc_id, spec) in specs.into_iter() {
-        let env = environ::build(std::env::vars(), &spec.env);
-        let exe = get_exe(&spec);
+        let spec::Proc {
+            exe,
+            argv,
+            env,
+            fds,
+            ..
+        } = spec;
+        let exe = get_exe(exe, &argv);
+        let env = environ::build(std::env::vars(), &env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
             error!("failed to create pipe: {}", err);
             std::process::exit(1);
         });
 
-        let fd_handlers = spec
-            .fds
-            .iter()
-            .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str.clone(), fd_spec.clone()))
+        let fd_handlers = fds
+            .into_iter()
+            .map(|(fd_str, fd_spec)| fd::make_fd_handler(&proc_id, fd_str, fd_spec, &mut pipes))
             .collect::<Vec<_>>();
 
         // Fork the child process.
@@ -568,7 +578,7 @@ pub fn start_procs(
 
                 // If a restricted executable is set, make sure ours matches.
                 if let Some(restricted_exe) = RESTRICTED_EXE.read().unwrap().as_ref() {
-                    if exe != restricted_exe {
+                    if exe != *restricted_exe {
                         error_writer
                             .try_write(format!("restricted executable: {}", restricted_exe));
                         ok_to_exec = false;
@@ -581,6 +591,8 @@ pub fn start_procs(
                         ok_to_exec = false;
                     });
                 }
+                // Close remaining pipes, having dup'ed those we connect to.
+                pipes.close().unwrap();
 
                 // Put the child process into a new session, to avoid
                 // getting signals from the parent process group.
@@ -592,7 +604,7 @@ pub fn start_procs(
                 if ok_to_exec {
                     // execve() only returns with an error; on success, the program is
                     // replaced.
-                    let err = execve(exe.to_string(), spec.argv.clone(), env).unwrap_err();
+                    let err = execve(exe.to_string(), argv, env).unwrap_err();
                     error_writer.try_write(format!("execve failed: {}: {}", exe, err));
                 }
 
@@ -644,6 +656,9 @@ pub fn start_procs(
             Err(err) => panic!("failed to fork: {}", err),
         }
     }
+
+    // Both ends of all pipes should have been used.
+    assert!(pipes.close().unwrap() == 0);
 
     Ok(tasks)
 }

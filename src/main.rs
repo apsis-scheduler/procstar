@@ -159,7 +159,7 @@ async fn main() {
     // LocalSet since it starts other tasks itself.
     if !input.specs.is_empty() {
         let _tasks = local_set
-            .run_until(async { start_procs(&input.specs, &procs) })
+            .run_until(async { start_procs(input.specs, &procs) })
             .await
             .unwrap_or_else(|err| {
                 error!("failed to start processes: {}", err);

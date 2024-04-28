@@ -1,6 +1,6 @@
 use libc::c_int;
-use log::*;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Seek};
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
@@ -13,8 +13,9 @@ use tokio_pipe::PipeRead;
 use crate::err::{Error, Result};
 use crate::res::FdRes;
 use crate::spec;
-use crate::spec::parse_fd;
+use crate::spec::{parse_fd, ProcId};
 use crate::sys;
+use crate::sys::RWPair;
 
 //------------------------------------------------------------------------------
 
@@ -130,15 +131,11 @@ pub enum FdHandler {
 
     /// Attaches the file descriptor to the write end of a pipe; the read end is
     /// attached to another process.
-    PipeWrite {
-        fd: RawFd,
-    },
+    PipeWrite { fd: RawFd, pipe_write_fd: RawFd },
 
     /// Attaches the file descriptor to the read end of a pipe; the write end is
     /// attached to another process.
-    PipeRead {
-        fd: RawFd,
-    },
+    PipeRead { fd: RawFd, pipe_read_fd: RawFd },
 }
 
 impl FdHandler {
@@ -155,8 +152,6 @@ impl FdHandler {
         }
     }
 }
-
-pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
 //------------------------------------------------------------------------------
 
@@ -213,8 +208,89 @@ fn get_file_length(fd: RawFd) -> Result<i64> {
     Ok(sys::fstat(fd)?.st_size)
 }
 
+//------------------------------------------------------------------------------
+
+pub struct Pipes {
+    fds: BTreeMap<(ProcId, RawFd), RWPair<Option<RawFd>>>,
+}
+
+/// Manages pipes connecting fds in procs.
+///
+/// We may set up the proc that connects to either the read or the write end
+/// first.  If the read end, we return the read fd and save the write fd, else
+/// vice versa.
+impl Pipes {
+    pub fn new() -> Self {
+        Self {
+            fds: BTreeMap::new(),
+        }
+    }
+
+    /// Returns the read fd, if it exists, for reading the output from `from_fd`
+    /// of `from_proc_id`.  If not, creates a new pipe, returns the read fd, and
+    /// stores the write fd for later.
+    pub fn get_read_fd(&mut self, from_proc_id: &ProcId, from_fd: RawFd) -> Result<RawFd> {
+        let key = (from_proc_id.clone(), from_fd);
+        match self.fds.get_mut(&key) {
+            Some(RWPair { read, .. }) => Ok(read.take().unwrap()),
+            None => {
+                let pipe = sys::pipe()?;
+                self.fds.insert(
+                    key,
+                    RWPair {
+                        read: None,
+                        write: Some(pipe.write),
+                    },
+                );
+                Ok(pipe.read)
+            }
+        }
+    }
+
+    /// Returns the write fd, if it exists, for writing the output from `fd` of
+    /// `proc_id`.  If not, creates a new pipe, returns the write fd, and saves
+    /// the read fd for later.
+    pub fn get_write_fd(&mut self, proc_id: &ProcId, fd: RawFd) -> Result<RawFd> {
+        let key = (proc_id.clone(), fd);
+        match self.fds.get_mut(&key) {
+            Some(RWPair { write, .. }) => Ok(write.take().unwrap()),
+            None => {
+                let pipe = sys::pipe()?;
+                self.fds.insert(
+                    key,
+                    RWPair {
+                        read: Some(pipe.read),
+                        write: None,
+                    },
+                );
+                Ok(pipe.write)
+            }
+        }
+    }
+
+    /// Closes all remaining pipe fds.  Returns the number of fds closed.
+    pub fn close(self) -> Result<usize> {
+        let mut count = 0;
+        for (_, pipe) in self.fds.into_iter() {
+            if let Some(fd) = pipe.read {
+                sys::close(fd)?;
+                count += 1;
+            }
+            if let Some(fd) = pipe.write {
+                sys::close(fd)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+}
+
+//------------------------------------------------------------------------------
+
+pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
+
 impl SharedFdHandler {
-    pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
+    pub fn new(proc_id: &ProcId, fd: RawFd, spec: spec::Fd, pipes: &mut Pipes) -> Result<Self> {
         let fd_handler = match spec {
             spec::Fd::Inherit => FdHandler::Inherit,
 
@@ -249,10 +325,20 @@ impl SharedFdHandler {
                     buf: Vec::new(),
                     attached,
                 }
+            }
+
+            spec::Fd::PipeWrite => FdHandler::PipeWrite {
+                fd,
+                pipe_write_fd: pipes.get_write_fd(proc_id, fd)?,
             },
 
-            spec::Fd::PipeWrite => panic!(),
-            spec::Fd::PipeRead { proc_id, fd } => panic!(),
+            spec::Fd::PipeRead {
+                proc_id: ref from_proc_id,
+                fd: ref from_fd,
+            } => FdHandler::PipeRead {
+                fd,
+                pipe_read_fd: pipes.get_read_fd(from_proc_id, parse_fd(from_fd)?)?,
+            },
         };
         Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
     }
@@ -305,25 +391,35 @@ impl SharedFdHandler {
                     Rc::clone(&self.0),
                 )))
             }
+
+            FdHandler::PipeWrite { pipe_write_fd, .. } => {
+                // Only the child writes to the pipe.
+                sys::close(pipe_write_fd)?;
+                None
+            }
+
+            FdHandler::PipeRead { pipe_read_fd, .. } => {
+                // Only the child reads from the pipe.
+                sys::close(pipe_read_fd)?;
+                None
+            }
         })
     }
 
     pub fn in_child(self) -> Result<()> {
         match Rc::try_unwrap(self.0).unwrap().into_inner() {
-            FdHandler::Inherit => Ok(()),
+            FdHandler::Inherit => {}
 
-            FdHandler::Error { err } => Err(err),
+            FdHandler::Error { err } => return Err(err),
 
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
-                Ok(())
             }
 
             FdHandler::Dup { fd, dup_fd } => {
                 if dup_fd != fd {
                     sys::dup2(dup_fd, fd)?;
                 }
-                Ok(())
             }
 
             FdHandler::UnmanagedFile {
@@ -337,7 +433,6 @@ impl SharedFdHandler {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;
                 }
-                Ok(())
             }
 
             FdHandler::UnlinkedFile { fd, file_fd, .. } => {
@@ -345,7 +440,6 @@ impl SharedFdHandler {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;
                 }
-                Ok(())
             }
 
             FdHandler::CaptureMemory {
@@ -358,9 +452,23 @@ impl SharedFdHandler {
                 sys::close(read_fd)?;
                 // Attach the write pipe to the target fd.
                 sys::dup2(write_fd, fd)?;
-                Ok(())
+                sys::close(write_fd)?;
+            }
+
+            FdHandler::PipeWrite { fd, pipe_write_fd } => {
+                // Attach the write pipe to the target fd.
+                sys::dup2(pipe_write_fd, fd)?;
+                sys::close(pipe_write_fd)?;
+            }
+
+            FdHandler::PipeRead { fd, pipe_read_fd } => {
+                // Attach the read pipe to the target fd.
+                sys::dup2(pipe_read_fd, fd)?;
+                sys::close(pipe_read_fd)?;
             }
         }
+
+        Ok(())
     }
 
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
@@ -417,14 +525,14 @@ impl SharedFdHandler {
 
 //------------------------------------------------------------------------------
 
-pub fn make_fd_handler(fd_str: String, spec: spec::Fd) -> (RawFd, SharedFdHandler) {
-    // FIXME: Parse, or at least check, when deserializing.
-    let fd_num = parse_fd(&fd_str).unwrap_or_else(|err| {
-        error!("failed to parse fd {}: {}", fd_str, err);
-        std::process::exit(2);
-    });
-
-    let handler = SharedFdHandler::new(fd_num, spec)
+pub fn make_fd_handler(
+    proc_id: &ProcId,
+    fd_str: String,
+    spec: spec::Fd,
+    pipes: &mut Pipes,
+) -> (RawFd, SharedFdHandler) {
+    let fd_num = parse_fd(&fd_str).unwrap(); // FIXME
+    let handler = SharedFdHandler::new(proc_id, fd_num, spec, pipes)
         .unwrap_or_else(|err| SharedFdHandler(Rc::new(RefCell::new(FdHandler::Error { err }))));
 
     (fd_num, handler)

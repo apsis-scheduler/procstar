@@ -55,8 +55,11 @@ impl ErrorWriter {
 
 impl ErrorPipe {
     pub fn new() -> Result<ErrorPipe> {
-        let (read_fd, write_fd) = sys::pipe()?;
-        Ok(ErrorPipe { read_fd, write_fd })
+        let pipe_fds = sys::pipe()?;
+        Ok(ErrorPipe {
+            read_fd: pipe_fds.read,
+            write_fd: pipe_fds.write,
+        })
     }
 
     async fn get_errors(mut read_pipe: PipeRead) -> Vec<String> {

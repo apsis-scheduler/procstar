@@ -237,11 +237,11 @@ impl SharedFdHandler {
                 encoding,
                 attached,
             } => {
-                let (read_fd, write_fd) = sys::pipe()?;
+                let pipe_fds = sys::pipe()?;
                 FdHandler::CaptureMemory {
                     fd,
-                    read_fd,
-                    write_fd,
+                    read_fd: pipe_fds.read,
+                    write_fd: pipe_fds.write,
                     encoding,
                     buf: Vec::new(),
                     attached,

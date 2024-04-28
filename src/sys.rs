@@ -172,14 +172,22 @@ pub fn open(path: &Path, oflag: c_int, mode: c_int) -> io::Result<fd_t> {
     }
 }
 
+pub struct RWPair<T> {
+    pub read: T,
+    pub write: T,
+}
+
 /// Creates an anonymous pipe.
 ///
 /// Returns the read and write file descriptors of the ends of the pipe.
-pub fn pipe() -> io::Result<(RawFd, RawFd)> {
+pub fn pipe() -> io::Result<RWPair<RawFd>> {
     let mut fildes: Vec<fd_t> = vec![-1, 2];
     match unsafe { libc::pipe(fildes.as_mut_ptr()) } {
         -1 => Err(io::Error::last_os_error()),
-        0 => Ok((fildes[0], fildes[1])),
+        0 => Ok(RWPair {
+            read: fildes[0],
+            write: fildes[1],
+        }),
         ret => panic!("pipe returned {}", ret),
     }
 }

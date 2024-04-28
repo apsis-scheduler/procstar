@@ -172,7 +172,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
         }),
 
         IncomingMessage::ProcStart { ref specs } => {
-            if let Err(err) = start_procs(specs, procs) {
+            if let Err(err) = start_procs(specs.clone(), procs) {
                 Some(OutgoingMessage::IncomingMessageError {
                     msg: msg.clone(),
                     err: err.to_string(),

@@ -155,7 +155,7 @@ impl FdHandler {
 
 const PATH_DEV_NULL: &str = "/dev/null";
 // FIXME: Correct tmpdir.
-const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
+const PATH_TMP_TEMPLATE: &str = "/tmp/procstar-capture-XXXXXXXXXXXX";
 
 /// Creates and opens an unlinked temporary file as a fd handler.
 fn open_unlinked_temp_file(

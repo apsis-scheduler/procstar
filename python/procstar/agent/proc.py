@@ -4,6 +4,7 @@ Processes on connected procstar instances.
 
 import asyncio
 from   collections.abc import Mapping
+import contextlib
 import logging
 
 from   procstar import proto
@@ -176,6 +177,44 @@ class Process:
         # FIXME: Receive proc-specific errors.
         self.errors = []
 
+        # Active watches.
+        self.__watches = set()
+
+
+    @contextlib.contextmanager
+    def watch_result(self, *, request_interval=None):
+        """
+        Yields an async iterator over incoming results.
+
+        Iteration stops with a terminated result.  If a terminated result has
+        already been received, yields it immediately and stops.
+
+        :param reqeust_interval:
+          If not None, sends a result request at this interval.
+        """
+        self.__watches.append(queue := asyncio.Queue())
+        try:
+            yield aiter(queue)
+        finally:
+            self.__watches.remove(queue)
+
+
+    async def request_result(self):
+        """
+        Sends a request for updated result, if the agent is connected.
+        """
+
+
+    async def fetch_result(self) -> Results:
+        """
+        """
+
+
+    async def reqeust_output_data(self, fd, *, start=0, stop=None):
+        """
+        Requests updated output data, if the agent is connected.
+        """
+        
 
 
 #-------------------------------------------------------------------------------

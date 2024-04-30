@@ -257,6 +257,22 @@ impl Pipes {
 
 pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 
+/// Implements the handling of a file descriptor for a proc.
+///
+/// The lifecycle is as follows:
+///
+/// - Procstar calls `new()` in the parent (main) process, before forking
+///   the proc.  This method allocates any resources that must be accessible
+///   both to Procstar and the proc.
+///
+/// - Procstar calls `in_child()` in the child process after forking but before
+///   execing.  This method performs any additional allocations or cleanup 
+///   required in the child process.
+///
+/// - After forking, Procstar calls `in_parent()` in the parent (main) process.
+///   This performs any cleanup required in the parent, and may also return an
+///   async task that continues to deal with the fd.
+///
 impl SharedFdHandler {
     pub fn new(proc_id: &ProcId, fd: RawFd, spec: spec::Fd, pipes: &mut Pipes) -> Result<Self> {
         let fd_handler = match spec {

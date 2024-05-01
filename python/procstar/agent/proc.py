@@ -161,10 +161,8 @@ class Process:
     proc_id: str
     conn_id: str
 
-    """
-    The most recent result received for this proc.
-    """
-    results: Results
+    result: dict | None
+
     # FIXME
     errors: list[str]
 
@@ -173,7 +171,6 @@ class Process:
     def __init__(self, conn_id, proc_id):
         self.proc_id = proc_id
         self.conn_id = conn_id
-        self.results = Results()
         # FIXME: Receive proc-specific errors.
         self.errors = []
 
@@ -182,13 +179,18 @@ class Process:
 
 
     @contextlib.contextmanager
-    def watch_result(self, *, request_interval=None):
+    def results(self, *, immediate=False, request_interval=None):
         """
         Yields an async iterator over incoming results.
 
         Iteration stops with a terminated result.  If a terminated result has
         already been received, yields it immediately and stops.
 
+        The iterator may throw `ProcessDeletedError` or `ProcessUnknownError`.
+
+        :param immediate:
+          If true, yields the current result immediately, before waiting.  If
+          there is no result yet, waits for it.
         :param reqeust_interval:
           If not None, sends a result request at this interval.
         """

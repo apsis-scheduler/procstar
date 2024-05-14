@@ -1,5 +1,16 @@
 ### Worklist
 
+Current:
+- [ ] fix procstar unit tests
+- [ ] test incremental results manually
+- [ ] test incremental output manually
+- [ ] config for incremental results / output frequency
+- [ ] automated test incremental results
+- [ ] automated test incremetnal output
+- [ ] design storage of output chunks
+- [ ] compress output on completion
+
+
 - [x] deal with ws ping/pong
 - [x] TLS
 - [x] connect max tries

@@ -2,7 +2,6 @@ from   dataclasses import dataclass
 import msgpack
 from   typing import Dict, List
 
-from   .lib.json import Jso
 from   .lib.py import format_ctor
 from   .lib.string import elide
 
@@ -135,6 +134,15 @@ class Register:
         )
 
 
+    def __repr__(self):
+        # Don't format the access token.
+        return format_ctor(
+            self,
+            conn        =self.conn,
+            proc        =self.proc,
+            access_token="***",
+        )
+
 
 @dataclass
 class IncomingMessageError:
@@ -157,23 +165,17 @@ class ProcidList:
 @dataclass
 class ProcResult:
     proc_id: str
-    res: Jso
-
-    @classmethod
-    def from_jso(cls, jso):
-        jso["res"] = Jso.wrap(jso["res"])
-        return cls(**jso)
+    res: dict
 
     def __str__(self):
-        # Don't format the entire result, which may be large.
+        # Omit fd data from the output.
         name = self.__class__.__name__
         proc_id = self.proc_id
-        state = self.res.state
-        errors = self.res.errors
-        return (
-            f'{name}(proc_id={proc_id!r}, '
-            f'res=(state={state!r}, errors={errors!r}, ...))'
-        )
+        res = self.res.copy()
+        for fd in res["fds"].values():
+            if fd is not None and "data" in fd:
+                fd["data"] = ...
+        return f'{name}(proc_id={proc_id!r}, res={res!r})'
 
 
 

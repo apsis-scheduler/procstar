@@ -3,6 +3,13 @@ from   contextlib import contextmanager
 
 #-------------------------------------------------------------------------------
 
+async def iter_queue(queue: asyncio.Queue):
+    while True:
+        yield await queue.get()
+
+
+#-------------------------------------------------------------------------------
+
 class Subscribeable:
     """
     Mixin to add support for async subscription to events.

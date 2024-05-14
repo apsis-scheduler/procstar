@@ -1,3 +1,15 @@
+class Interval:
+
+    def __init__(self, start, stop=None):
+        self.start = start
+        self.stop = stop
+
+
+    def __iter__(self):
+        return iter((self.start, self.stop))
+
+
+
 def format_call(__fn, *args, **kw_args) -> str:
     """
     Formats a function call, with arguments, as a string.

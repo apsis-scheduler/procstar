@@ -146,11 +146,17 @@ class Connection:
 
 
     @property
+    def conn_id(self):
+        return self.info.conn.conn_id
+
+
+    @property
     def open(self):
         return self.ws.open
 
 
     async def send(self, msg):
+        logger.debug(f"send: {msg!r}")
         data = serialize_message(msg)
 
         if not self.ws.open:

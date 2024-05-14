@@ -4,10 +4,13 @@ Processes on connected procstar instances.
 
 import asyncio
 from   collections.abc import Mapping
-import contextlib
+from   dataclasses import dataclass
+from   functools import cached_property
 import logging
 
 from   procstar import proto
+from   procstar.lib.asyn import iter_queue
+from   procstar.lib.py import Interval
 
 logger = logging.getLogger(__name__)
 
@@ -35,119 +38,36 @@ class ProcessDeletedError(RuntimeError):
 
 
 
+@dataclass
+class Result:
+    """
+    The proc res dictionary produced by the agent.
+    """
+    res: dict
+
+
+
+@dataclass
 class FdData:
-
-    def __init__(self):
-        self.data = None
-        self.encoding = None
-
-
-    def append(self, msg: proto.ProcFdData):
-        # FIXME: For now, just replace.
-        self.data = msg.data
-        self.encoding = msg.encoding
-
-
-
-class Results:
     """
-    Single-consumer async iterable of results of a process.
+    The fd name.
     """
+    fd: str
 
     """
-    The most recent result received for the process.
+    The interval of output bytes contained in this update.
     """
-    latest: object
+    interval: Interval
 
-    def __init__(self):
-        self.latest = None
-        self.__queue = asyncio.Queue()
-        self.__fd_data = {}
+    """
+    The output encoding.
+    """
+    encoding: str | None
 
-
-    def __aiter__(self):
-        return self
-
-
-    async def __anext__(self):
-        """
-        :raise ProcessUnknownError:
-          The process is unknown to the remote agent.
-        :raise ProcessDeletedError:
-          The process was deleted before returning another result.
-        """
-        match msg := await self.__queue.get():
-            case proto.ProcResult(_, result):
-                self.latest = result
-                return result
-
-            case proto.ProcFdData(_proc_id, fd):
-                try:
-                    fd_data = self.__fd_data[fd]
-                except KeyError:
-                    fd_data = self.__fd_data[fd] = FdData()
-                logger.debug(f"fd data append: {fd}")
-                fd_data.append(msg)
-                # FIXME: Return something more explicit, so we know what happened.
-                return self.latest
-
-            case proto.ProcDelete(proc_id):
-                raise ProcessDeletedError(proc_id)
-
-            case proto.ProcUnknown(proc_id):
-                raise ProcessUnknownError(proc_id)
-
-            case _:
-                raise NotImplementedError(f"unknown msg: {msg}")
-
-
-    def _on_message(self, msg):
-        self.__queue.put_nowait(msg)
-
-
-    async def wait(self):
-        """
-        Awaits a running process.
-
-        Returns immediately if a non-running result has alread been received.
-
-        :return:
-          The process result.
-        :raise ProcessDeletedError:
-          The process was deleted before returning another result.
-        """
-        # Is the most recent result completed?  If so, return it immediately.
-        if self.latest is not None and self.latest.state != "running":
-            return self.result
-
-        # Wait for a completed result.
-        async for result in self:
-            if result.state != "running":
-                return result
-
-
-    async def get_fd_res(self, name) -> (bytes, str | None):
-        """
-        Returns the data and encoding of the named fd.
-        """
-        match getattr(self.latest.fds, name):
-            case object(type="detached", encoding=encoding):
-                try:
-                    fd_data = self.__fd_data[name]
-                except KeyError:
-                    # FIXME: Encoding should be in result.
-                    return b"", encoding
-                else:
-                    return fd_data.data, fd_data.encoding
-
-            case object(type="text", text=text, encoding=encoding):
-                return text.decode(encoding), encoding
-
-            case object(type="data", data=data, encoding=encoding):
-                if encoding is None:
-                    return data, None
-                else:
-                    assert False, f"not implemented: encoding={encoding}"
+    """
+    The output data.
+    """
+    data: bytes
 
 
 
@@ -161,62 +81,102 @@ class Process:
     proc_id: str
     conn_id: str
 
-    result: dict | None
-
     # FIXME
     errors: list[str]
 
     # FIXME: What happens when the connection is closed?
 
-    def __init__(self, conn_id, proc_id):
+    def __init__(self, conn, proc_id):
+        self.__conn = conn
         self.proc_id = proc_id
-        self.conn_id = conn_id
         # FIXME: Receive proc-specific errors.
         self.errors = []
-
-        # Active watches.
-        self.__watches = set()
+        self.__msgs = asyncio.Queue()
 
 
-    @contextlib.contextmanager
-    def results(self, *, immediate=False, request_interval=None):
+    @property
+    def conn_id(self):
+        return self.__conn.conn_id
+
+
+    def _on_message(self, msg):
+        self.__msgs.put_nowait(msg)
+
+
+    @cached_property
+    def updates(self):
         """
-        Yields an async iterator over incoming results.
+        A singleton async iterator over updates for this process.
 
-        Iteration stops with a terminated result.  If a terminated result has
-        already been received, yields it immediately and stops.
+        The iterator may:
+        - yield a `Result` instance
+        - yield a `FdData` instance
+        - terminate if the process is deleted
+        - raise `ProcessUnknownError` if the proc ID is unknown
 
-        The iterator may throw `ProcessDeletedError` or `ProcessUnknownError`.
-
-        :param immediate:
-          If true, yields the current result immediately, before waiting.  If
-          there is no result yet, waits for it.
-        :param reqeust_interval:
-          If not None, sends a result request at this interval.
         """
-        self.__watches.append(queue := asyncio.Queue())
-        try:
-            yield aiter(queue)
-        finally:
-            self.__watches.remove(queue)
+        proc_id = self.proc_id
+
+        def translate(msg):
+            assert msg.proc_id == proc_id
+            match msg:
+                case proto.ProcResult(_, result):
+                    return Result(res=result)
+
+                case proto.ProcFdData(_, fd, start, stop, encoding, data):
+                    # FIXME: Process data.
+                    return FdData(
+                        fd      =fd,
+                        interval=Interval(start, stop),
+                        encoding=encoding,
+                        data    =data,
+                    )
+
+                case proto.ProcDelete(_):
+                    return
+
+                case proto.ProcUnknown(_):
+                    raise ProcessUnknownError(proc_id)
+
+                case _:
+                    assert False, f"unexpected msg: {msg!r}"
 
 
-    async def request_result(self):
-        """
-        Sends a request for updated result, if the agent is connected.
-        """
+        return aiter( translate(m) async for m in iter_queue(self.__msgs) )
 
 
-    async def fetch_result(self) -> Results:
+    def request_result(self):
         """
+        Returns a coro that sends a request for updated result.
         """
+        return self.__conn.send(proto.ProcResultRequest(self.proc_id))
 
 
-    async def reqeust_output_data(self, fd, *, start=0, stop=None):
+    def request_fd_data(self, fd, *, interval=Interval(0, None)):
         """
-        Requests updated output data, if the agent is connected.
+        Returns a coro that requests updated output data,
         """
-        
+        return self.__conn.send(proto.ProcFdDataRequest(
+            proc_id =self.proc_id,
+            fd      =fd,
+            start   =interval.start,
+            stop    =interval.stop,
+        ))
+
+
+    def send_signal(self, signum):
+        """
+        Returns a coro that sends a signal to the proc.
+        """
+        return self.__conn.send(proto.ProcSignalRequest(self.proc_id, signum))
+
+
+    def delete(self):
+        """
+        Returns a coro that requests deletion of the proc.
+        """
+        return self.__conn.send(proto.ProcDeleteRequest(self.proc_id))
+
 
 
 #-------------------------------------------------------------------------------
@@ -232,14 +192,14 @@ class Processes(Mapping):
         self.__procs = {}
 
 
-    def create(self, conn_id, proc_id) -> Process:
+    def create(self, conn, proc_id) -> Process:
         """
         Creates and returns a new process on `connection` with `proc_id`.
 
         `proc_id` must be unknown.
         """
         assert proc_id not in self.__procs
-        self.__procs[proc_id] = proc = Process(conn_id, proc_id)
+        self.__procs[proc_id] = proc = Process(conn, proc_id)
         return proc
 
 
@@ -259,31 +219,24 @@ class Processes(Mapping):
             except KeyError:
                 conn_id = procstar_info.conn.conn_id
                 logger.info(f"new proc on {conn_id}: {proc_id}")
-                return self.create(conn_id, proc_id)
+                return self.create(self, proc_id)
 
         match msg:
             case proto.ProcidList(proc_ids):
-                logger.debug(f"msg proc_id list: {proc_ids}")
                 # Make sure we track a proc for each proc ID the instance knows.
                 for proc_id in proc_ids:
                     _ = get_proc(proc_id)
 
             case proto.ProcResult(proc_id):
-                logger.debug(f"msg proc result: {proc_id}")
-                msg.res.procstar = procstar_info
-                get_proc(proc_id).results._on_message(msg)
+                # Attach Procstar server and connection info to the result.
+                msg.res["procstar"] = procstar_info
+                get_proc(proc_id)._on_message(msg)
 
-            case proto.ProcFdData(proc_id, fd):
-                logger.debug(f"msg proc fd data: {proc_id} {fd}")
-                get_proc(proc_id).results._on_message(msg)
+            case proto.ProcFdData(proc_id):
+                get_proc(proc_id)._on_message(msg)
 
-            case proto.ProcDelete(proc_id):
-                logger.debug(f"msg proc delete: {proc_id}")
-                self.__procs.pop(proc_id).results._on_message(msg)
-
-            case proto.ProcUnknown(proc_id):
-                logger.debug(f"msg proc unknown: {proc_id}")
-                self.__procs.pop(proc_id).results._on_message(msg)
+            case proto.ProcDelete(proc_id) | proto.ProcUnknown(proc_id):
+                self.__procs.pop(proc_id)._on_message(msg)
 
             case proto.Register:
                 # We should receive this only immediately after connection.

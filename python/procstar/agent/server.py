@@ -157,7 +157,7 @@ class Server:
 
             # Only Register is acceptable.
             type, register_msg = proto.deserialize_message(msg)
-            logger.debug(f"recv: {msg}")
+            logger.debug(f"recv: {register_msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
 
@@ -169,7 +169,7 @@ class Server:
             data = proto.serialize_message(proto.Registered())
             await ws.send(data)
 
-            logger.info(f"[{register_msg.conn.conn_id}] connected")
+            logger.info(f"connected: {register_msg.conn.conn_id}")
 
         except Exception as exc:
             logger.warning(f"{ws}: {exc}", exc_info=True)
@@ -202,14 +202,14 @@ class Server:
             try:
                 msg = await ws.recv()
             except ConnectionClosedOK:
-                logger.info(f"[{conn.info.conn.conn_id}] connection closed")
+                logger.info(f"closed: {conn.info.conn.conn_id}")
                 break
             except ConnectionClosedError as err:
-                logger.warning(f"[{conn.info.conn.conn_id}] connection closed: {err}")
+                logger.warning(f"closed: {conn.info.conn.conn_id}: {err}")
                 break
             type, msg = proto.deserialize_message(msg)
             # Process the message.
-            logger.info(f"recv: {msg}")
+            logger.debug(f"recv: {msg}")
             conn.info.stats.num_received += 1
             self.processes.on_message(conn.info, msg)
 
@@ -252,7 +252,7 @@ class Server:
         )
 
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
-        return self.processes.create(conn.info.conn.conn_id, proc_id)
+        return self.processes.create(conn, proc_id)
 
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
@@ -268,41 +268,10 @@ class Server:
         try:
             proc = self.processes[proc_id]
         except KeyError:
-            proc = self.processes.create(conn_id, proc_id)
+            proc = self.processes.create(conn, proc_id)
 
         await conn.send(proto.ProcResultRequest(proc_id))
         return proc
-
-
-    async def send_signal(self, proc_id, signum):
-        try:
-            proc = self.processes[proc_id]
-        except KeyError:
-            raise ValueError(f"no process: {proc_id}")
-        conn = self.connections[proc.conn_id]
-
-        await conn.send(proto.ProcSignalRequest(proc_id, signum))
-
-
-    async def delete(self, proc_id):
-        """
-        Deletes a process.
-        """
-        try:
-            proc = self.processes[proc_id]
-        except KeyError:
-            raise ValueError(f"no process: {proc_id}")
-        conn = self.connections[proc.conn_id]
-
-        await conn.send(proto.ProcDeleteRequest(proc_id))
-
-        # Wait for the deletion message.
-        try:
-            async for _ in proc.results:
-                pass
-        except ProcessDeletedError:
-            # Good.
-            logger.info(f"deleted: {proc_id}")
 
 
 

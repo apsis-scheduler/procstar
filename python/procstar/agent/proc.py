@@ -104,7 +104,7 @@ class Process:
 
 
     @cached_property
-    def updates(self):
+    async def updates(self):
         """
         A singleton async iterator over updates for this process.
 
@@ -115,17 +115,15 @@ class Process:
         - raise `ProcessUnknownError` if the proc ID is unknown
 
         """
-        proc_id = self.proc_id
-
-        def translate(msg):
-            assert msg.proc_id == proc_id
+        async for msg in iter_queue(self.__msgs):
+            assert msg.proc_id == self.proc_id
             match msg:
                 case proto.ProcResult(_, result):
-                    return Result(res=result)
+                    yield Result(res=result)
 
                 case proto.ProcFdData(_, fd, start, stop, encoding, data):
                     # FIXME: Process data.
-                    return FdData(
+                    yield FdData(
                         fd      =fd,
                         interval=Interval(start, stop),
                         encoding=encoding,
@@ -133,16 +131,14 @@ class Process:
                     )
 
                 case proto.ProcDelete(_):
-                    return
+                    # Done.
+                    break
 
                 case proto.ProcUnknown(_):
-                    raise ProcessUnknownError(proc_id)
+                    raise ProcessUnknownError(self.proc_id)
 
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
-
-
-        return aiter( translate(m) async for m in iter_queue(self.__msgs) )
 
 
     def request_result(self):

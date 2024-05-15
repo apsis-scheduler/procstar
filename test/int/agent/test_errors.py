@@ -8,11 +8,9 @@ from   procstar.testing.agent import Assembly
 @pytest.mark.asyncio
 async def test_bad_exe():
     async with Assembly.start() as asm:
-        proc = await asm.server.start(
-            "bad_exe",
+        res = await asm.run(
             spec.make_proc(["/dev/null/bad_exe", "Hello, world!"]).to_jso()
         )
-        res = await proc.results.wait()
         assert res.state == "error"
         assert len(res.errors) == 1
         assert "bad_exe" in res.errors[0]
@@ -21,8 +19,7 @@ async def test_bad_exe():
 @pytest.mark.asyncio
 async def test_bad_fd_path():
     async with Assembly.start() as asm:
-        proc = await asm.server.start(
-            "bad_fd",
+        res = await asm.run(
             spec.make_proc(
                 ["/usr/bin/echo", "Hello, world!"],
                 fds={
@@ -30,7 +27,6 @@ async def test_bad_fd_path():
                 }
             )
         )
-        res = await proc.results.wait()
         assert res.state == "error"
         assert len(res.errors) == 1
         assert "No such file or directory" in res.errors[0]

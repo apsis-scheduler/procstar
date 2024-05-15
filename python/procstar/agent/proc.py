@@ -141,6 +141,20 @@ class Process:
                     assert False, f"unexpected msg: {msg!r}"
 
 
+    async def wait(self) -> Result:
+        """
+        Awaits and returns a terminated result.
+        """
+        async for update in self.updates:
+            if (
+                    isinstance(update, Result)
+                    and update.res["state"] == "terminated"
+            ):
+                return update
+        else:
+            assert False, "proc deleted before terminated result"
+
+
     def request_result(self):
         """
         Returns a coro that sends a request for updated result.
@@ -167,11 +181,21 @@ class Process:
         return self.__conn.send(proto.ProcSignalRequest(self.proc_id, signum))
 
 
-    def delete(self):
+    def request_delete(self):
         """
         Returns a coro that requests deletion of the proc.
         """
         return self.__conn.send(proto.ProcDeleteRequest(self.proc_id))
+
+
+    async def delete(self):
+        """
+        Requests deletion of the proc and awaits confirmation.
+        """
+        await self.request_delete()
+        # The update iterator exhausts when the proc is deleted.
+        async for update in self.updates:
+            pass
 
 
 

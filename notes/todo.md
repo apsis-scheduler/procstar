@@ -1,13 +1,14 @@
 ### Worklist
 
 Current:
-- [ ] fix procstar unit tests
-- [ ] test incremental results manually
-- [ ] test incremental output manually
+- [x] fix procstar unit tests
+- [x] test incremental results manually
+- [x] test incremental output manually
 - [ ] config for incremental results / output frequency
 - [ ] automated test incremental results
-- [ ] automated test incremetnal output
 - [ ] design storage of output chunks
+- [ ] design UI for incremental / large output
+- [ ] automated test incremetnal output
 - [ ] compress output on completion
 
 

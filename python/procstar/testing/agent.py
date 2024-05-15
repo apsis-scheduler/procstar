@@ -11,6 +11,7 @@ import uuid
 
 from   . import get_procstar_path, TLS_CERT_PATH, TLS_KEY_PATH
 from   procstar import proto
+from   procstar.agent.proc import Result
 import procstar.agent.server
 
 logger = logging.getLogger(__name__)
@@ -267,6 +268,35 @@ class Assembly:
             yield asm
         finally:
             await asm.aclose()
+
+
+    async def wait(self, proc) -> Result:
+        """
+        Waits until `proc` is no longer running, and returns its `Result`.
+
+        Other updates are ignored.
+        """
+        async for update in proc.updates:
+            if (
+                    isinstance(update, Result)
+                    and update.state != "running"
+            ):
+                return update
+        else:
+            assert False, "proc deleted while running"
+
+
+    async def run(self, spec) -> Result:
+        """
+        Runs a proc from `spec`, waits until no longer running, and returns
+        its `Result`.
+        """
+        proc_id = str(uuid.uuid4())
+        proc, res = await self.server.start(proc_id, spec)
+        return (
+            (await self.wait(proc)) if res.state == "running"
+            else res
+        )
 
 
 

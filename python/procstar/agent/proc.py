@@ -11,6 +11,7 @@ import logging
 from   procstar import proto
 from   procstar.lib.asyn import iter_queue
 from   procstar.lib.py import Interval
+import procstar.lib.json
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,11 @@ class ProcessDeletedError(RuntimeError):
 
 
 
-@dataclass
-class Result:
+# Derive from Jso to convert dict into object semantics.
+class Result(procstar.lib.json.Jso):
     """
     The proc res dictionary produced by the agent.
     """
-    res: dict
 
 
 
@@ -119,7 +119,7 @@ class Process:
             assert msg.proc_id == self.proc_id
             match msg:
                 case proto.ProcResult(_, result):
-                    yield Result(res=result)
+                    yield Result(result)
 
                 case proto.ProcFdData(_, fd, start, stop, encoding, data):
                     # FIXME: Process data.
@@ -139,20 +139,6 @@ class Process:
 
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
-
-
-    async def wait(self) -> Result:
-        """
-        Awaits and returns a terminated result.
-        """
-        async for update in self.updates:
-            if (
-                    isinstance(update, Result)
-                    and update.res["state"] == "terminated"
-            ):
-                return update
-        else:
-            assert False, "proc deleted before terminated result"
 
 
     def request_result(self):

@@ -14,7 +14,7 @@ from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from   . import DEFAULT_PORT
 from   .conn import Connections
 from   .conn import choose_connection, get_connection
-from   .proc import Processes, Process, ProcessDeletedError
+from   .proc import Processes, Process, Result
 from   procstar import proto
 from   procstar.lib.time import now
 
@@ -222,7 +222,7 @@ class Server:
         # Don't forget the connection; the other end may reconnect.
 
 
-    async def start(
+    async def request_start(
             self,
             proc_id,
             spec,
@@ -238,7 +238,7 @@ class Server:
         :param conn_timeout:
           Timeout to wait for an open connection for `group_id`.
         :return:
-          The connection on which the process starts.
+          The new `Process`.
         """
         try:
             spec = spec.to_jso()
@@ -253,6 +253,16 @@ class Server:
 
         await conn.send(proto.ProcStart(specs={proc_id: spec}))
         return self.processes.create(conn, proc_id)
+
+
+    async def start(self, *args, **kw_args) -> (Process, Result):
+        """
+        Starts a new process and awaits the initial `Result`.
+        """
+        proc = await self.request_start(*args, **kw_args)
+        result = await anext(proc.updates)
+        assert isinstance(result, Result), "expected initial result"
+        return proc, result
 
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:

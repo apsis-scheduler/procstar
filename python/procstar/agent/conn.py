@@ -369,30 +369,26 @@ async def get_connection(
     Returns a connection, waiting for it if not connected.
 
     :raise NoConnectionError:
-      Timeout waiting for connection `conn_id`.
+      Timeout waiting for connection `conn_id`, or none.
     """
-    deadline = time.monotonic() + timeout
-
-    with connections.subscription() as sub:
-        while True:
-            try:
-                conn = connections[conn_id]
-            except KeyError:
-                logging.debug(f"no connection: {conn_id}")
-            else:
-                if conn.open:
-                    return conn
+    async def wait():
+        with connections.subscription() as sub:
+            while True:
+                try:
+                    conn = connections[conn_id]
+                except KeyError:
+                    logging.debug(f"no connection: {conn_id}")
                 else:
-                    logging.debug("connection not open: {conn_id}")
+                    if conn.open:
+                        return conn
+                    else:
+                        logging.debug("connection not open: {conn_id}")
+                # Wait for a connection change.
+                await anext(sub)
 
-            # Not open connection.  Wait to be informed of a new connection.
-            remain = deadline - time.monotonic()
-            if remain < 0:
-                raise NoConnectionError(conn_id)
-
-            try:
-                _ = await asyncio.wait_for(anext(sub), timeout=remain)
-            except asyncio.TimeoutError:
-                pass
+    try:
+        return await asyncio.wait_for(wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise NoConnectionError(conn_id)
 
 

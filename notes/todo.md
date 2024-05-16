@@ -7,9 +7,10 @@ Current:
 - [x] config for incremental results / output frequency
 - [ ] automated test incremental results
 - [x] request incremental output from agent
-- [ ] update incremetnal output from program, into DB and to clients
+- [ ] update incremental output from program, into DB and to clients
 - [ ] max size for incremental ouptut
 - [ ] design UI for incremental / large output
+- [ ] in web UI, follow bottom of output if scrolled all the way down
 - [ ] automated test incremetnal output
 - [ ] compress output on completion
 

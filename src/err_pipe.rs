@@ -55,11 +55,10 @@ impl ErrorWriter {
 
 impl ErrorPipe {
     pub fn new() -> Result<ErrorPipe> {
-        let pipe_fds = sys::pipe()?;
-        Ok(ErrorPipe {
-            read_fd: pipe_fds.read,
-            write_fd: pipe_fds.write,
-        })
+        let sys::RWPair { read: read_fd, write: write_fd } = sys::pipe()?;
+        sys::set_cloexec(read_fd)?;
+        sys::set_cloexec(write_fd)?;
+        Ok(ErrorPipe { read_fd, write_fd })
     }
 
     async fn get_errors(mut read_pipe: PipeRead) -> Vec<String> {
@@ -121,8 +120,8 @@ impl ErrorPipe {
         // Close the read pipe.
         sys::close(read_fd).unwrap();
 
-        // Note that tokio-pipe sets CLOEXEC by default, so the write pipe will close
-        // automatically in the child process when it exec's.
+        // Since the pipe is CLOEXEC, so the write pipe will close automatically
+        // in the child process when it exec's.
         Ok(ErrorWriter { write_fd })
     }
 }

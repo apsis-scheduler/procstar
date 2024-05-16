@@ -57,17 +57,17 @@ class FdData:
     """
     The interval of output bytes contained in this update.
     """
-    interval: Interval
+    interval: Interval = Interval(0, 0)
 
     """
     The output encoding.
     """
-    encoding: str | None
+    encoding: str | None = None
 
     """
     The output data.
     """
-    data: bytes
+    data: bytes = b""
 
 
 

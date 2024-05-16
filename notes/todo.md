@@ -4,9 +4,11 @@ Current:
 - [x] fix procstar unit tests
 - [x] test incremental results manually
 - [x] test incremental output manually
-- [ ] config for incremental results / output frequency
+- [x] config for incremental results / output frequency
 - [ ] automated test incremental results
-- [ ] design storage of output chunks
+- [x] request incremental output from agent
+- [ ] update incremetnal output from program, into DB and to clients
+- [ ] max size for incremental ouptut
 - [ ] design UI for incremental / large output
 - [ ] automated test incremetnal output
 - [ ] compress output on completion

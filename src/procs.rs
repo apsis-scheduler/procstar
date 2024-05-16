@@ -651,6 +651,8 @@ pub fn start_procs(
                 };
                 // Start the task.
                 tasks.push(tokio::task::spawn_local(fut));
+
+                info!("proc started: {}", child_pid);
             }
 
             Err(err) => panic!("failed to fork: {}", err),

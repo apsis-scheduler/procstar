@@ -13,7 +13,8 @@ from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from   . import DEFAULT_PORT
 from   .conn import Connections
-from   .conn import choose_connection, get_connection
+from   .conn import choose_connection, wait_for_connection
+from   .exc import NoConnectionError
 from   .proc import Processes, Process, Result
 from   procstar import proto
 from   procstar.lib.time import now
@@ -261,20 +262,30 @@ class Server:
         """
         proc = await self.request_start(*args, **kw_args)
         result = await anext(proc.updates)
+        # FIXME: Could something else happen in the meanwhile?
         assert isinstance(result, Result), "expected initial result"
         return proc, result
 
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
         """
-        :param conn_timeout:
-          Timeout to wait for a connection from `conn_id`.
+        Reconnects to a process on a specific connection.
+
+        If the connection is not present, waits for it, until `conn_timeout` has
+        elapsed.
+
         :raise NoConnectionError:
           Timeout waiting for connection.
         """
-        conn = await get_connection(
-            self.connections, conn_id, timeout=conn_timeout)
+        try:
+            conn = await asyncio.wait_for(
+                wait_for_connection(self.connections, conn_id),
+                timeout=conn_timeout
+            )
+        except asyncio.TimeoutError:
+            raise NoConnectionError(conn_id)
 
+        # FIXME: Shouldn't the agent tell us about the process?
         try:
             proc = self.processes[proc_id]
         except KeyError:

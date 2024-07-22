@@ -12,7 +12,7 @@ import random
 import time
 from   websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoOpenConnectionInGroup, NoConnectionError
+from   .exc import NoOpenConnectionInGroup
 from   procstar.lib.asyn import Subscribeable
 from   procstar.proto import ConnectionInfo, ProcessInfo
 from   procstar.proto import serialize_message
@@ -359,36 +359,22 @@ async def choose_connection(
             raise ValueError(f"unknown policy: {policy}")
 
 
-async def get_connection(
-        connections: Connections,
-        conn_id,
-        *,
-        timeout=0,
-) -> Connection:
+async def wait_for_connection(connections: Connections, conn_id) -> Connection:
     """
     Returns a connection, waiting for it if not connected.
-
-    :raise NoConnectionError:
-      Timeout waiting for connection `conn_id`, or none.
     """
-    async def wait():
-        with connections.subscription() as sub:
-            while True:
-                try:
-                    conn = connections[conn_id]
-                except KeyError:
-                    logging.debug(f"no connection: {conn_id}")
+    with connections.subscription() as sub:
+        while True:
+            try:
+                conn = connections[conn_id]
+            except KeyError:
+                logging.debug(f"no connection: {conn_id}")
+            else:
+                if conn.open:
+                    return conn
                 else:
-                    if conn.open:
-                        return conn
-                    else:
-                        logging.debug("connection not open: {conn_id}")
-                # Wait for a connection change.
-                await anext(sub)
-
-    try:
-        return await asyncio.wait_for(wait(), timeout=timeout)
-    except asyncio.TimeoutError:
-        raise NoConnectionError(conn_id)
+                    logging.debug("connection not open: {conn_id}")
+            # Wait for a connection change.
+            await anext(sub)
 
 

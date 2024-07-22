@@ -269,10 +269,13 @@ class Server:
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
         """
-        Reconnects to a process on a specific connection.
+        Attempts to reconnect to a process on a specific connection.
 
         If the connection is not present, waits for it, until `conn_timeout` has
         elapsed.
+
+        When the connection is present, returns a `Process` instance for it.
+        This does not guarantee that the agent knows of this `proc_id`.
 
         :raise NoConnectionError:
           Timeout waiting for connection.
@@ -285,14 +288,10 @@ class Server:
         except asyncio.TimeoutError:
             raise NoConnectionError(conn_id)
 
-        # FIXME: Shouldn't the agent tell us about the process?
         try:
-            proc = self.processes[proc_id]
+            return self.processes[proc_id]
         except KeyError:
-            proc = self.processes.create(conn, proc_id)
-
-        await conn.send(proto.ProcResultRequest(proc_id))
-        return proc
+            return self.processes.create(conn, proc_id)
 
 
 

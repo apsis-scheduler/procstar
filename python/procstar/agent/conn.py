@@ -157,11 +157,13 @@ class Connection:
 
     async def send(self, msg):
         logger.debug(f"send: {msg!r}")
-        data = serialize_message(msg)
 
+        if self.ws is None:
+            raise RuntimeError("not connected")
         if not self.ws.open:
             raise RuntimeError("connection not open")
 
+        data = serialize_message(msg)
         try:
             await self.ws.send(data)
         except ConnectionClosedError:

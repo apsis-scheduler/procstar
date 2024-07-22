@@ -188,6 +188,7 @@ class Server:
             return
 
         # Request results for all procs on this connection.
+        # FIXME: Not here; in Apsis program instead?
         try:
             for proc_id, proc in self.processes.items():
                 if proc.conn_id == register_msg.conn.conn_id:

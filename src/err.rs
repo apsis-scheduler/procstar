@@ -29,6 +29,8 @@ impl std::fmt::Display for SpecError {
 /// or running a process.
 #[derive(Debug)]
 pub enum Error {
+    /// Tombstone.
+    None,
     /// Premature EOF; this is a protocol error.
     Eof,
     /// Wraps an I/O error.
@@ -70,6 +72,7 @@ impl Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            Error::None => f.write_str("(no error)"),
             Error::Eof => f.write_str("EOF"),
             Error::Io(ref err) => err.fmt(f),
             Error::Json(ref err) => err.fmt(f),

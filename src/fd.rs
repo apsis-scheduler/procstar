@@ -1,4 +1,5 @@
 use libc::c_int;
+use log::*;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::fd::RawFd;
@@ -147,6 +148,19 @@ impl FdHandler {
             path,
             oflags,
             mode,
+        }
+    }
+}
+
+impl Drop for FdHandler {
+    fn drop(&mut self) {
+        match self {
+            FdHandler::UnlinkedFile { file_fd, .. } => {
+                if let Err(err) = sys::close(*file_fd) {
+                    error!("failed to close {file_fd}: {err}");
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -391,10 +405,10 @@ impl SharedFdHandler {
     }
 
     pub fn in_child(self) -> Result<()> {
-        match Rc::try_unwrap(self.0).unwrap().into_inner() {
+        match Rc::into_inner(self.0).unwrap().into_inner() {
             FdHandler::Inherit => {}
 
-            FdHandler::Error { err } => return Err(err),
+            FdHandler::Error { ref mut err } => return Err(std::mem::replace(err, Error::None)),
 
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
@@ -408,7 +422,7 @@ impl SharedFdHandler {
 
             FdHandler::UnmanagedFile {
                 fd,
-                path,
+                ref path,
                 oflags,
                 mode,
             } => {

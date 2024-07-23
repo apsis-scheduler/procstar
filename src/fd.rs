@@ -266,7 +266,7 @@ pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
 ///   both to Procstar and the proc.
 ///
 /// - Procstar calls `in_child()` in the child process after forking but before
-///   execing.  This method performs any additional allocations or cleanup 
+///   execing.  This method performs any additional allocations or cleanup
 ///   required in the child process.
 ///
 /// - After forking, Procstar calls `in_parent()` in the parent (main) process.

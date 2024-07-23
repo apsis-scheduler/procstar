@@ -263,3 +263,11 @@ def deserialize_message(msg):
     return type_name, obj
 
 
+#-------------------------------------------------------------------------------
+
+@dataclass
+class ConnectionTimeout:
+    pass
+
+
+

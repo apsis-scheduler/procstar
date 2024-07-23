@@ -135,6 +135,8 @@ class Connection:
     info: ProcstarInfo
     ws: asyncio.protocols.Protocol = None
 
+    __reconnect_timeout_task: asyncio.Future = None
+
     def __hash__(self):
         return hash(self.info.conn.conn_id)
 
@@ -173,6 +175,27 @@ class Connection:
             # FIXME: Think carefully the temporarily dropped connection logic.
         else:
             self.info.stats.num_sent += 1
+
+
+    def set_reconnect_timeout(self, duration, fn):
+        """
+        Sets a reconnection timeout for `duration` to call `fn`.
+        """
+        self.cancel_reconnect_timeout()
+
+        async def timeout():
+            # Wait for the timeout to elapse.
+            await asyncio.sleep(duration)
+            self.__reconnect_timeout_task = None
+            fn(self)
+
+        self.__reconnect_timeout_task = asyncio.create_task(timeout())
+
+
+    def cancel_reconnect_timeout(self):
+        if self.__reconnect_timeout_task is not None:
+            self.__reconnect_timeout_task.cancel()
+            self.__reconnect_timeout_task = None
 
 
 
@@ -276,6 +299,7 @@ class Connections(Mapping, Subscribeable):
         if len(group) == 0:
             del self.__groups[group_id]
         self._publish((conn_id, None))
+        conn.cancel_reconnect_timeout()
         return conn
 
 

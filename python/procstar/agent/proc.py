@@ -39,6 +39,17 @@ class ProcessDeletedError(RuntimeError):
 
 
 
+class ConnectionTimeoutError(RuntimeError):
+    """
+    The connection on which the process was running timed out.
+    """
+
+    def __init__(self, conn_id):
+        super().__init__(f"agent reconnect timeout: conn_id {conn_id}")
+        self.conn_id = conn_id
+
+
+
 # Derive from Jso to convert dict into object semantics.
 class Result(procstar.lib.json.Jso):
     """
@@ -113,10 +124,10 @@ class Process:
         - yield a `FdData` instance
         - terminate if the process is deleted
         - raise `ProcessUnknownError` if the proc ID is unknown
+        - raise `ConnectionTimeoutError` if the connection timed out
 
         """
         async for msg in iter_queue(self.__msgs):
-            assert msg.proc_id == self.proc_id
             match msg:
                 case proto.ProcResult(_, result):
                     yield Result(result)
@@ -136,6 +147,9 @@ class Process:
 
                 case proto.ProcUnknown(_):
                     raise ProcessUnknownError(self.proc_id)
+
+                case proto.ConnectionTimeout():
+                    raise ConnectionTimeoutError(self.conn_id)
 
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
@@ -251,6 +265,14 @@ class Processes(Mapping):
             case proto.IncomingMessageError():
                 # FIXME: Proc-specific errors.
                 logger.error(f"msg error: {msg.err}")
+
+            case proto.ConnectionTimeout():
+                logger.error(f"connection timeout: {procstar_info.conn}")
+                # Dispatch to all procs on this conn.
+                conn_id = procstar_info.conn.conn_id
+                for proc in self.__procs.values():
+                    if proc.conn_id == conn_id:
+                        proc._on_message(msg)
 
             case _:
                 logger.error(f"unknown msg: {msg}")

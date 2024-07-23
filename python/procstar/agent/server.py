@@ -75,13 +75,14 @@ class Server:
 
     def run(
             self, *,
-            host        =FROM_ENV,
-            port        =FROM_ENV,
-            tls_cert    =FROM_ENV,
-            access_token=FROM_ENV,
-        ):
+            host                =FROM_ENV,
+            port                =FROM_ENV,
+            tls_cert            =FROM_ENV,
+            access_token        =FROM_ENV,
+            reconnect_timeout   =None,
+    ):
         """
-        Returns an async context manager that runs the websocket server.
+        Returns a coro that runs the websocket server.
 
         :param host:
           Interface on which to run.  If `FROM_ENV`, uses the env var
@@ -98,6 +99,8 @@ class Server:
           Secret access token required for agent connections.  If `FROM_ENV`,
           uses the env var `PROCSTAR_AGENT_TOKEN`.  By default, uses an empty
           string.
+        :param reconnect_timeout:
+          Duration until timeout for a disconnected connection to reconnect.
         """
         if host is FROM_ENV:
             host = os.environ.get("PROCSTAR_AGENT_HOST", "*")
@@ -126,7 +129,7 @@ class Server:
             ssl_context._msg_callback = msg_callback
 
         return websockets.server.serve(
-            partial(self._serve_connection, access_token),
+            partial(self._serve_connection, access_token, reconnect_timeout),
             host, port,
             ssl=ssl_context,
             max_size=None,  # no message size limit
@@ -134,16 +137,17 @@ class Server:
 
 
     async def run_forever(self, **kw_args):
-        server = await self.run(**kw_args)
+        _server = await self.run(**kw_args)
         # FIXME: Log the/a server URL.
 
 
-    async def _serve_connection(self, access_token, ws):
+    async def _serve_connection(self, access_token, reconnect_timeout, ws):
         """
         Serves an incoming connection.
 
         Use this bound method with `websockets.server.serve()`.
         """
+        logging.info(f"_serve connection timeout={reconnect_timeout}")
         assert ws.open
         time = now()
 
@@ -187,41 +191,64 @@ class Server:
             logger.error(str(exc))
             return
 
-        # Request results for all procs on this connection.
-        # FIXME: Not here; in Apsis program instead?
+        # If this is an existing connection, there may have been a reconnect
+        # timeout; cancel it.
+        conn.cancel_reconnect_timeout()
+
+        conn_id = conn.info.conn.conn_id
+
         try:
-            for proc_id, proc in self.processes.items():
-                if proc.conn_id == register_msg.conn.conn_id:
-                    await conn.send(proto.ProcResultRequest(proc_id))
-
-        except Exception as exc:
-            logger.warning(f"{ws}: {exc}", exc_info=True)
-            await ws.close()
-            return
-
-        # Receive messages.
-        while True:
+            # Request results for all procs on this connection.
+            # FIXME: Not here; in Apsis program instead?
             try:
-                msg = await ws.recv()
-            except ConnectionClosedOK:
-                logger.info(f"closed: {conn.info.conn.conn_id}")
-                break
-            except ConnectionClosedError as err:
-                logger.warning(f"closed: {conn.info.conn.conn_id}: {err}")
-                break
-            type, msg = proto.deserialize_message(msg)
-            # Process the message.
-            logger.debug(f"recv: {msg}")
-            conn.info.stats.num_received += 1
-            self.processes.on_message(conn.info, msg)
+                for proc_id, proc in self.processes.items():
+                    if proc.conn_id == conn_id:
+                        await conn.send(proto.ProcResultRequest(proc_id))
 
-        # Update stats.
-        conn.info.stats.connected = False
-        conn.info.stats.last_disconnect_time = now()
+            except Exception as exc:
+                logger.warning(f"{ws}: {exc}", exc_info=True)
+                await ws.close()
+                return
 
-        await ws.close()
-        assert ws.closed
-        # Don't forget the connection; the other end may reconnect.
+            # Receive messages.
+            while True:
+                try:
+                    msg = await ws.recv()
+                except ConnectionClosedOK:
+                    logger.info(f"closed: {conn_id}")
+                    break
+                except ConnectionClosedError as err:
+                    logger.warning(f"closed: {conn_id}: {err}")
+                    break
+                type, msg = proto.deserialize_message(msg)
+                # Process the message.
+                logger.debug(f"recv: {msg}")
+                conn.info.stats.num_received += 1
+                self.processes.on_message(conn.info, msg)
+
+            # Update stats.
+            conn.info.stats.connected = False
+            conn.info.stats.last_disconnect_time = now()
+
+            await ws.close()
+            assert ws.closed
+
+        finally:
+            # Don't drop the connection yet; the agent may reconnect.  But we may
+            # add a timeout to do this.
+            if reconnect_timeout is not None:
+                def on_timeout(conn):
+                    logger.info(f"reconnect timeout: {conn_id}")
+                    assert self.connections._pop(conn_id) is conn
+                    # Let processes know that a connection timeout occurred.
+                    self.processes.on_message(
+                        conn.info, proto.ConnectionTimeout())
+
+                logging.info(
+                    "setting reconnect timeout: "
+                    f"{conn_id}: {reconnect_timeout} s"
+                )
+                conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
 
 
     async def request_start(

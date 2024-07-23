@@ -436,7 +436,7 @@ impl SharedFdHandler {
             FdHandler::UnlinkedFile { fd, file_fd, .. } => {
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
-                    sys::close(file_fd)?;
+                    // Don't close file_fd; we'll close it in FdHandler::drop().
                 }
             }
 

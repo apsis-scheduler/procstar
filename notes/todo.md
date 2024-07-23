@@ -1,24 +1,16 @@
 ### Worklist
 
-<!-- 1. Change `Server._serve_connection()` to send a msg on disconnection. -->
-<!-- 2. In `Processes.on_message()`, forward the msg to ever proc on that conn. -->
-<!-- 3. Change `Process.updates` to a method. -->
-<!-- 4. Make `Process.get_updates()` implement a reconnect timeout.  It drops the -->
-<!--    connection afteward. -->
+- [x] Add a reconnect timeout to `Server` (but attach it to each connection).
+- [x] In `run()`, enforce the timeout.
+- [x] When the timeout elapses,
+      - send a "no connection" msg
+      - in `Processes.on_message()`, forward msg to all procs for that conn
+      - drop the conn
+- [x] In the procstar agent program, handle the "no connection" msg and error the run
+- [ ] Communicate clean agent shutdown to the server and drop the connection immediately.
 
-1. Add a reconnect timeout to `Server` (but attach it to each connection).
-2. In `run()`, enforce the timeout.
-3. When the timeout elapses,
-   - send a "no connection" msg
-   - in `Processes.on_message()`, forward msg to all procs for that conn
-   - drop the conn and its procs
-4. In the procstar agent program, handle the "no connection" msg and error the run
-
-5. Communicate clean agent shutdown to the server and drop the connection immediately.
-
-5. Handle proc-specific error in `Processes.on_message()` .
-
-6. Change `Connection.send()` to raise proper exception types for not connected, connection not open.
+- [ ] Handle proc-specific error in `Processes.on_message()` .
+- [ ] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
 
 
 Current:

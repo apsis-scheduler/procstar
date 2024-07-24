@@ -371,7 +371,7 @@ async def choose_connection(
                 raise NoOpenConnectionInGroup(group_id)
 
             logger.debug(
-                f"no open connection for {group_id}; waiting {remain:.1f} s")
+                f"no agent connection for {group_id}; waiting {remain:.1f} s")
             try:
                 # We don't care what precisely happened.
                 _ = await asyncio.wait_for(anext(sub), timeout=remain)

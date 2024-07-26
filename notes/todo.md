@@ -1,4 +1,6 @@
-### Worklist
+# Worklist
+
+For next procstar release:
 
 - [x] Add a reconnect timeout to `Server` (but attach it to each connection).
 - [x] In `run()`, enforce the timeout.
@@ -7,11 +9,26 @@
       - in `Processes.on_message()`, forward msg to all procs for that conn
       - drop the conn
 - [x] In the procstar agent program, handle the "no connection" msg and error the run
-- [ ] Communicate clean agent shutdown to the server and drop the connection immediately.
+- [x] Communicate clean agent shutdown to the server and drop the connection immediately.
 
-- [ ] Handle proc-specific error in `Processes.on_message()` .
 - [ ] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
+- [ ] Handle proc-specific error in `Processes.on_message()` .
+- [ ] orderly shutdown, below
+- [ ] compress procstar output as with old agent
 
+
+### Orderly shutdown
+
+- in agent
+  - add a global "shutting down" flag to the agent
+  - set this flag on shutdown signal
+  - send a `BeginShutdown` message when it is sent
+  - also send it on each reconnection
+- in server
+  - track the "shutting down" flag of a connection
+  - honor this flag when choosing connections 
+- in UI
+  - show the shutdown state on the agents screen
 
 Current:
 - [x] fix procstar unit tests

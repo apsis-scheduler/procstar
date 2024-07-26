@@ -12,7 +12,7 @@ import random
 import time
 from   websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoOpenConnectionInGroup
+from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
 from   procstar.lib.asyn import Subscribeable
 from   procstar.proto import ConnectionInfo, ProcessInfo
 from   procstar.proto import serialize_message
@@ -161,9 +161,9 @@ class Connection:
         logger.debug(f"send: {msg!r}")
 
         if self.ws is None:
-            raise RuntimeError("not connected")
+            raise NotConnectedError(self.conn_id)
         if not self.ws.open:
-            raise RuntimeError("connection not open")
+            raise WebSocketNotOpen(self.conn_id)
 
         data = serialize_message(msg)
         try:

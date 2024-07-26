@@ -10,8 +10,8 @@ For next procstar release:
       - drop the conn
 - [x] In the procstar agent program, handle the "no connection" msg and error the run
 - [x] Communicate clean agent shutdown to the server and drop the connection immediately.
+- [x] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
 
-- [ ] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
 - [ ] Handle proc-specific error in `Processes.on_message()` .
 - [ ] orderly shutdown, below
 - [ ] compress procstar output as with old agent

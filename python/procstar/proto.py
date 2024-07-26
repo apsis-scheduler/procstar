@@ -208,6 +208,11 @@ class ProcDelete:
 
 
 
+@dataclass
+class Unregister:
+    pass
+
+
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
@@ -218,6 +223,7 @@ INCOMING_MESSAGE_TYPES = {
             ProcUnknown,
             ProcidList,
             Register,
+            Unregister,
     )
 }
 

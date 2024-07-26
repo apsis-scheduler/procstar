@@ -149,7 +149,14 @@ class Process:
                     raise ProcessUnknownError(self.proc_id)
 
                 case proto.ConnectionTimeout():
+                    logger.warning(f"proc {self.proc_id}: agent connection timeout: {self.conn_id}")
                     raise ConnectionTimeoutError(self.conn_id)
+
+                case proto.Unregister():
+                    # This should not normally occur; the agent should kill its
+                    # procs before unregistering.
+                    logger.error(f"proc {self.proc_id}: agent unregistered: {self.conn_id}")
+                    raise RuntimeError("agent unregistered")
 
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
@@ -241,6 +248,15 @@ class Processes(Mapping):
                 logger.info(f"new proc on {conn_id}: {proc_id}")
                 return self.create(self, proc_id)
 
+        def send_by_conn():
+            """
+            Dispatches the current msg to all processes on this connection.
+            """
+            conn_id = procstar_info.conn.conn_id
+            for proc in self.__procs.values():
+                if proc.conn_id == conn_id:
+                    proc._on_message(msg)
+
         match msg:
             case proto.ProcidList(proc_ids):
                 # Make sure we track a proc for each proc ID the instance knows.
@@ -267,12 +283,15 @@ class Processes(Mapping):
                 logger.error(f"msg error: {msg.err}")
 
             case proto.ConnectionTimeout():
-                logger.error(f"connection timeout: {procstar_info.conn}")
-                # Dispatch to all procs on this conn.
-                conn_id = procstar_info.conn.conn_id
-                for proc in self.__procs.values():
-                    if proc.conn_id == conn_id:
-                        proc._on_message(msg)
+                logger.error(f"agent connection timeout: {procstar_info.conn}")
+                send_by_conn()
+
+            case proto.Unregister():
+                logger.info(f"agent unregistered: {procstar_info.conn}")
+                # The agent should kill its procs before unregistering, so there
+                # should be no processes left on this connection.  If there are,
+                # notify them.
+                send_by_conn()
 
             case _:
                 logger.error(f"unknown msg: {msg}")

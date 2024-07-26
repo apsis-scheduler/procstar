@@ -194,6 +194,9 @@ pub enum Notification {
 
     /// Notification that a process has been deleted.
     Delete(ProcId),
+
+    /// Notification to shut down.
+    ShutDown,
 }
 
 type NotificationSender = broadcast::Sender<Notification>;
@@ -441,6 +444,10 @@ impl SharedProcs {
     /// Requests shutdown when next no processes remain.
     pub fn set_shutdown_on_idle(&self) {
         self.0.borrow_mut().shutdown_on_idle = true;
+    }
+
+    pub fn send_unregister(&self) {
+        self.notify(Notification::ShutDown);
     }
 }
 

@@ -37,16 +37,21 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
 
-        // Keep connecting to the agent server until timeout, or until we
-        // receive a shutdown signal.
+        // Run the connection to the agent server.
+        let mut run = std::pin::pin!(async {
+            if let Err(err) = agent::run(connection, procs.clone(), &cfg).await {
+                error!("websocket connection failed: {err}");
+                std::process::exit(1);
+            }
+        });
+        // Wait for either orderly shutdown or the agent server connection to end.
         tokio::select! {
-            res = agent::run(connection, procs.clone(), &cfg) => {
-                if let Err(err) = res {
-                    error!("websocket connection failed: {err}");
-                    std::process::exit(1);
-                }
+            _ = &mut run => {},
+            _ = procs.wait_for_shutdown() => {
+                procs.send_unregister();
+                // Make sure the connection loop completes too.
+                run.await;
             },
-            _ = procs.wait_for_shutdown() => {},
         }
     }
 }

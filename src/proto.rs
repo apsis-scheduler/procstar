@@ -123,10 +123,15 @@ fn format_data(_data: &Vec<u8>) -> String {
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     /// An incoming message could not be processed.
-    IncomingMessageError { msg: IncomingMessage, err: String },
+    IncomingMessageError {
+        msg: IncomingMessage,
+        err: String,
+    },
 
     /// An incoming message referenced a nonexistent proc ID.
-    ProcUnknown { proc_id: ProcId },
+    ProcUnknown {
+        proc_id: ProcId,
+    },
 
     /// Registers or re-registers this instance.
     Register {
@@ -136,10 +141,15 @@ pub enum OutgoingMessage {
     },
 
     /// The list of current proc IDs.
-    ProcidList { proc_ids: Vec<ProcId> },
+    ProcidList {
+        proc_ids: Vec<ProcId>,
+    },
 
     /// The current result of a process, which may or may not have terminated.
-    ProcResult { proc_id: ProcId, res: ProcRes },
+    ProcResult {
+        proc_id: ProcId,
+        res: ProcRes,
+    },
 
     /// A portion of the captured fd data for a process.
     ProcFdData {
@@ -154,7 +164,11 @@ pub enum OutgoingMessage {
     },
 
     /// A process has been deleted.
-    ProcDelete { proc_id: ProcId },
+    ProcDelete {
+        proc_id: ProcId,
+    },
+
+    Unregister {},
 }
 
 fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {

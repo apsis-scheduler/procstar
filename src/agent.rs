@@ -145,26 +145,18 @@ fn notification_to_message(procs: &SharedProcs, noti: Notification) -> Option<Ou
         }
 
         Notification::Delete(proc_id) => Some(OutgoingMessage::ProcDelete { proc_id }),
+
+        Notification::ShutDown => Some(OutgoingMessage::Unregister {}),
     }
 }
 
-/// Background task that receives notification messages through `noti_sender`,
-/// converts them to outgoing messages, and sends them via `sender`.
-async fn send_notification(procs: &SharedProcs, sender: &mut SocketSender, noti: Notification) {
-    // Generate the outgoing message corresponding to the
-    // notification.
-    if let Some(msg) = notification_to_message(&procs, noti) {
-        // Send the outgoing message.
-        if let Err(err) = send(sender, msg).await {
-            warn!("msg send error: {:?}", err);
-            // Close the websocket.
-            if let Err(err) = sender.close().await {
-                warn!("websocket close error: {:?}", err);
-            }
+async fn send_message(sender: &mut SocketSender, msg: OutgoingMessage) {
+    if let Err(err) = send(sender, msg).await {
+        warn!("msg send error: {:?}", err);
+        // Close the websocket.
+        if let Err(err) = sender.close().await {
+            warn!("websocket close error: {:?}", err);
         }
-    } else {
-        // No outgoing message corresponding to this
-        // notification.
     }
 }
 
@@ -201,7 +193,8 @@ pub async fn run(
 
     let mut interval = cfg.interval_start;
     let mut count = 0;
-    loop {
+    let mut done = false;
+    while !done {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
         let (mut sender, mut receiver) = match connect(&mut connection).await {
@@ -239,8 +232,8 @@ pub async fn run(
         let mut sub = procs.subscribe();
 
         // Simultaneously wait for an incoming websocket message or a
-        // notification, dispatching either.
-        loop {
+        // notification, dispatching either.  Also watch for shutdown.
+        while !done {
             tokio::select! {
                 ws_msg = receiver.next() => {
                     match ws_msg {
@@ -287,7 +280,17 @@ pub async fn run(
                 // Wait for a notification to arrive on the channel.
                 sub_noti = sub.recv() => {
                     match sub_noti {
-                        Some(noti) => send_notification(&procs, &mut sender, noti).await,
+                        Some(noti) => {
+                            if let Notification::ShutDown = noti { done = true };
+                            // Generate the outgoing message corresponding to
+                            // the notification.
+                            if let Some(msg) = notification_to_message(&procs, noti) {
+                                send_message(&mut sender, msg).await;
+                            } else {
+                                // No outgoing message corresponding to this
+                                // notification.
+                            }
+                        },
                         None => {
                             info!("notification subscription closed");
                             // Do anything else?
@@ -299,4 +302,6 @@ pub async fn run(
 
         // The connection is closed.  Go back and reconnect.
     }
+
+    Ok(())
 }

@@ -16,6 +16,7 @@ use crate::procinfo::ProcessInfo;
 use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
 use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
+use crate::shutdown;
 
 //------------------------------------------------------------------------------
 
@@ -95,7 +96,10 @@ async fn send(sender: &mut SocketSender, msg: OutgoingMessage) -> Result<(), Err
     Ok(())
 }
 
-async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketReceiver), Error> {
+async fn connect(
+    connection: &mut Connection,
+    shutdown_state: shutdown::State,
+) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector()?);
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
@@ -106,6 +110,7 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
         conn: connection.conn.clone(),
         proc: connection.proc.clone(),
         access_token: get_access_token(),
+        shutdown_state,
     };
     send(&mut sender, register).await?;
 
@@ -184,6 +189,16 @@ impl ConnectConfig {
     }
 }
 
+fn get_state(procs: &SharedProcs) -> AgentState {
+    if procs.is_shutdown() {
+        AgentState::Shutdown
+    } else if procs.is_shutdown_on_idle() {
+        AgentState::Closed
+    } else {
+        AgentState::Open
+    }
+}
+
 pub async fn run(
     mut connection: Connection,
     procs: SharedProcs,
@@ -197,7 +212,7 @@ pub async fn run(
     while !done {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection).await {
+        let (mut sender, mut receiver) = match connect(&mut connection, get_state(&procs)).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair

@@ -19,6 +19,7 @@ use crate::fd;
 use crate::fd::{FdData, SharedFdHandler};
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
+use crate::shutdown;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
 use crate::spec::ProcId;
@@ -195,8 +196,8 @@ pub enum Notification {
     /// Notification that a process has been deleted.
     Delete(ProcId),
 
-    /// Notification to shut down.
-    ShutDown,
+    /// Notification of change in shutdown state.
+    ShutdownState(shutdown::State),
 }
 
 type NotificationSender = broadcast::Sender<Notification>;
@@ -435,6 +436,10 @@ impl SharedProcs {
         self.0.borrow().shutdown.0.send(true).unwrap();
     }
 
+    pub fn is_shutdown(&self) -> bool {
+        *self.0.borrow().shutdown.1.borrow()
+    }
+
     /// Awaits a shutdown request.
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
@@ -446,8 +451,12 @@ impl SharedProcs {
         self.0.borrow_mut().shutdown_on_idle = true;
     }
 
+    pub fn is_shutdown_on_idle(&self) -> bool {
+        self.0.borrow().shutdown_on_idle
+    }
+
     pub fn send_unregister(&self) {
-        self.notify(Notification::ShutDown);
+        self.notify(Notification::ShutdownState(shutdown::State::ShutDown));
     }
 }
 

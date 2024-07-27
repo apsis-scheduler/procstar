@@ -7,6 +7,7 @@ use crate::fd::FdData;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
+use crate::shutdown;
 use crate::sig::Signum;
 use crate::spec;
 use crate::spec::{parse_fd, CaptureEncoding, FdName, ProcId};
@@ -138,6 +139,7 @@ pub enum OutgoingMessage {
         conn: ConnectionInfo,
         proc: ProcessInfo,
         access_token: String,
+        shutdown_state: shutdown::State,
     },
 
     /// The list of current proc IDs.
@@ -168,7 +170,9 @@ pub enum OutgoingMessage {
         proc_id: ProcId,
     },
 
-    Unregister {},
+    ShutdownStateChange {
+        shutdown_state: shutdown::State,
+    },
 }
 
 fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {

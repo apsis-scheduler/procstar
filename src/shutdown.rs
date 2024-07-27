@@ -1,4 +1,5 @@
 use log::*;
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
@@ -6,6 +7,23 @@ use tokio::time::timeout;
 
 use crate::procs::SharedProcs;
 use crate::sig::{get_abbrev, Signum, SIGKILL, SIGTERM};
+
+//------------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    /// Procstar is running and accepting new processes.
+    Open,
+    /// Procstar is running but no longer accepting new processes.
+    Closed,
+    /// Like closed, but will shut down when the last process completes.
+    ShutDownOnIdle,
+    /// Procstar is ending processes in preparation to shut down.
+    ShuttingDown,
+    /// Procstar has ended processes and shut down.
+    ShutDown,
+}
 
 //------------------------------------------------------------------------------
 

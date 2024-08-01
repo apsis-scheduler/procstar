@@ -223,7 +223,7 @@ class ShutDown:
     @classmethod
     def from_jso(cls, jso):
         return cls(
-            shutdown_state=ShutdownState(jso["shutdown_state"]),
+            shutdown_state=ShutdownState[jso["shutdown_state"]],
         )
 
 

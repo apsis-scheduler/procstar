@@ -202,6 +202,11 @@ pub async fn run(
     let mut count = 0;
     let mut done = false;
     while !done {
+        // FIXME: Find a better way to notify us that we're shutting down.
+        if matches!(procs.get_shutdown(), shutdown::State::Done) {
+            break;
+        }
+
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
         let (mut sender, mut receiver) = match connect(&mut connection, procs.get_shutdown()).await
@@ -290,7 +295,6 @@ pub async fn run(
                     match sub_noti {
                         Some(noti) => {
                             if let Notification::ShutDown(shutdown::State::Done) = noti {
-                                error!("done in loop");
                                 done = true
                             };
                             // Generate the outgoing message corresponding to

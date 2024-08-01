@@ -429,24 +429,16 @@ impl SharedProcs {
     fn check_idling(&self) {
         let proc = self.0.borrow_mut();
         if proc.procs.is_empty() && matches!(*proc.shutdown.1.borrow(), shutdown::State::Idling) {
-            proc.shutdown.0.send(shutdown::State::Done).unwrap();
+            drop(proc);
+            self.set_shutdown(shutdown::State::Done);
         }
     }
 
     /// Awaits a shutdown request.
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
-        // while !matches!(*recv.borrow(), shutdown::State::Done) {
-        //     recv.changed().await.unwrap()
-        // }
-        loop {
-            error!("state: {}", *recv.borrow());
-            if matches!(*recv.borrow(), shutdown::State::Done) {
-                error!("done!");
-                break;
-            } else {
-                recv.changed().await.unwrap();
-            }
+        while !matches!(*recv.borrow(), shutdown::State::Done) {
+            recv.changed().await.unwrap()
         }
     }
 }

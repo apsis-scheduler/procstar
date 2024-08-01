@@ -89,7 +89,9 @@ impl std::fmt::Display for Error {
             Error::Proto(ref err) => err.fmt(f),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
-            Error::ShuttingDown(shutdown_state) => write!(f, "agent shutting down: {}", shutdown_state),
+            Error::ShuttingDown(shutdown_state) => {
+                write!(f, "agent shutting down: {}", shutdown_state)
+            }
             Error::Spec(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }

@@ -23,13 +23,11 @@ pub enum State {
 
 impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(
-            match *self {
-                State::Active => "active",
-                State::Idling => "idling",
-                State::Done => "done",
-            }
-        )
+        f.write_str(match *self {
+            State::Active => "active",
+            State::Idling => "idling",
+            State::Done => "done",
+        })
     }
 }
 

@@ -443,7 +443,13 @@ impl SharedProcs {
 
     /// Requests shutdown when next no processes remain.
     pub fn set_shutdown_on_idle(&self) {
-        self.0.borrow_mut().shutdown_on_idle = true;
+        let mut procs = self.0.borrow_mut();
+        procs.shutdown_on_idle = true;
+        let shutdown = procs.procs.is_empty();
+        drop(procs);
+        if shutdown {
+            self.set_shutdown();
+        }
     }
 
     pub fn send_unregister(&self) {

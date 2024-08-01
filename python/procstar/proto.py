@@ -1,4 +1,5 @@
 from   dataclasses import dataclass
+import enum
 import msgpack
 from   typing import Dict, List
 
@@ -16,6 +17,10 @@ class ProtocolError(Exception):
     """
 
 
+
+#-------------------------------------------------------------------------------
+
+ShutdownState = enum.Enum("ShutdownState", ["active", "idling", "done"])
 
 #-------------------------------------------------------------------------------
 
@@ -124,13 +129,15 @@ class Register:
     conn: ConnectionInfo
     proc: ProcessInfo
     access_token: str = ""
+    shutdown_state: ShutdownState = ShutdownState.active
 
     @classmethod
     def from_jso(cls, jso):
         return cls(
-            conn=ConnectionInfo(**jso["conn"]),
-            proc=ProcessInfo(**jso["proc"]),
-            access_token=jso["access_token"],
+            conn            =ConnectionInfo(**jso["conn"]),
+            proc            =ProcessInfo(**jso["proc"]),
+            access_token    =jso["access_token"],
+            shutdown_state  =ShutdownState[jso["shutdown_state"]],
         )
 
 
@@ -138,9 +145,10 @@ class Register:
         # Don't format the access token.
         return format_ctor(
             self,
-            conn        =self.conn,
-            proc        =self.proc,
-            access_token="***",
+            conn            =self.conn,
+            proc            =self.proc,
+            access_token    ="***",
+            shutdown_state  =self.shutdown_state.name,
         )
 
 
@@ -209,8 +217,15 @@ class ProcDelete:
 
 
 @dataclass
-class Unregister:
-    pass
+class ShutDown:
+    shutdown_state: ShutdownState
+
+    @classmethod
+    def from_jso(cls, jso):
+        return cls(
+            shutdown_state=ShutdownState(jso["shutdown_state"]),
+        )
+
 
 
 INCOMING_MESSAGE_TYPES = {
@@ -223,7 +238,7 @@ INCOMING_MESSAGE_TYPES = {
             ProcUnknown,
             ProcidList,
             Register,
-            Unregister,
+            ShutDown,
     )
 }
 

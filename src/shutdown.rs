@@ -13,16 +13,24 @@ use crate::sig::{get_abbrev, Signum, SIGKILL, SIGTERM};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
-    /// Procstar is running and accepting new processes.
-    Open,
-    /// Procstar is running but no longer accepting new processes.
-    Closed,
-    /// Like closed, but will shut down when the last process completes.
-    ShutDownOnIdle,
+    /// Running and accepting new processes.
+    Active,
+    /// Not accepting new processes; will shut down when idle.
+    Idling,
     /// Procstar is ending processes in preparation to shut down.
-    ShuttingDown,
-    /// Procstar has ended processes and shut down.
-    ShutDown,
+    Done,
+}
+
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(
+            match *self {
+                State::Active => "active",
+                State::Idling => "idling",
+                State::Done => "done",
+            }
+        )
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -58,7 +66,7 @@ pub fn install_signal_handler(
         match signal_style {
             SignalStyle::ShutdownOnIdle => {
                 info!("will shut down when idle");
-                procs.set_shutdown_on_idle();
+                procs.set_shutdown(State::Idling);
             }
 
             SignalStyle::TermThenKill => {
@@ -79,7 +87,7 @@ pub fn install_signal_handler(
                 }
 
                 trace!("shutting down");
-                procs.set_shutdown();
+                procs.set_shutdown(State::Done);
             }
 
             SignalStyle::Kill => {
@@ -92,7 +100,7 @@ pub fn install_signal_handler(
                 }
 
                 trace!("shutting down");
-                procs.set_shutdown();
+                procs.set_shutdown(State::Done);
             }
         }
     })

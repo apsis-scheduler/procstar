@@ -196,6 +196,7 @@ class Server:
         conn.cancel_reconnect_timeout()
 
         conn_id = conn.info.conn.conn_id
+        done = False
 
         try:
             # Request results for all procs on this connection.
@@ -226,6 +227,10 @@ class Server:
                 conn.info.stats.num_received += 1
                 self.processes.on_message(conn.info, msg)
 
+                if msg == proto.ShutDown(shutdown_state="done"):
+                    logger.info(f"shut down: {conn_id}")
+                    done = True
+
             # Update stats.
             conn.info.stats.connected = False
             conn.info.stats.last_disconnect_time = now()
@@ -234,9 +239,12 @@ class Server:
             assert ws.closed
 
         finally:
-            # Don't drop the connection yet; the agent may reconnect.  But we may
-            # add a timeout to do this.
-            if reconnect_timeout is not None:
+            if done:
+                assert self.connections._pop(conn_id) is conn
+
+            # Else don't drop the connection yet; the agent may reconnect.  But
+            # we may add a timeout to do this.
+            elif reconnect_timeout is not None:
                 def on_timeout(conn):
                     logger.info(f"reconnect timeout: {conn_id}")
                     assert self.connections._pop(conn_id) is conn

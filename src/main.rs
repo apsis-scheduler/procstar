@@ -9,6 +9,7 @@ use procstar::http;
 use procstar::procs::{restrict_exe, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
+use procstar::shutdown;
 use procstar::shutdown::{install_signal_handler, SignalStyle};
 use procstar::sig::{SIGINT, SIGQUIT, SIGTERM, SIGUSR1};
 use procstar::spec;
@@ -48,7 +49,6 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
         tokio::select! {
             _ = &mut run => {},
             _ = procs.wait_for_shutdown() => {
-                procs.send_unregister();
                 // Make sure the connection loop completes too.
                 run.await;
             },
@@ -85,7 +85,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
         };
 
         // Ready to shut down now.
-        procs.set_shutdown();
+        procs.set_shutdown(shutdown::State::Done);
     }
 }
 
@@ -99,7 +99,7 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
         };
 
         // Ready to shut down now.
-        procs.set_shutdown();
+        procs.set_shutdown(shutdown::State::Done);
     }
 }
 

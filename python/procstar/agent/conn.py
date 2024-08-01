@@ -14,7 +14,7 @@ from   websockets.exceptions import ConnectionClosedError
 
 from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
 from   procstar.lib.asyn import Subscribeable
-from   procstar.proto import ConnectionInfo, ProcessInfo
+from   procstar.proto import ConnectionInfo, ProcessInfo, ShutdownState
 from   procstar.proto import serialize_message
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,7 @@ class Connection:
 
     info: ProcstarInfo
     ws: asyncio.protocols.Protocol = None
+    shutdown_state: ShutdownState = ShutdownState.active
 
     __reconnect_timeout_task: asyncio.Future = None
 
@@ -308,7 +309,12 @@ class Connections(Mapping, Subscribeable):
         Returns a sequence of connection IDs of open connections in a group.
         """
         conn_ids = self.__groups.get(group_id, ())
-        return tuple( c for i in conn_ids if (c := self.__conns[i]).open )
+        return tuple( 
+            c
+            for i in conn_ids 
+            if (c := self.__conns[i]).open
+            and c.shutdown_state == ShutdownState.active
+        )
 
 
     @property

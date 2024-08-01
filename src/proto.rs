@@ -170,7 +170,7 @@ pub enum OutgoingMessage {
         proc_id: ProcId,
     },
 
-    ShutdownStateChange {
+    ShutDown {
         shutdown_state: shutdown::State,
     },
 }

@@ -151,7 +151,9 @@ fn notification_to_message(procs: &SharedProcs, noti: Notification) -> Option<Ou
 
         Notification::Delete(proc_id) => Some(OutgoingMessage::ProcDelete { proc_id }),
 
-        Notification::ShutDown => Some(OutgoingMessage::Unregister {}),
+        Notification::ShutDown(shutdown_state) => {
+            Some(OutgoingMessage::ShutDown { shutdown_state })
+        }
     }
 }
 
@@ -189,16 +191,6 @@ impl ConnectConfig {
     }
 }
 
-fn get_state(procs: &SharedProcs) -> AgentState {
-    if procs.is_shutdown() {
-        AgentState::Shutdown
-    } else if procs.is_shutdown_on_idle() {
-        AgentState::Closed
-    } else {
-        AgentState::Open
-    }
-}
-
 pub async fn run(
     mut connection: Connection,
     procs: SharedProcs,
@@ -212,7 +204,8 @@ pub async fn run(
     while !done {
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection, get_state(&procs)).await {
+        let (mut sender, mut receiver) = match connect(&mut connection, procs.get_shutdown()).await
+        {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -296,7 +289,10 @@ pub async fn run(
                 sub_noti = sub.recv() => {
                     match sub_noti {
                         Some(noti) => {
-                            if let Notification::ShutDown = noti { done = true };
+                            if let Notification::ShutDown(shutdown::State::Done) = noti {
+                                error!("done in loop");
+                                done = true
+                            };
                             // Generate the outgoing message corresponding to
                             // the notification.
                             if let Some(msg) = notification_to_message(&procs, noti) {

@@ -197,7 +197,7 @@ pub enum Notification {
     Delete(ProcId),
 
     /// Notification of change in shutdown state.
-    ShutdownState(shutdown::State),
+    ShutDown(shutdown::State),
 }
 
 type NotificationSender = broadcast::Sender<Notification>;
@@ -229,12 +229,9 @@ pub struct Procs {
     /// Shutdown notification channel.
     // FIXME: Use CancellationToken instead?
     shutdown: (
-        tokio::sync::watch::Sender<bool>,
-        tokio::sync::watch::Receiver<bool>,
+        tokio::sync::watch::Sender<shutdown::State>,
+        tokio::sync::watch::Receiver<shutdown::State>,
     ),
-
-    /// Soft shutdown request: shut down when next no processes remain.
-    shutdown_on_idle: bool,
 }
 
 #[derive(Clone)]
@@ -246,8 +243,7 @@ impl SharedProcs {
         SharedProcs(Rc::new(RefCell::new(Procs {
             procs: BTreeMap::new(),
             subs: sender,
-            shutdown: watch::channel(false),
-            shutdown_on_idle: false,
+            shutdown: watch::channel(shutdown::State::Active),
         })))
     }
 
@@ -307,12 +303,8 @@ impl SharedProcs {
         }?;
         // OK, we can proceed with removing.
         let proc = procs.procs.remove(proc_id).unwrap();
-        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
-
-        if shutdown {
-            self.set_shutdown();
-        }
+        self.check_idling();
         self.notify(Notification::Delete(proc_id.clone()));
         Ok(proc)
     }
@@ -320,15 +312,12 @@ impl SharedProcs {
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
         let mut procs = self.0.borrow_mut();
         let item = procs.procs.pop_first();
-        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
 
         if let Some((ref proc_id, _)) = item {
             self.notify(Notification::Delete(proc_id.clone()));
         }
-        if shutdown {
-            self.set_shutdown();
-        }
+        self.check_idling();
 
         item
     }
@@ -345,11 +334,10 @@ impl SharedProcs {
     /// Removes all procs and returns their result.
     pub fn collect_results(&self) -> res::Res {
         // Swap out all the procs.
-        let (procs, shutdown) = {
-            let mut p = self.0.borrow_mut();
+        let procs = {
             let mut procs = BTreeMap::<ProcId, SharedProc>::new();
-            std::mem::swap(&mut procs, &mut p.procs);
-            (procs, p.shutdown_on_idle)
+            std::mem::swap(&mut procs, &mut self.0.borrow_mut().procs);
+            procs
         };
 
         // Collect results.
@@ -363,11 +351,7 @@ impl SharedProcs {
             self.notify(Notification::Delete(proc_id));
         });
 
-        // We're now empty, so shut down if flagged.
-        if shutdown {
-            self.set_shutdown();
-        }
-
+        self.check_idling();
         res
     }
 
@@ -432,37 +416,38 @@ impl SharedProcs {
     }
 
     /// Requests shutdown.
-    pub fn set_shutdown(&self) {
-        self.0.borrow().shutdown.0.send(true).unwrap();
+    pub fn set_shutdown(&self, state: shutdown::State) {
+        self.0.borrow_mut().shutdown.0.send(state.clone()).unwrap();
+        self.notify(Notification::ShutDown(state));
+        self.check_idling();
     }
 
-    pub fn is_shutdown(&self) -> bool {
-        *self.0.borrow().shutdown.1.borrow()
+    pub fn get_shutdown(&self) -> shutdown::State {
+        self.0.borrow().shutdown.1.borrow().clone()
+    }
+
+    fn check_idling(&self) {
+        let proc = self.0.borrow_mut();
+        if proc.procs.is_empty() && matches!(*proc.shutdown.1.borrow(), shutdown::State::Idling) {
+            proc.shutdown.0.send(shutdown::State::Done).unwrap();
+        }
     }
 
     /// Awaits a shutdown request.
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
-        recv.changed().await.unwrap();
-    }
-
-    /// Requests shutdown when next no processes remain.
-    pub fn set_shutdown_on_idle(&self) {
-        let mut procs = self.0.borrow_mut();
-        procs.shutdown_on_idle = true;
-        let shutdown = procs.procs.is_empty();
-        drop(procs);
-        if shutdown {
-            self.set_shutdown();
+        // while !matches!(*recv.borrow(), shutdown::State::Done) {
+        //     recv.changed().await.unwrap()
+        // }
+        loop {
+            error!("state: {}", *recv.borrow());
+            if matches!(*recv.borrow(), shutdown::State::Done) {
+                error!("done!");
+                break;
+            } else {
+                recv.changed().await.unwrap();
+            }
         }
-    }
-
-    pub fn is_shutdown_on_idle(&self) -> bool {
-        self.0.borrow().shutdown_on_idle
-    }
-
-    pub fn send_unregister(&self) {
-        self.notify(Notification::ShutdownState(shutdown::State::ShutDown));
     }
 }
 
@@ -546,8 +531,8 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 pub fn start_procs(
     specs: spec::Procs,
     procs: &SharedProcs,
-) -> Result<Vec<tokio::task::JoinHandle<()>>, spec::Error> {
-    // First check that proc IDs aren't already in use.
+) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {
+    // Check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
     let dup_proc_ids = specs
         .keys()
@@ -555,10 +540,16 @@ pub fn start_procs(
         .map(|p| p.to_string())
         .collect::<Vec<_>>();
     for proc_id in dup_proc_ids.into_iter() {
-        return Err(spec::Error::DuplicateProcId(proc_id));
+        Err(spec::Error::DuplicateProcId(proc_id))?;
     }
 
     spec::validate_procs_fds(&specs)?;
+
+    // Check that we're not shutting down.
+    let shutdown_state = procs.get_shutdown();
+    if !matches!(shutdown_state, shutdown::State::Active) {
+        Err(Error::ShuttingDown(shutdown_state))?;
+    }
 
     let (sigchld_watcher, sigchld_receiver) =
         SignalWatcher::new(tokio::signal::unix::SignalKind::child());

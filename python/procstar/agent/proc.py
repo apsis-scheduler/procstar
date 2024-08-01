@@ -152,12 +152,6 @@ class Process:
                     logger.warning(f"proc {self.proc_id}: agent connection timeout: {self.conn_id}")
                     raise ConnectionTimeoutError(self.conn_id)
 
-                case proto.Unregister():
-                    # This should not normally occur; the agent should kill its
-                    # procs before unregistering.
-                    logger.error(f"proc {self.proc_id}: agent unregistered: {self.conn_id}")
-                    raise RuntimeError("agent unregistered")
-
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
 
@@ -286,12 +280,8 @@ class Processes(Mapping):
                 logger.error(f"agent connection timeout: {procstar_info.conn}")
                 send_by_conn()
 
-            case proto.Unregister():
-                logger.info(f"agent unregistered: {procstar_info.conn}")
-                # The agent should kill its procs before unregistering, so there
-                # should be no processes left on this connection.  If there are,
-                # notify them.
-                send_by_conn()
+            case proto.ShutDown(shutdown_state):
+                logger.info(f"agent shut down: {procstar_info.conn}: {shutdown_state}")
 
             case _:
                 logger.error(f"unknown msg: {msg}")

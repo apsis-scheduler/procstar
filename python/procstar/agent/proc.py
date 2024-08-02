@@ -50,6 +50,18 @@ class ConnectionTimeoutError(RuntimeError):
 
 
 
+class AgentMessageError(RuntimeError):
+    """
+    The agent responded to a request message with an error.
+    """
+
+    def __init__(self, msg, err):
+        super().__init__(f"agent error response to message: {err}")
+        self.msg = msg
+        self.err = err
+
+
+
 # Derive from Jso to convert dict into object semantics.
 class Result(procstar.lib.json.Jso):
     """
@@ -147,6 +159,10 @@ class Process:
 
                 case proto.ProcUnknown(_):
                     raise ProcessUnknownError(self.proc_id)
+
+                case proto.IncomingMessageError(msg, err):
+                    logger.error(f"agent error: {err}")
+                    raise AgentMessageError(msg, err)
 
                 case proto.ConnectionTimeout():
                     logger.warning(f"proc {self.proc_id}: agent connection timeout: {self.conn_id}")
@@ -273,8 +289,19 @@ class Processes(Mapping):
                 logger.error(f"msg unexpected: {msg}")
 
             case proto.IncomingMessageError():
-                # FIXME: Proc-specific errors.
-                logger.error(f"msg error: {msg.err}")
+                try:
+                    proc_id = msg.msg["proc_id"]
+                except KeyError:
+                    # An error in response to ProcStart may pertain to multiple proc IDs.
+                    if msg.msg["type"] == "ProcStart":
+                        for proc_id in msg.msg["specs"].keys():
+                            get_proc(proc_id)._on_message(msg)
+                    else:
+                        # No associated proc ID, or we can't figure it out.
+                        logger.error(f"agent error: {msg.err}: {msg.msg}")
+                else:
+                    # Forward to the proc the original message was related to.
+                    get_proc(proc_id)._on_message(msg)
 
             case proto.ConnectionTimeout():
                 logger.error(f"agent connection timeout: {procstar_info.conn}")

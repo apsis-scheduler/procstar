@@ -1,6 +1,6 @@
 # This recipe presupposes Rust and assumes RUSTUP_HOME is set accordingly.
 
-{% set version = "0.3.0" %}
+{% set version = "0.3.1" %}
 
 about:
   home: https://github.com/alexhsamuel/procstar

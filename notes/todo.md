@@ -13,7 +13,7 @@ For next procstar release:
 - [x] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
 
 - [ ] Handle proc-specific error in `Processes.on_message()` .
-- [ ] orderly shutdown, below
+- [x] orderly shutdown
 - [ ] compress procstar output as with old agent
 
 

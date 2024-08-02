@@ -53,35 +53,32 @@ async def test_run_proc():
     proc_id = "testproc"
 
     async with Assembly.start() as asm:
-        proc = await asm.server.start(
+        proc, res = await asm.server.start(
             proc_id,
             spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
         )
         assert proc.proc_id == proc_id
-        assert proc.results.latest is None
 
         assert len(asm.server.processes) == 1
         assert next(iter(asm.server.processes)) == proc_id
         assert next(iter(asm.server.processes.values())) is proc
 
-        # First, a result with no status set.
-        result = await anext(proc.results)
-        assert result is not None
-        assert result.status is None
-        assert result.pid is not None
-        pid = result.pid
+        assert res is not None
+        assert res.status is None
+        assert res.pid is not None
+        pid = res.pid
 
         # Now a result when the process completes.
-        result = await anext(proc.results)
-        assert result is not None
-        assert result.pid == pid
-        assert result.status is not None
-        assert result.status.exit_code == 0
-        assert result.fds.stdout.text == "Hello, world!\n"
-        assert result.fds.stderr.text == ""
+        res = await anext(proc.updates)
+        assert res is not None
+        assert res.pid == pid
+        assert res.status is not None
+        assert res.status.exit_code == 0
+        assert res.fds.stdout.text == "Hello, world!\n"
+        assert res.fds.stderr.text == ""
 
         # Delete the proc.
-        await asm.server.delete(proc_id)
+        await proc.delete()
 
         assert len(asm.server.processes) == 0
 
@@ -99,10 +96,8 @@ async def test_run_procs():
     }
 
     async with Assembly.start() as asm:
-        procs = { i: await asm.server.start(i, s) for i, s in specs.items() }
-
-        futs = ( p.results.wait() for p in procs.values() )
-        ress = dict(zip(specs, await asyncio.gather(*futs)))
+        starts = await asyncio.gather(*( asm.server.start(i, s) for i, s in specs.items() ))
+        ress = dict(zip(specs, await asyncio.gather(*( asm.wait(p) for p, _ in starts ))))
 
         assert all( r.status.exit_code == 0 for r in ress.values() )
         assert ress["e0"].fds.stdout.text == "Hello, world!\n"
@@ -125,7 +120,7 @@ async def test_run_multi():
 
     async with Assembly.start(counts=counts) as asm:
         # Start a bunch of processes in various groups.
-        procs = await asyncio.gather(*(
+        starts = await asyncio.gather(*(
             asm.server.start(
                 f"proc{i}-{(g := next(group_ids))}",
                 spec.make_proc(["/usr/bin/echo", "group", g]),
@@ -133,6 +128,7 @@ async def test_run_multi():
             )
             for i in range(64)
         ))
+        procs = [ p for p, _ in starts ]
 
         # Each should have been assigned to the right group.
         for proc in procs:
@@ -140,7 +136,7 @@ async def test_run_multi():
             assert asm.server.connections[proc.conn_id].info.conn.group_id == group
 
         # Each should complete successfully.
-        ress = await asyncio.gather(*( p.results.wait() for p in procs ))
+        ress = await asyncio.gather(*( asm.wait(p) for p in procs ))
         for proc, res in zip(procs, ress):
             group = proc.proc_id.split("-", 1)[1]
             assert res.status.exit_code == 0
@@ -157,3 +153,4 @@ if __name__ == "__main__":
     import logging
     logging.getLogger().setLevel(logging.INFO)
     asyncio.run(test_run_proc())
+

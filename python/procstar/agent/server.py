@@ -13,8 +13,9 @@ from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from   . import DEFAULT_PORT
 from   .conn import Connections
-from   .conn import choose_connection, get_connection
-from   .proc import Processes, Process, ProcessDeletedError
+from   .conn import choose_connection, wait_for_connection
+from   .exc import NoConnectionError
+from   .proc import Processes, Process, Result
 from   procstar import proto
 from   procstar.lib.time import now
 
@@ -74,13 +75,14 @@ class Server:
 
     def run(
             self, *,
-            host        =FROM_ENV,
-            port        =FROM_ENV,
-            tls_cert    =FROM_ENV,
-            access_token=FROM_ENV,
-        ):
+            host                =FROM_ENV,
+            port                =FROM_ENV,
+            tls_cert            =FROM_ENV,
+            access_token        =FROM_ENV,
+            reconnect_timeout   =None,
+    ):
         """
-        Returns an async context manager that runs the websocket server.
+        Returns a coro that runs the websocket server.
 
         :param host:
           Interface on which to run.  If `FROM_ENV`, uses the env var
@@ -97,6 +99,8 @@ class Server:
           Secret access token required for agent connections.  If `FROM_ENV`,
           uses the env var `PROCSTAR_AGENT_TOKEN`.  By default, uses an empty
           string.
+        :param reconnect_timeout:
+          Duration until timeout for a disconnected connection to reconnect.
         """
         if host is FROM_ENV:
             host = os.environ.get("PROCSTAR_AGENT_HOST", "*")
@@ -125,24 +129,25 @@ class Server:
             ssl_context._msg_callback = msg_callback
 
         return websockets.server.serve(
-            partial(self._serve_connection, access_token),
+            partial(self._serve_connection, access_token, reconnect_timeout),
             host, port,
             ssl=ssl_context,
-            max_size=64 * 1024**2
+            max_size=None,  # no message size limit
         )
 
 
     async def run_forever(self, **kw_args):
-        server = await self.run(**kw_args)
+        _server = await self.run(**kw_args)
         # FIXME: Log the/a server URL.
 
 
-    async def _serve_connection(self, access_token, ws):
+    async def _serve_connection(self, access_token, reconnect_timeout, ws):
         """
         Serves an incoming connection.
 
         Use this bound method with `websockets.server.serve()`.
         """
+        logging.info(f"_serve connection timeout={reconnect_timeout}")
         assert ws.open
         time = now()
 
@@ -157,7 +162,7 @@ class Server:
 
             # Only Register is acceptable.
             type, register_msg = proto.deserialize_message(msg)
-            logger.debug(f"recv: {msg}")
+            logger.debug(f"recv: {register_msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
 
@@ -169,7 +174,7 @@ class Server:
             data = proto.serialize_message(proto.Registered())
             await ws.send(data)
 
-            logger.info(f"[{register_msg.conn.conn_id}] connected")
+            logger.info(f"connected: {register_msg.conn.conn_id}")
 
         except Exception as exc:
             logger.warning(f"{ws}: {exc}", exc_info=True)
@@ -179,50 +184,87 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                register_msg.conn, register_msg.proc, time, ws
+                register_msg.conn, register_msg.proc,
+                register_msg.shutdown_state, time, ws
             )
             conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
             logger.error(str(exc))
             return
 
-        # Request results for all procs on this connection.
+        # If this is an existing connection, there may have been a reconnect
+        # timeout; cancel it.
+        conn.cancel_reconnect_timeout()
+
+        conn_id = conn.info.conn.conn_id
+        done = False
+
         try:
-            for proc_id, proc in self.processes.items():
-                if proc.conn_id == register_msg.conn.conn_id:
-                    await conn.send(proto.ProcResultRequest(proc_id))
-
-        except Exception as exc:
-            logger.warning(f"{ws}: {exc}", exc_info=True)
-            await ws.close()
-            return
-
-        # Receive messages.
-        while True:
+            # Request results for all procs on this connection.
+            # FIXME: Not here; in Apsis program instead?
             try:
-                msg = await ws.recv()
-            except ConnectionClosedOK:
-                logger.info(f"[{conn.info.conn.conn_id}] connection closed")
-                break
-            except ConnectionClosedError as err:
-                logger.warning(f"[{conn.info.conn.conn_id}] connection closed: {err}")
-                break
-            type, msg = proto.deserialize_message(msg)
-            # Process the message.
-            logger.info(f"recv: {msg}")
-            conn.info.stats.num_received += 1
-            self.processes.on_message(conn.info, msg)
+                for proc_id, proc in self.processes.items():
+                    if proc.conn_id == conn_id:
+                        await conn.send(proto.ProcResultRequest(proc_id))
 
-        # Update stats.
-        conn.info.stats.connected = False
-        conn.info.stats.last_disconnect_time = now()
+            except Exception as exc:
+                logger.warning(f"{ws}: {exc}", exc_info=True)
+                await ws.close()
+                return
 
-        await ws.close()
-        assert ws.closed
-        # Don't forget the connection; the other end may reconnect.
+            # Receive messages.
+            while True:
+                try:
+                    msg = await ws.recv()
+                except ConnectionClosedOK:
+                    logger.info(f"closed: {conn_id}")
+                    break
+                except ConnectionClosedError as err:
+                    logger.warning(f"closed: {conn_id}: {err}")
+                    break
+                type, msg = proto.deserialize_message(msg)
+                # Process the message.
+                logger.debug(f"recv: {msg}")
+                conn.info.stats.num_received += 1
+                self.processes.on_message(conn.info, msg)
+
+                match msg:
+                    case proto.ShutDown(shutdown_state):
+                        logger.info(f"shut down: {conn_id}: {shutdown_state}")
+                        conn.shutdown_state = shutdown_state
+                        if shutdown_state == proto.ShutdownState.done:
+                            logger.info(f"shut down: {conn_id}")
+                            done = True
+
+            # Update stats.
+            conn.info.stats.connected = False
+            conn.info.stats.last_disconnect_time = now()
+
+            await ws.close()
+            assert ws.closed
+
+        finally:
+            if done:
+                assert self.connections._pop(conn_id) is conn
+
+            # Else don't drop the connection yet; the agent may reconnect.  But
+            # we may add a timeout to do this.
+            elif reconnect_timeout is not None:
+                def on_timeout(conn):
+                    logger.info(f"reconnect timeout: {conn_id}")
+                    assert self.connections._pop(conn_id) is conn
+                    # Let processes know that a connection timeout occurred.
+                    self.processes.on_message(
+                        conn.info, proto.ConnectionTimeout())
+
+                logging.info(
+                    "setting reconnect timeout: "
+                    f"{conn_id}: {reconnect_timeout} s"
+                )
+                conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
 
 
-    async def start(
+    async def request_start(
             self,
             proc_id,
             spec,
@@ -238,7 +280,7 @@ class Server:
         :param conn_timeout:
           Timeout to wait for an open connection for `group_id`.
         :return:
-          The connection on which the process starts.
+          The new `Process`.
         """
         try:
             spec = spec.to_jso()
@@ -251,58 +293,46 @@ class Server:
             timeout=conn_timeout,
         )
 
-        await conn.send(proto.ProcStart(specs={proc_id: spec}))
-        return self.processes.create(conn.info.conn.conn_id, proc_id)
+        await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
+        return self.processes.create(conn, proc_id)
+
+
+    async def start(self, *args, **kw_args) -> (Process, Result):
+        """
+        Starts a new process and awaits the initial `Result`.
+        """
+        proc = await self.request_start(*args, **kw_args)
+        result = await anext(proc.updates)
+        # FIXME: Could something else happen in the meanwhile?
+        assert isinstance(result, Result), "expected initial result"
+        return proc, result
 
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
         """
-        :param conn_timeout:
-          Timeout to wait for a connection from `conn_id`.
+        Attempts to reconnect to a process on a specific connection.
+
+        If the connection is not present, waits for it, until `conn_timeout` has
+        elapsed.
+
+        When the connection is present, returns a `Process` instance for it.
+        This does not guarantee that the agent knows of this `proc_id`.
+
         :raise NoConnectionError:
           Timeout waiting for connection.
         """
-        conn = await get_connection(
-            self.connections, conn_id, timeout=conn_timeout)
+        try:
+            conn = await asyncio.wait_for(
+                wait_for_connection(self.connections, conn_id),
+                timeout=conn_timeout
+            )
+        except asyncio.TimeoutError:
+            raise NoConnectionError(conn_id)
 
         try:
-            proc = self.processes[proc_id]
+            return self.processes[proc_id]
         except KeyError:
-            proc = self.processes.create(conn_id, proc_id)
-
-        await conn.send(proto.ProcResultRequest(proc_id))
-        return proc
-
-
-    async def send_signal(self, proc_id, signum):
-        try:
-            proc = self.processes[proc_id]
-        except KeyError:
-            raise ValueError(f"no process: {proc_id}")
-        conn = self.connections[proc.conn_id]
-
-        await conn.send(proto.ProcSignalRequest(proc_id, signum))
-
-
-    async def delete(self, proc_id):
-        """
-        Deletes a process.
-        """
-        try:
-            proc = self.processes[proc_id]
-        except KeyError:
-            raise ValueError(f"no process: {proc_id}")
-        conn = self.connections[proc.conn_id]
-
-        await conn.send(proto.ProcDeleteRequest(proc_id))
-
-        # Wait for the deletion message.
-        try:
-            async for _ in proc.results:
-                pass
-        except ProcessDeletedError:
-            # Good.
-            logger.info(f"deleted: {proc_id}")
+            return self.processes.create(conn, proc_id)
 
 
 

@@ -12,9 +12,9 @@ import random
 import time
 from   websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoOpenConnectionInGroup, NoConnectionError
+from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
 from   procstar.lib.asyn import Subscribeable
-from   procstar.proto import ConnectionInfo, ProcessInfo
+from   procstar.proto import ConnectionInfo, ProcessInfo, ShutdownState
 from   procstar.proto import serialize_message
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,9 @@ class Connection:
 
     info: ProcstarInfo
     ws: asyncio.protocols.Protocol = None
+    shutdown_state: ShutdownState = ShutdownState.active
+
+    __reconnect_timeout_task: asyncio.Future = None
 
     def __hash__(self):
         return hash(self.info.conn.conn_id)
@@ -141,8 +144,14 @@ class Connection:
 
     def to_jso(self):
         return {
+            "shutdown_state": self.shutdown_state.name,
             "info": self.info.to_jso(),
         }
+
+
+    @property
+    def conn_id(self):
+        return self.info.conn.conn_id
 
 
     @property
@@ -151,11 +160,14 @@ class Connection:
 
 
     async def send(self, msg):
-        data = serialize_message(msg)
+        logger.debug(f"send: {msg!r}")
 
+        if self.ws is None:
+            raise NotConnectedError(self.conn_id)
         if not self.ws.open:
-            raise RuntimeError("connection not open")
+            raise WebSocketNotOpen(self.conn_id)
 
+        data = serialize_message(msg)
         try:
             await self.ws.send(data)
         except ConnectionClosedError:
@@ -165,6 +177,27 @@ class Connection:
             # FIXME: Think carefully the temporarily dropped connection logic.
         else:
             self.info.stats.num_sent += 1
+
+
+    def set_reconnect_timeout(self, duration, fn):
+        """
+        Sets a reconnection timeout for `duration` to call `fn`.
+        """
+        self.cancel_reconnect_timeout()
+
+        async def timeout():
+            # Wait for the timeout to elapse.
+            await asyncio.sleep(duration)
+            self.__reconnect_timeout_task = None
+            fn(self)
+
+        self.__reconnect_timeout_task = asyncio.create_task(timeout())
+
+
+    def cancel_reconnect_timeout(self):
+        if self.__reconnect_timeout_task is not None:
+            self.__reconnect_timeout_task.cancel()
+            self.__reconnect_timeout_task = None
 
 
 
@@ -187,6 +220,7 @@ class Connections(Mapping, Subscribeable):
             self,
             conn_info: ConnectionInfo,
             proc_info: ProcessInfo,
+            shutdown_state: ShutdownState,
             time: datetime,
             ws,
     ) -> Connection:
@@ -220,7 +254,8 @@ class Connections(Mapping, Subscribeable):
                 proc        =proc_info,
                 stats       =stats,
             )
-            conn = self.__conns[conn_id] = Connection(info=info, ws=ws)
+            conn = self.__conns[conn_id] = Connection(
+                info=info, shutdown_state=shutdown_state, ws=ws)
             # Add it to the group.
             group = self.__groups.setdefault(group_id, set())
             group.add(conn_id)
@@ -244,6 +279,7 @@ class Connections(Mapping, Subscribeable):
             # Use the new websocket with the old connection object.
             conn = old_conn
             conn.ws = ws
+            conn.shutdown_state = shutdown_state
             conn.info.socket = socket_info
 
             # Update stats.
@@ -268,6 +304,7 @@ class Connections(Mapping, Subscribeable):
         if len(group) == 0:
             del self.__groups[group_id]
         self._publish((conn_id, None))
+        conn.cancel_reconnect_timeout()
         return conn
 
 
@@ -276,7 +313,12 @@ class Connections(Mapping, Subscribeable):
         Returns a sequence of connection IDs of open connections in a group.
         """
         conn_ids = self.__groups.get(group_id, ())
-        return tuple( c for i in conn_ids if (c := self.__conns[i]).open )
+        return tuple( 
+            c
+            for i in conn_ids 
+            if (c := self.__conns[i]).open
+            and c.shutdown_state == ShutdownState.active
+        )
 
 
     @property
@@ -339,7 +381,7 @@ async def choose_connection(
                 raise NoOpenConnectionInGroup(group_id)
 
             logger.debug(
-                f"no open connection for {group_id}; waiting {remain:.1f} s")
+                f"no agent connection for {group_id}; waiting {remain:.1f} s")
             try:
                 # We don't care what precisely happened.
                 _ = await asyncio.wait_for(anext(sub), timeout=remain)
@@ -353,20 +395,10 @@ async def choose_connection(
             raise ValueError(f"unknown policy: {policy}")
 
 
-async def get_connection(
-        connections: Connections,
-        conn_id,
-        *,
-        timeout=0,
-) -> Connection:
+async def wait_for_connection(connections: Connections, conn_id) -> Connection:
     """
     Returns a connection, waiting for it if not connected.
-
-    :raise NoConnectionError:
-      Timeout waiting for connection `conn_id`.
     """
-    deadline = time.monotonic() + timeout
-
     with connections.subscription() as sub:
         while True:
             try:
@@ -378,15 +410,7 @@ async def get_connection(
                     return conn
                 else:
                     logging.debug("connection not open: {conn_id}")
-
-            # Not open connection.  Wait to be informed of a new connection.
-            remain = deadline - time.monotonic()
-            if remain < 0:
-                raise NoConnectionError(conn_id)
-
-            try:
-                _ = await asyncio.wait_for(anext(sub), timeout=remain)
-            except asyncio.TimeoutError:
-                pass
+            # Wait for a connection change.
+            await anext(sub)
 
 

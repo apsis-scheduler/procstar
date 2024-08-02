@@ -2,9 +2,11 @@ extern crate libc;
 
 use libc::{c_int, gid_t, pid_t, rusage, ssize_t, uid_t};
 use std::ffi::CString;
+use std::fs;
 use std::io;
+use std::io::{Read, Seek};
 use std::mem::MaybeUninit;
-use std::os::fd::RawFd;
+use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
@@ -172,14 +174,22 @@ pub fn open(path: &Path, oflag: c_int, mode: c_int) -> io::Result<fd_t> {
     }
 }
 
+pub struct RWPair<T> {
+    pub read: T,
+    pub write: T,
+}
+
 /// Creates an anonymous pipe.
 ///
 /// Returns the read and write file descriptors of the ends of the pipe.
-pub fn pipe() -> io::Result<(RawFd, RawFd)> {
+pub fn pipe() -> io::Result<RWPair<RawFd>> {
     let mut fildes: Vec<fd_t> = vec![-1, 2];
     match unsafe { libc::pipe(fildes.as_mut_ptr()) } {
         -1 => Err(io::Error::last_os_error()),
-        0 => Ok((fildes[0], fildes[1])),
+        0 => Ok(RWPair {
+            read: fildes[0],
+            write: fildes[1],
+        }),
         ret => panic!("pipe returned {}", ret),
     }
 }
@@ -191,6 +201,36 @@ pub fn read(fd: fd_t, buf: &mut [u8]) -> io::Result<usize> {
         ret => panic!("read returned {}", ret),
     }
 }
+
+/// Reads the contents of a file, starting from position `start`, until position
+/// `stop` or the end.
+pub fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> io::Result<Vec<u8>> {
+    // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    // Seek to front.
+    file.seek(std::io::SeekFrom::Start(start))?;
+    let buf = if let Some(stop) = stop {
+        // Read to indicated stop position.
+        let mut buf = vec![0; if start < stop { stop - start } else { 0 } as usize];
+        file.read_exact(&mut buf)?;
+        buf
+    } else {
+        // Read entire contents.
+        let mut buf = Vec::<u8>::new();
+        file.read_to_end(&mut buf)?;
+        buf
+    };
+
+    // Take back ownership of the fd.
+    assert!(file.into_raw_fd() == fd);
+    Ok(buf)
+}
+
+pub fn get_file_length(fd: RawFd) -> io::Result<i64> {
+    Ok(fstat(fd)?.st_size)
+}
+
+//------------------------------------------------------------------------------
 
 pub type WaitInfo = (pid_t, c_int, rusage);
 

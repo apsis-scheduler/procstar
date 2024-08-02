@@ -86,18 +86,14 @@ class Proc:
         class Inherit:
 
             def to_jso(self):
-                return {
-                    "inherit": {},
-                }
+                return {}
 
 
 
         class Close:
 
             def to_jso(self):
-                return {
-                    "close": {},
-                }
+                return {}
 
 
 
@@ -160,28 +156,50 @@ class Proc:
 
         class Capture:
 
-            MODES = {"tempfile", "memory"}
-            ENCODINGS = {None, "utf-8"}
+            MODES           = {"tempfile", "memory"}
+            ENCODINGS       = {None, "utf-8"}
 
             def __init__(self, mode, encoding, attached=True):
                 if mode not in self.MODES:
                     raise ValueError(f"bad mode: {mode}")
                 if encoding not in self.ENCODINGS:
                     raise ValueError(f"bad encoding: {encoding}")
-                self.__mode = mode
-                self.__encoding = encoding
-                self.__attached = bool(attached)
+
+                self.__mode         = mode
+                self.__encoding     = encoding
+                self.__attached     = bool(attached)
 
 
             def to_jso(self):
                 return {
                     "capture": {
-                        "mode"      : self.__mode,
-                        "encoding"  : self.__encoding,
-                        "attached"  : self.__attached,
+                        "mode"          : self.__mode,
+                        "encoding"      : self.__encoding,
+                        "attached"      : self.__attached,
                     }
                 }
 
+
+
+        class PipeWrite:
+
+            def to_jso(self):
+                return {}
+
+
+
+        class PipeRead:
+
+            def __init__(self, proc_id, fd):
+                self.__proc_id = proc_id
+                self.__fd = fd
+
+
+            def to_jso(self):
+                return {
+                    "proc_id": self.__proc_id,
+                    "fd": self.__fd,
+                }
 
 
 

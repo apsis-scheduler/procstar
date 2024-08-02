@@ -1,8 +1,8 @@
 from   dataclasses import dataclass
+import enum
 import msgpack
 from   typing import Dict, List
 
-from   .lib.json import Jso
 from   .lib.py import format_ctor
 from   .lib.string import elide
 
@@ -20,13 +20,17 @@ class ProtocolError(Exception):
 
 #-------------------------------------------------------------------------------
 
+ShutdownState = enum.Enum("ShutdownState", ["active", "idling", "done"])
+
+#-------------------------------------------------------------------------------
+
 @dataclass
 class Registered:
     pass
 
 
 @dataclass
-class ProcStart:
+class ProcStartRequest:
     specs: Dict[str, dict]
 
 
@@ -68,7 +72,7 @@ OUTGOING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             Registered,
-            ProcStart,
+            ProcStartRequest,
             ProcidListRequest,
             ProcResultRequest,
             ProcSignalRequest,
@@ -125,19 +129,31 @@ class Register:
     conn: ConnectionInfo
     proc: ProcessInfo
     access_token: str = ""
+    shutdown_state: ShutdownState = ShutdownState.active
 
     @classmethod
     def from_jso(cls, jso):
         return cls(
-            conn=ConnectionInfo(**jso["conn"]),
-            proc=ProcessInfo(**jso["proc"]),
-            access_token=jso["access_token"],
+            conn            =ConnectionInfo(**jso["conn"]),
+            proc            =ProcessInfo(**jso["proc"]),
+            access_token    =jso["access_token"],
+            shutdown_state  =ShutdownState[jso["shutdown_state"]],
         )
 
 
+    def __repr__(self):
+        # Don't format the access token.
+        return format_ctor(
+            self,
+            conn            =self.conn,
+            proc            =self.proc,
+            access_token    ="***",
+            shutdown_state  =self.shutdown_state.name,
+        )
+
 
 @dataclass
-class IncomingMessageError:
+class RequestError:
     msg: dict
     err: str
 
@@ -157,23 +173,17 @@ class ProcidList:
 @dataclass
 class ProcResult:
     proc_id: str
-    res: Jso
-
-    @classmethod
-    def from_jso(cls, jso):
-        jso["res"] = Jso.wrap(jso["res"])
-        return cls(**jso)
+    res: dict
 
     def __str__(self):
-        # Don't format the entire result, which may be large.
+        # Omit fd data from the output.
         name = self.__class__.__name__
         proc_id = self.proc_id
-        state = self.res.state
-        errors = self.res.errors
-        return (
-            f'{name}(proc_id={proc_id!r}, '
-            f'res=(state={state!r}, errors={errors!r}, ...))'
-        )
+        res = self.res.copy()
+        for fd in res["fds"].values():
+            if fd is not None and "data" in fd:
+                fd["data"] = ...
+        return f'{name}(proc_id={proc_id!r}, res={res!r})'
 
 
 
@@ -183,7 +193,7 @@ class ProcFdData:
     fd: str
     start: int
     stop: int
-    encoding: str
+    encoding: str | None
     data: str
 
     def __str__(self):
@@ -206,16 +216,29 @@ class ProcDelete:
 
 
 
+@dataclass
+class ShutDown:
+    shutdown_state: ShutdownState
+
+    @classmethod
+    def from_jso(cls, jso):
+        return cls(
+            shutdown_state=ShutdownState[jso["shutdown_state"]],
+        )
+
+
+
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
-            IncomingMessageError,
+            RequestError,
             ProcDelete,
             ProcResult,
             ProcFdData,
             ProcUnknown,
             ProcidList,
             Register,
+            ShutDown,
     )
 }
 
@@ -259,5 +282,13 @@ def deserialize_message(msg):
         raise ProtocolError(f"invalid {type_name} msg: {exc}") from None
 
     return type_name, obj
+
+
+#-------------------------------------------------------------------------------
+
+@dataclass
+class ConnectionTimeout:
+    pass
+
 
 

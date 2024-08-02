@@ -1,6 +1,8 @@
 use std::os::fd::RawFd;
 
 use crate::proto;
+use crate::shutdown;
+use crate::spec;
 use crate::spec::ProcId;
 
 //------------------------------------------------------------------------------
@@ -28,6 +30,8 @@ impl std::fmt::Display for SpecError {
 /// or running a process.
 #[derive(Debug)]
 pub enum Error {
+    /// Tombstone.
+    None,
     /// Premature EOF; this is a protocol error.
     Eof,
     /// Wraps an I/O error.
@@ -54,6 +58,10 @@ pub enum Error {
     RMPDecode(rmp_serde::decode::Error),
     /// Wraps a RMP (MessagePack) encoding error.
     RMPEncode(rmp_serde::encode::Error),
+    /// An agent is shutting down.
+    ShuttingDown(shutdown::State),
+    /// Wraps a proc spec error.
+    Spec(spec::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
@@ -67,6 +75,7 @@ impl Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            Error::None => f.write_str("(no error)"),
             Error::Eof => f.write_str("EOF"),
             Error::Io(ref err) => err.fmt(f),
             Error::Json(ref err) => err.fmt(f),
@@ -80,6 +89,10 @@ impl std::fmt::Display for Error {
             Error::Proto(ref err) => err.fmt(f),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
+            Error::ShuttingDown(shutdown_state) => {
+                write!(f, "agent shutting down: {}", shutdown_state)
+            }
+            Error::Spec(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }
@@ -124,6 +137,12 @@ impl From<rmp_serde::decode::Error> for Error {
 impl From<rmp_serde::encode::Error> for Error {
     fn from(err: rmp_serde::encode::Error) -> Error {
         Error::RMPEncode(err)
+    }
+}
+
+impl From<spec::Error> for Error {
+    fn from(err: spec::Error) -> Error {
+        Error::Spec(err)
     }
 }
 

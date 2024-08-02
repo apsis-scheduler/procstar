@@ -9,6 +9,7 @@ use procstar::http;
 use procstar::procs::{restrict_exe, start_procs, SharedProcs};
 use procstar::proto;
 use procstar::res;
+use procstar::shutdown;
 use procstar::shutdown::{install_signal_handler, SignalStyle};
 use procstar::sig::{SIGINT, SIGQUIT, SIGTERM, SIGUSR1};
 use procstar::spec;
@@ -37,16 +38,20 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());
         let cfg = argv::get_connect_config(args);
 
-        // Keep connecting to the agent server until timeout, or until we
-        // receive a shutdown signal.
+        // Run the connection to the agent server.
+        let mut run = std::pin::pin!(async {
+            if let Err(err) = agent::run(connection, procs.clone(), &cfg).await {
+                error!("websocket connection failed: {err}");
+                std::process::exit(1);
+            }
+        });
+        // Wait for either orderly shutdown or the agent server connection to end.
         tokio::select! {
-            res = agent::run(connection, procs.clone(), &cfg) => {
-                if let Err(err) = res {
-                    error!("websocket connection failed: {err}");
-                    std::process::exit(1);
-                }
+            _ = &mut run => {},
+            _ = procs.wait_for_shutdown() => {
+                // Make sure the connection loop completes too.
+                run.await;
             },
-            _ = procs.wait_for_shutdown() => {},
         }
     }
 }
@@ -80,7 +85,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
         };
 
         // Ready to shut down now.
-        procs.set_shutdown();
+        procs.set_shutdown(shutdown::State::Done);
     }
 }
 
@@ -94,7 +99,7 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
         };
 
         // Ready to shut down now.
-        procs.set_shutdown();
+        procs.set_shutdown(shutdown::State::Done);
     }
 }
 
@@ -159,7 +164,7 @@ async fn main() {
     // LocalSet since it starts other tasks itself.
     if !input.specs.is_empty() {
         let _tasks = local_set
-            .run_until(async { start_procs(&input.specs, &procs) })
+            .run_until(async { start_procs(input.specs, &procs) })
             .await
             .unwrap_or_else(|err| {
                 error!("failed to start processes: {}", err);

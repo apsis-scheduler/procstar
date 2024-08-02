@@ -83,15 +83,17 @@ pub enum FdRes {
         encoding: String,
     },
 
-    /// UTF-8-encoded output.
+    /// Encoded text output.
     Text {
         text: String,
+        /// Text encoding.  Currently always "utf-8".
         encoding: String,
     },
 
-    /// Base64-encoded output.
     Data {
+        /// Encoded binary data.
         data: String,
+        /// Binary data encoding.  Currently always "base64".
         encoding: String,
     },
 }
@@ -122,7 +124,8 @@ impl FdRes {
         let encoding = match encoding {
             Some(CaptureEncoding::Utf8) => "utf-8",
             None => "base64",
-        }.to_string();
+        }
+        .to_string();
         FdRes::Detached { length, encoding }
     }
 }

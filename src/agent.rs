@@ -16,6 +16,7 @@ use crate::procinfo::ProcessInfo;
 use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
 use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
+use crate::shutdown;
 
 //------------------------------------------------------------------------------
 
@@ -65,7 +66,7 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
             match deserialize(data) {
                 Ok(msg) => {
                     trace!("< {:?}", msg);
-                    if let Some(rsp) = proto::handle_incoming(procs, &msg).await {
+                    if let Some(rsp) = proto::handle_incoming(procs, msg).await {
                         // FIXME: ProcResult is too big to log.
                         trace!("> {:?}", rsp);
                         Ok(Some(Message::Binary(serialize(&rsp)?)))
@@ -95,7 +96,10 @@ async fn send(sender: &mut SocketSender, msg: OutgoingMessage) -> Result<(), Err
     Ok(())
 }
 
-async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketReceiver), Error> {
+async fn connect(
+    connection: &mut Connection,
+    shutdown_state: shutdown::State,
+) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector()?);
     let (ws_stream, _) =
         connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
@@ -106,6 +110,7 @@ async fn connect(connection: &mut Connection) -> Result<(SocketSender, SocketRec
         conn: connection.conn.clone(),
         proc: connection.proc.clone(),
         access_token: get_access_token(),
+        shutdown_state,
     };
     send(&mut sender, register).await?;
 
@@ -145,26 +150,20 @@ fn notification_to_message(procs: &SharedProcs, noti: Notification) -> Option<Ou
         }
 
         Notification::Delete(proc_id) => Some(OutgoingMessage::ProcDelete { proc_id }),
+
+        Notification::ShutDown(shutdown_state) => {
+            Some(OutgoingMessage::ShutDown { shutdown_state })
+        }
     }
 }
 
-/// Background task that receives notification messages through `noti_sender`,
-/// converts them to outgoing messages, and sends them via `sender`.
-async fn send_notification(procs: &SharedProcs, sender: &mut SocketSender, noti: Notification) {
-    // Generate the outgoing message corresponding to the
-    // notification.
-    if let Some(msg) = notification_to_message(&procs, noti) {
-        // Send the outgoing message.
-        if let Err(err) = send(sender, msg).await {
-            warn!("msg send error: {:?}", err);
-            // Close the websocket.
-            if let Err(err) = sender.close().await {
-                warn!("websocket close error: {:?}", err);
-            }
+async fn send_message(sender: &mut SocketSender, msg: OutgoingMessage) {
+    if let Err(err) = send(sender, msg).await {
+        warn!("msg send error: {:?}", err);
+        // Close the websocket.
+        if let Err(err) = sender.close().await {
+            warn!("websocket close error: {:?}", err);
         }
-    } else {
-        // No outgoing message corresponding to this
-        // notification.
     }
 }
 
@@ -201,10 +200,17 @@ pub async fn run(
 
     let mut interval = cfg.interval_start;
     let mut count = 0;
-    loop {
+    let mut done = false;
+    while !done {
+        // FIXME: Find a better way to notify us that we're shutting down.
+        if matches!(procs.get_shutdown(), shutdown::State::Done) {
+            break;
+        }
+
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection).await {
+        let (mut sender, mut receiver) = match connect(&mut connection, procs.get_shutdown()).await
+        {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -239,8 +245,8 @@ pub async fn run(
         let mut sub = procs.subscribe();
 
         // Simultaneously wait for an incoming websocket message or a
-        // notification, dispatching either.
-        loop {
+        // notification, dispatching either.  Also watch for shutdown.
+        while !done {
             tokio::select! {
                 ws_msg = receiver.next() => {
                     match ws_msg {
@@ -287,7 +293,19 @@ pub async fn run(
                 // Wait for a notification to arrive on the channel.
                 sub_noti = sub.recv() => {
                     match sub_noti {
-                        Some(noti) => send_notification(&procs, &mut sender, noti).await,
+                        Some(noti) => {
+                            if let Notification::ShutDown(shutdown::State::Done) = noti {
+                                done = true
+                            };
+                            // Generate the outgoing message corresponding to
+                            // the notification.
+                            if let Some(msg) = notification_to_message(&procs, noti) {
+                                send_message(&mut sender, msg).await;
+                            } else {
+                                // No outgoing message corresponding to this
+                                // notification.
+                            }
+                        },
                         None => {
                             info!("notification subscription closed");
                             // Do anything else?
@@ -299,4 +317,6 @@ pub async fn run(
 
         // The connection is closed.  Go back and reconnect.
     }
+
+    Ok(())
 }

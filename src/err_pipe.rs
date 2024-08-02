@@ -55,7 +55,10 @@ impl ErrorWriter {
 
 impl ErrorPipe {
     pub fn new() -> Result<ErrorPipe> {
-        let (read_fd, write_fd) = sys::pipe()?;
+        let sys::RWPair {
+            read: read_fd,
+            write: write_fd,
+        } = sys::pipe()?;
         sys::set_cloexec(read_fd)?;
         sys::set_cloexec(write_fd)?;
         Ok(ErrorPipe { read_fd, write_fd })

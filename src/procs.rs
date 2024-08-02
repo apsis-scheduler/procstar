@@ -13,12 +13,13 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 use crate::environ;
-use crate::err::{Error, SpecError};
+use crate::err::Error;
 use crate::err_pipe::ErrorPipe;
 use crate::fd;
-use crate::fd::SharedFdHandler;
+use crate::fd::{FdData, SharedFdHandler};
 use crate::procinfo::{ProcStat, ProcStatm};
 use crate::res;
+use crate::shutdown;
 use crate::sig::{SignalReceiver, SignalWatcher, Signum};
 use crate::spec;
 use crate::spec::ProcId;
@@ -163,7 +164,7 @@ impl Proc {
         fd: RawFd,
         start: usize,
         stop: Option<usize>,
-    ) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>, crate::err::Error> {
+    ) -> Result<Option<FdData>, crate::err::Error> {
         if let Some(fd_handler) = self.get_fd_handler(fd) {
             fd_handler.get_data(start, stop)
         } else {
@@ -194,6 +195,9 @@ pub enum Notification {
 
     /// Notification that a process has been deleted.
     Delete(ProcId),
+
+    /// Notification of change in shutdown state.
+    ShutDown(shutdown::State),
 }
 
 type NotificationSender = broadcast::Sender<Notification>;
@@ -225,12 +229,9 @@ pub struct Procs {
     /// Shutdown notification channel.
     // FIXME: Use CancellationToken instead?
     shutdown: (
-        tokio::sync::watch::Sender<bool>,
-        tokio::sync::watch::Receiver<bool>,
+        tokio::sync::watch::Sender<shutdown::State>,
+        tokio::sync::watch::Receiver<shutdown::State>,
     ),
-
-    /// Soft shutdown request: shut down when next no processes remain.
-    shutdown_on_idle: bool,
 }
 
 #[derive(Clone)]
@@ -242,8 +243,7 @@ impl SharedProcs {
         SharedProcs(Rc::new(RefCell::new(Procs {
             procs: BTreeMap::new(),
             subs: sender,
-            shutdown: watch::channel(false),
-            shutdown_on_idle: false,
+            shutdown: watch::channel(shutdown::State::Active),
         })))
     }
 
@@ -303,12 +303,8 @@ impl SharedProcs {
         }?;
         // OK, we can proceed with removing.
         let proc = procs.procs.remove(proc_id).unwrap();
-        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
-
-        if shutdown {
-            self.set_shutdown();
-        }
+        self.check_idling();
         self.notify(Notification::Delete(proc_id.clone()));
         Ok(proc)
     }
@@ -316,15 +312,12 @@ impl SharedProcs {
     pub fn pop(&self) -> Option<(ProcId, SharedProc)> {
         let mut procs = self.0.borrow_mut();
         let item = procs.procs.pop_first();
-        let shutdown = procs.shutdown_on_idle && procs.procs.is_empty();
         drop(procs);
 
         if let Some((ref proc_id, _)) = item {
             self.notify(Notification::Delete(proc_id.clone()));
         }
-        if shutdown {
-            self.set_shutdown();
-        }
+        self.check_idling();
 
         item
     }
@@ -341,11 +334,10 @@ impl SharedProcs {
     /// Removes all procs and returns their result.
     pub fn collect_results(&self) -> res::Res {
         // Swap out all the procs.
-        let (procs, shutdown) = {
-            let mut p = self.0.borrow_mut();
+        let procs = {
             let mut procs = BTreeMap::<ProcId, SharedProc>::new();
-            std::mem::swap(&mut procs, &mut p.procs);
-            (procs, p.shutdown_on_idle)
+            std::mem::swap(&mut procs, &mut self.0.borrow_mut().procs);
+            procs
         };
 
         // Collect results.
@@ -359,11 +351,7 @@ impl SharedProcs {
             self.notify(Notification::Delete(proc_id));
         });
 
-        // We're now empty, so shut down if flagged.
-        if shutdown {
-            self.set_shutdown();
-        }
-
+        self.check_idling();
         res
     }
 
@@ -428,19 +416,30 @@ impl SharedProcs {
     }
 
     /// Requests shutdown.
-    pub fn set_shutdown(&self) {
-        self.0.borrow().shutdown.0.send(true).unwrap();
+    pub fn set_shutdown(&self, state: shutdown::State) {
+        self.0.borrow_mut().shutdown.0.send(state.clone()).unwrap();
+        self.notify(Notification::ShutDown(state));
+        self.check_idling();
+    }
+
+    pub fn get_shutdown(&self) -> shutdown::State {
+        self.0.borrow().shutdown.1.borrow().clone()
+    }
+
+    fn check_idling(&self) {
+        let proc = self.0.borrow_mut();
+        if proc.procs.is_empty() && matches!(*proc.shutdown.1.borrow(), shutdown::State::Idling) {
+            drop(proc);
+            self.set_shutdown(shutdown::State::Done);
+        }
     }
 
     /// Awaits a shutdown request.
     pub async fn wait_for_shutdown(&self) {
         let mut recv = self.0.borrow().shutdown.1.clone();
-        recv.changed().await.unwrap();
-    }
-
-    /// Requests shutdown when next no processes remain.
-    pub fn set_shutdown_on_idle(&self) {
-        self.0.borrow_mut().shutdown_on_idle = true;
+        while !matches!(*recv.borrow(), shutdown::State::Done) {
+            recv.changed().await.unwrap()
+        }
     }
 }
 
@@ -509,10 +508,12 @@ pub fn get_restricted_exe() -> Option<String> {
 }
 
 /// Returns the path to the executable to exec for the process.
-fn get_exe(spec: &spec::Proc) -> &str {
+fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
     // Use the explicit exe, if given, else argv[0] per convention.
-    spec.exe.as_ref().unwrap_or(&spec.argv[0])
+    exe.unwrap_or(argv[0].clone())
 }
+
+//------------------------------------------------------------------------------
 
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
@@ -520,18 +521,26 @@ fn get_exe(spec: &spec::Proc) -> &str {
 /// Because this function starts tasks with `spawn_local`, it must be run within
 /// a `LocalSet`.
 pub fn start_procs(
-    specs: &spec::Procs,
+    specs: spec::Procs,
     procs: &SharedProcs,
-) -> Result<Vec<tokio::task::JoinHandle<()>>, SpecError> {
-    // First check that proc IDs aren't already in use.
+) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {
+    // Check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
     let dup_proc_ids = specs
         .keys()
         .filter(|&p| old_proc_ids.contains(p))
         .map(|p| p.to_string())
         .collect::<Vec<_>>();
-    if !dup_proc_ids.is_empty() {
-        return Err(SpecError::DupId(dup_proc_ids));
+    for proc_id in dup_proc_ids.into_iter() {
+        Err(spec::Error::DuplicateProcId(proc_id))?;
+    }
+
+    spec::validate_procs_fds(&specs)?;
+
+    // Check that we're not shutting down.
+    let shutdown_state = procs.get_shutdown();
+    if !matches!(shutdown_state, shutdown::State::Active) {
+        Err(Error::ShuttingDown(shutdown_state))?;
     }
 
     let (sigchld_watcher, sigchld_receiver) =
@@ -539,19 +548,27 @@ pub fn start_procs(
     let _sigchld_task = tokio::spawn(sigchld_watcher.watch());
     let mut tasks = Vec::new();
 
+    let mut pipes = fd::Pipes::new();
+
     for (proc_id, spec) in specs.into_iter() {
-        let env = environ::build(std::env::vars(), &spec.env);
-        let exe = get_exe(&spec);
+        let spec::Proc {
+            exe,
+            argv,
+            env,
+            fds,
+            ..
+        } = spec;
+        let exe = get_exe(exe, &argv);
+        let env = environ::build(std::env::vars(), &env);
 
         let error_pipe = ErrorPipe::new().unwrap_or_else(|err| {
             error!("failed to create pipe: {}", err);
             std::process::exit(1);
         });
 
-        let fd_handlers = spec
-            .fds
-            .iter()
-            .map(|(fd_str, fd_spec)| fd::make_fd_handler(fd_str.clone(), fd_spec.clone()))
+        let fd_handlers = fds
+            .into_iter()
+            .map(|(fd_str, fd_spec)| fd::make_fd_handler(&proc_id, fd_str, fd_spec, &mut pipes))
             .collect::<Vec<_>>();
 
         // Fork the child process.
@@ -566,7 +583,7 @@ pub fn start_procs(
 
                 // If a restricted executable is set, make sure ours matches.
                 if let Some(restricted_exe) = RESTRICTED_EXE.read().unwrap().as_ref() {
-                    if exe != restricted_exe {
+                    if exe != *restricted_exe {
                         error_writer
                             .try_write(format!("restricted executable: {}", restricted_exe));
                         ok_to_exec = false;
@@ -579,6 +596,8 @@ pub fn start_procs(
                         ok_to_exec = false;
                     });
                 }
+                // Close remaining pipes, having dup'ed those we connect to.
+                pipes.close().unwrap();
 
                 // Put the child process into a new session, to avoid
                 // getting signals from the parent process group.
@@ -590,7 +609,7 @@ pub fn start_procs(
                 if ok_to_exec {
                     // execve() only returns with an error; on success, the program is
                     // replaced.
-                    let err = execve(exe.to_string(), spec.argv.clone(), env).unwrap_err();
+                    let err = execve(exe.to_string(), argv, env).unwrap_err();
                     error_writer.try_write(format!("execve failed: {}: {}", exe, err));
                 }
 
@@ -637,11 +656,16 @@ pub fn start_procs(
                 };
                 // Start the task.
                 tasks.push(tokio::task::spawn_local(fut));
+
+                info!("proc started: {}", child_pid);
             }
 
             Err(err) => panic!("failed to fork: {}", err),
         }
     }
+
+    // Both ends of all pipes should have been used.
+    assert!(pipes.close().unwrap() == 0);
 
     Ok(tasks)
 }

@@ -16,11 +16,11 @@ async def test_ws_reconnect():
     reconnection, and confirms that process results are still accessible.
     """
     async with Assembly.start() as asm:
-        proc0 = await asm.server.start(
+        proc0, _ = await asm.server.start(
             "reconnect0",
             spec.make_proc([SLEEP_EXE, "0.2"])
         )
-        proc1 = await asm.server.start(
+        proc1, _ = await asm.server.start(
             "reconnect1",
             spec.make_proc([SLEEP_EXE, "0.4"])
         )
@@ -35,10 +35,7 @@ async def test_ws_reconnect():
                 conn_id, conn = await anext(sub)
 
         # Results should be available.
-        res0, res1 = await asyncio.gather(
-            proc0.results.wait(),
-            proc1.results.wait()
-        )
+        res0, res1 = await asyncio.gather(asm.wait(proc0), asm.wait(proc1))
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
 
@@ -51,11 +48,11 @@ async def test_ws_reconnect_nowait():
     explicitly for reconnect.
     """
     async with Assembly.start() as asm:
-        proc0 = await asm.server.start(
+        proc0, _ = await asm.server.start(
             "reconnect0",
             spec.make_proc([SLEEP_EXE, "0.2"])
         )
-        proc1 = await asm.server.start(
+        proc1, _ = await asm.server.start(
             "reconnect1",
             spec.make_proc([SLEEP_EXE, "0.4"])
         )
@@ -66,10 +63,7 @@ async def test_ws_reconnect_nowait():
         assert conn.ws.closed
 
         # Wait for results anyway.  The procstar instance should reconnect.
-        res0, res1 = await asyncio.gather(
-            proc0.results.wait(),
-            proc1.results.wait()
-        )
+        res0, res1 = await asyncio.gather(asm.wait(proc0), asm.wait(proc1))
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
 
@@ -80,11 +74,11 @@ async def test_proc_reconnect():
     Reconnects both the ws and `Process` instances, simulating restart.
     """
     async with Assembly.start() as asm:
-        proc0 = await asm.server.start(
+        proc0, _ = await asm.server.start(
             "reconnect0",
             spec.make_proc([SLEEP_EXE, "0.2"])
         )
-        proc1 = await asm.server.start(
+        proc1, _ = await asm.server.start(
             "reconnect1",
             spec.make_proc([SLEEP_EXE, "0.4"])
         )
@@ -93,10 +87,7 @@ async def test_proc_reconnect():
         await asm.stop_server()
         await asm.start_server()
 
-        res0, res1 = await asyncio.gather(
-            proc0.results.wait(),
-            proc1.results.wait(),
-        )
+        res0, res1 = await asyncio.gather(asm.wait(proc0), asm.wait(proc1))
         assert res0.status.exit_code == 0
         assert res1.status.exit_code == 0
 

@@ -10,4 +10,3 @@ pub fn elide(str: &String) -> String {
         )
     }
 }
-

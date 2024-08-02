@@ -3,13 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::vec::Vec;
 
-use crate::fd::parse_fd;
+use crate::fd::FdData;
 use crate::procinfo::ProcessInfo;
 use crate::procs::{start_procs, SharedProcs};
 use crate::res::ProcRes;
+use crate::shutdown;
 use crate::sig::Signum;
 use crate::spec;
-use crate::spec::{CaptureEncoding, FdName, ProcId};
+use crate::spec::{parse_fd, CaptureEncoding, FdName, ProcId};
 use crate::sys::getenv;
 
 //------------------------------------------------------------------------------
@@ -85,7 +86,7 @@ pub enum IncomingMessage {
 
     /// Requests new processes to be started.  `specs` maps proc IDs to process
     /// specs.  Proc IDs may not already be in use.
-    ProcStart { specs: BTreeMap<ProcId, spec::Proc> },
+    ProcStartRequest { specs: BTreeMap<ProcId, spec::Proc> },
 
     /// Requests a list of current proc IDs.
     ProcidListRequest {},
@@ -112,6 +113,10 @@ pub enum IncomingMessage {
 
 //------------------------------------------------------------------------------
 
+fn format_data(_data: &Vec<u8>) -> String {
+    return "...".to_owned();
+}
+
 /// Outgoing messages, originating here and sent to the websocket server.
 /// Despite this naming, these messages are primarily responses to requests
 /// originating with the server.
@@ -119,23 +124,34 @@ pub enum IncomingMessage {
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     /// An incoming message could not be processed.
-    IncomingMessageError { msg: IncomingMessage, err: String },
+    RequestError {
+        msg: IncomingMessage,
+        err: String,
+    },
 
     /// An incoming message referenced a nonexistent proc ID.
-    ProcUnknown { proc_id: ProcId },
+    ProcUnknown {
+        proc_id: ProcId,
+    },
 
     /// Registers or re-registers this instance.
     Register {
         conn: ConnectionInfo,
         proc: ProcessInfo,
         access_token: String,
+        shutdown_state: shutdown::State,
     },
 
     /// The list of current proc IDs.
-    ProcidList { proc_ids: Vec<ProcId> },
+    ProcidList {
+        proc_ids: Vec<ProcId>,
+    },
 
     /// The current result of a process, which may or may not have terminated.
-    ProcResult { proc_id: ProcId, res: ProcRes },
+    ProcResult {
+        proc_id: ProcId,
+        res: ProcRes,
+    },
 
     /// A portion of the captured fd data for a process.
     ProcFdData {
@@ -144,35 +160,38 @@ pub enum OutgoingMessage {
         start: i64,
         stop: i64,
         encoding: Option<CaptureEncoding>,
-        #[dbg(placeholder = "...")]
         #[serde(with = "serde_bytes")]
+        #[dbg(formatter = "format_data")]
         data: Vec<u8>,
     },
 
     /// A process has been deleted.
-    ProcDelete { proc_id: ProcId },
+    ProcDelete {
+        proc_id: ProcId,
+    },
+
+    ShutDown {
+        shutdown_state: shutdown::State,
+    },
 }
 
-fn incoming_error(msg: &IncomingMessage, err: &str) -> OutgoingMessage {
-    OutgoingMessage::IncomingMessageError {
-        msg: msg.clone(),
+fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
+    OutgoingMessage::RequestError {
+        msg,
         err: err.to_string(),
     }
 }
 
-pub async fn handle_incoming(
-    procs: &SharedProcs,
-    msg: &IncomingMessage,
-) -> Option<OutgoingMessage> {
+pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
-        IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
-            msg: msg.clone(),
+        IncomingMessage::Registered => Some(OutgoingMessage::RequestError {
+            msg,
             err: "unexpected".to_owned(),
         }),
 
-        IncomingMessage::ProcStart { ref specs } => {
-            if let Err(err) = start_procs(specs, procs) {
-                Some(OutgoingMessage::IncomingMessageError {
+        IncomingMessage::ProcStartRequest { ref specs } => {
+            if let Err(err) = start_procs(specs.clone(), procs) {
+                Some(OutgoingMessage::RequestError {
                     msg: msg.clone(),
                     err: err.to_string(),
                 })
@@ -202,7 +221,7 @@ pub async fn handle_incoming(
             signum,
         } => {
             if let Some(proc) = procs.get(&proc_id) {
-                if let Err(err) = proc.borrow().send_signal(*signum) {
+                if let Err(err) = proc.borrow().send_signal(signum) {
                     Some(incoming_error(msg, &err.to_string()))
                 } else {
                     None
@@ -224,13 +243,13 @@ pub async fn handle_incoming(
                 if let Some(proc) = procs.get(proc_id) {
                     match proc
                         .borrow()
-                        .get_fd_data(fd, *start as usize, stop.map(|s| s as usize))
+                        .get_fd_data(fd, start as usize, stop.map(|s| s as usize))
                     {
-                        Ok(Some((data, encoding))) => Some(OutgoingMessage::ProcFdData {
+                        Ok(Some(FdData { data, encoding })) => Some(OutgoingMessage::ProcFdData {
                             proc_id: proc_id.clone(),
                             fd: fd_name.clone(),
-                            start: *start,
-                            stop: stop.unwrap_or_else(|| *start + (data.len() as i64)),
+                            start,
+                            stop: stop.unwrap_or_else(|| start + (data.len() as i64)),
                             encoding,
                             data,
                         }),

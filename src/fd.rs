@@ -1,9 +1,8 @@
 use libc::c_int;
 use log::*;
 use std::cell::RefCell;
-use std::fs;
-use std::io::{Read, Seek};
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+use std::collections::BTreeMap;
+use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
@@ -13,18 +12,11 @@ use tokio_pipe::PipeRead;
 use crate::err::{Error, Result};
 use crate::res::FdRes;
 use crate::spec;
+use crate::spec::{parse_fd, ProcId};
 use crate::sys;
+use crate::sys::RWPair;
 
 //------------------------------------------------------------------------------
-
-pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, std::num::ParseIntError> {
-    match fd {
-        "stdin" => Ok(0),
-        "stdout" => Ok(1),
-        "stderr" => Ok(2),
-        _ => fd.parse::<RawFd>(),
-    }
-}
 
 pub fn get_fd_name(fd: RawFd) -> String {
     match fd {
@@ -53,6 +45,22 @@ fn get_oflags(flags: &spec::OpenFlag, fd: RawFd) -> libc::c_int {
         Append => libc::O_WRONLY | libc::O_APPEND,
         CreateAppend => libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND,
         ReadWrite => libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
+    }
+}
+
+//------------------------------------------------------------------------------
+
+pub struct FdData {
+    pub data: Vec<u8>,
+    pub encoding: Option<spec::CaptureEncoding>,
+}
+
+impl FdData {
+    pub fn empty() -> Self {
+        Self {
+            data: Vec::new(),
+            encoding: None,
+        }
     }
 }
 
@@ -119,6 +127,14 @@ pub enum FdHandler {
         /// Whether to attach output to results.
         attached: bool,
     },
+
+    /// Attaches the file descriptor to the write end of a pipe; the read end is
+    /// attached to another process.
+    PipeWrite { fd: RawFd, pipe_write_fd: RawFd },
+
+    /// Attaches the file descriptor to the read end of a pipe; the write end is
+    /// attached to another process.
+    PipeRead { fd: RawFd, pipe_read_fd: RawFd },
 }
 
 impl FdHandler {
@@ -136,13 +152,24 @@ impl FdHandler {
     }
 }
 
-pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
+impl Drop for FdHandler {
+    fn drop(&mut self) {
+        match self {
+            FdHandler::UnlinkedFile { file_fd, .. } => {
+                if let Err(err) = sys::close(*file_fd) {
+                    error!("failed to close {file_fd}: {err}");
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 
 const PATH_DEV_NULL: &str = "/dev/null";
 // FIXME: Correct tmpdir.
-const PATH_TMP_TEMPLATE: &str = "/tmp/ir-capture-XXXXXXXXXXXX";
+const PATH_TMP_TEMPLATE: &str = "/tmp/procstar-capture-XXXXXXXXXXXX";
 
 /// Creates and opens an unlinked temporary file as a fd handler.
 fn open_unlinked_temp_file(
@@ -163,38 +190,105 @@ fn open_unlinked_temp_file(
     })
 }
 
-/// Reads the contents of a file from the beginning, from its open fd.
-fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> Result<Vec<u8>> {
-    // Wrap the fd in a file object, for convenience.  This takes ownership of the fd.
-    let mut file = unsafe { fs::File::from_raw_fd(fd) };
-    // Seek to front.
-    file.seek(std::io::SeekFrom::Start(start))?;
-    let buf = if let Some(stop) = stop {
-        // Read to indicated stop position.
-        if stop < start {
-            return Err(Error::Eof);
+//------------------------------------------------------------------------------
+
+pub struct Pipes {
+    fds: BTreeMap<(ProcId, RawFd), RWPair<Option<RawFd>>>,
+}
+
+/// Manages pipes connecting fds in procs.
+///
+/// We may set up the proc that connects to either the read or the write end
+/// first.  If the read end, we return the read fd and save the write fd, else
+/// vice versa.
+impl Pipes {
+    pub fn new() -> Self {
+        Self {
+            fds: BTreeMap::new(),
         }
-        let mut buf = vec![0; (stop - start) as usize];
-        file.read_exact(&mut buf)?;
-        buf
-    } else {
-        // Read entire contents.
-        let mut buf = Vec::<u8>::new();
-        file.read_to_end(&mut buf)?;
-        buf
-    };
+    }
 
-    // Take back ownership of the fd.
-    assert!(file.into_raw_fd() == fd);
-    Ok(buf)
+    /// Returns the read fd, if it exists, for reading the output from `from_fd`
+    /// of `from_proc_id`.  If not, creates a new pipe, returns the read fd, and
+    /// stores the write fd for later.
+    pub fn get_read_fd(&mut self, from_proc_id: &ProcId, from_fd: RawFd) -> Result<RawFd> {
+        let key = (from_proc_id.clone(), from_fd);
+        match self.fds.get_mut(&key) {
+            Some(RWPair { read, .. }) => Ok(read.take().unwrap()),
+            None => {
+                let pipe = sys::pipe()?;
+                self.fds.insert(
+                    key,
+                    RWPair {
+                        read: None,
+                        write: Some(pipe.write),
+                    },
+                );
+                Ok(pipe.read)
+            }
+        }
+    }
+
+    /// Returns the write fd, if it exists, for writing the output from `fd` of
+    /// `proc_id`.  If not, creates a new pipe, returns the write fd, and saves
+    /// the read fd for later.
+    pub fn get_write_fd(&mut self, proc_id: &ProcId, fd: RawFd) -> Result<RawFd> {
+        let key = (proc_id.clone(), fd);
+        match self.fds.get_mut(&key) {
+            Some(RWPair { write, .. }) => Ok(write.take().unwrap()),
+            None => {
+                let pipe = sys::pipe()?;
+                self.fds.insert(
+                    key,
+                    RWPair {
+                        read: Some(pipe.read),
+                        write: None,
+                    },
+                );
+                Ok(pipe.write)
+            }
+        }
+    }
+
+    /// Closes all remaining pipe fds.  Returns the number of fds closed.
+    pub fn close(self) -> Result<usize> {
+        let mut count = 0;
+        for (_, pipe) in self.fds.into_iter() {
+            if let Some(fd) = pipe.read {
+                sys::close(fd)?;
+                count += 1;
+            }
+            if let Some(fd) = pipe.write {
+                sys::close(fd)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 }
 
-fn get_file_length(fd: RawFd) -> Result<i64> {
-    Ok(sys::fstat(fd)?.st_size)
-}
+//------------------------------------------------------------------------------
 
+pub struct SharedFdHandler(Rc<RefCell<FdHandler>>);
+
+/// Implements the handling of a file descriptor for a proc.
+///
+/// The lifecycle is as follows:
+///
+/// - Procstar calls `new()` in the parent (main) process, before forking
+///   the proc.  This method allocates any resources that must be accessible
+///   both to Procstar and the proc.
+///
+/// - Procstar calls `in_child()` in the child process after forking but before
+///   execing.  This method performs any additional allocations or cleanup
+///   required in the child process.
+///
+/// - After forking, Procstar calls `in_parent()` in the parent (main) process.
+///   This performs any cleanup required in the parent, and may also return an
+///   async task that continues to deal with the fd.
+///
 impl SharedFdHandler {
-    pub fn new(fd: RawFd, spec: spec::Fd) -> Result<Self> {
+    pub fn new(proc_id: &ProcId, fd: RawFd, spec: spec::Fd, pipes: &mut Pipes) -> Result<Self> {
         let fd_handler = match spec {
             spec::Fd::Inherit => FdHandler::Inherit,
 
@@ -220,16 +314,29 @@ impl SharedFdHandler {
                 encoding,
                 attached,
             } => {
-                let (read_fd, write_fd) = sys::pipe()?;
+                let pipe_fds = sys::pipe()?;
                 FdHandler::CaptureMemory {
                     fd,
-                    read_fd,
-                    write_fd,
+                    read_fd: pipe_fds.read,
+                    write_fd: pipe_fds.write,
                     encoding,
                     buf: Vec::new(),
                     attached,
                 }
             }
+
+            spec::Fd::PipeWrite => FdHandler::PipeWrite {
+                fd,
+                pipe_write_fd: pipes.get_write_fd(proc_id, fd)?,
+            },
+
+            spec::Fd::PipeRead {
+                proc_id: ref from_proc_id,
+                fd: ref from_fd,
+            } => FdHandler::PipeRead {
+                fd,
+                pipe_read_fd: pipes.get_read_fd(from_proc_id, parse_fd(from_fd)?)?,
+            },
         };
         Ok(SharedFdHandler(Rc::new(RefCell::new(fd_handler))))
     }
@@ -282,30 +389,40 @@ impl SharedFdHandler {
                     Rc::clone(&self.0),
                 )))
             }
+
+            FdHandler::PipeWrite { pipe_write_fd, .. } => {
+                // Only the child writes to the pipe.
+                sys::close(pipe_write_fd)?;
+                None
+            }
+
+            FdHandler::PipeRead { pipe_read_fd, .. } => {
+                // Only the child reads from the pipe.
+                sys::close(pipe_read_fd)?;
+                None
+            }
         })
     }
 
     pub fn in_child(self) -> Result<()> {
-        match Rc::try_unwrap(self.0).unwrap().into_inner() {
-            FdHandler::Inherit => Ok(()),
+        match Rc::into_inner(self.0).unwrap().into_inner() {
+            FdHandler::Inherit => {}
 
-            FdHandler::Error { err } => Err(err),
+            FdHandler::Error { ref mut err } => return Err(std::mem::replace(err, Error::None)),
 
             FdHandler::Close { fd } => {
                 sys::close(fd)?;
-                Ok(())
             }
 
             FdHandler::Dup { fd, dup_fd } => {
                 if dup_fd != fd {
                     sys::dup2(dup_fd, fd)?;
                 }
-                Ok(())
             }
 
             FdHandler::UnmanagedFile {
                 fd,
-                path,
+                ref path,
                 oflags,
                 mode,
             } => {
@@ -314,15 +431,13 @@ impl SharedFdHandler {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;
                 }
-                Ok(())
             }
 
             FdHandler::UnlinkedFile { fd, file_fd, .. } => {
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
-                    sys::close(file_fd)?;
+                    // Don't close file_fd; we'll close it in FdHandler::drop().
                 }
-                Ok(())
             }
 
             FdHandler::CaptureMemory {
@@ -335,87 +450,87 @@ impl SharedFdHandler {
                 sys::close(read_fd)?;
                 // Attach the write pipe to the target fd.
                 sys::dup2(write_fd, fd)?;
-                Ok(())
+                sys::close(write_fd)?;
+            }
+
+            FdHandler::PipeWrite { fd, pipe_write_fd } => {
+                // Attach the write pipe to the target fd.
+                sys::dup2(pipe_write_fd, fd)?;
+                sys::close(pipe_write_fd)?;
+            }
+
+            FdHandler::PipeRead { fd, pipe_read_fd } => {
+                // Attach the read pipe to the target fd.
+                sys::dup2(pipe_read_fd, fd)?;
+                sys::close(pipe_read_fd)?;
             }
         }
+
+        Ok(())
     }
 
     /// Returns data for the fd, if available, and whether it is UTF-8 text.
-    pub fn get_data(
-        &self,
-        start: usize,
-        stop: Option<usize>,
-    ) -> Result<Option<(Vec<u8>, Option<spec::CaptureEncoding>)>> {
+    pub fn get_data(&self, start: usize, stop: Option<usize>) -> Result<Option<FdData>> {
         Ok(match &*self.0.borrow() {
-            FdHandler::Inherit
-            | FdHandler::Error { .. }
-            | FdHandler::Close { .. }
-            | FdHandler::Dup { .. }
-            | FdHandler::UnmanagedFile { .. } => None,
-
             FdHandler::UnlinkedFile {
                 file_fd, encoding, ..
-            } => Some((
-                read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
-                *encoding,
-            )),
+            } => Some(FdData {
+                data: sys::read_from_file(*file_fd, start as u64, stop.map(|s| s as u64))?,
+                encoding: *encoding,
+            }),
 
             FdHandler::CaptureMemory { buf, encoding, .. } => {
                 let stop = stop.unwrap_or_else(|| buf.len());
-                Some((buf[start..stop].to_vec(), *encoding))
+                Some(FdData {
+                    data: buf[start..stop].to_vec(),
+                    encoding: *encoding,
+                })
             }
+
+            _ => None,
         })
     }
 
     pub fn get_result(&self) -> Result<Option<FdRes>> {
         // FIXME: Should we provide more information here?
         Ok(match &*self.0.borrow() {
-            FdHandler::Inherit
-            | FdHandler::Error { .. }
-            | FdHandler::Close { .. }
-            | FdHandler::Dup { .. }
-            // FIXME: Return something containing the path.
-            | FdHandler::UnmanagedFile { .. } => None,
-
             FdHandler::UnlinkedFile {
                 file_fd,
                 encoding,
                 attached,
                 ..
-            } => {
-                Some(if *attached {
-                    FdRes::from_bytes(*encoding, &read_from_file(*file_fd, 0, None)?)
-                } else {
-                    FdRes::detached(get_file_length(*file_fd)?, *encoding)
-                })
-            }
+            } => Some(if *attached {
+                FdRes::from_bytes(*encoding, &sys::read_from_file(*file_fd, 0, None)?)
+            } else {
+                FdRes::detached(sys::get_file_length(*file_fd)?, *encoding)
+            }),
 
             FdHandler::CaptureMemory {
                 encoding,
                 buf,
                 attached,
                 ..
-            } => {
-                Some(if *attached {
-                    FdRes::from_bytes(*encoding, buf)
-                } else {
-                    FdRes::detached(buf.len() as i64, *encoding)
-                })
-            }
+            } => Some(if *attached {
+                FdRes::from_bytes(*encoding, buf)
+            } else {
+                FdRes::detached(buf.len() as i64, *encoding)
+            }),
+
+            _ => None,
         })
     }
 }
 
 //------------------------------------------------------------------------------
 
-pub fn make_fd_handler(fd_str: String, spec: spec::Fd) -> (RawFd, SharedFdHandler) {
-    // FIXME: Parse, or at least check, when deserializing.
-    let fd_num = parse_fd(&fd_str).unwrap_or_else(|err| {
-        error!("failed to parse fd {}: {}", fd_str, err);
-        std::process::exit(2);
-    });
-
-    let handler = SharedFdHandler::new(fd_num, spec)
+pub fn make_fd_handler(
+    proc_id: &ProcId,
+    fd_str: String,
+    spec: spec::Fd,
+    pipes: &mut Pipes,
+) -> (RawFd, SharedFdHandler) {
+    let fd_num = parse_fd(&fd_str).unwrap(); // FIXME
+    let handler = SharedFdHandler::new(proc_id, fd_num, spec, pipes)
         .unwrap_or_else(|err| SharedFdHandler(Rc::new(RefCell::new(FdHandler::Error { err }))));
 
     (fd_num, handler)

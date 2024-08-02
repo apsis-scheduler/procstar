@@ -33,6 +33,10 @@ package-dir = {"" = "python"}
 [tool.setuptools.dynamic]
 version = {attr = "procstar.__version__"}
 
+[tool.setuptools.package-data]
+# Include localhost cert used for int tests.
+"procstar.testing" = ["*.crt", "*.key"]
+
 [tool.pytest.ini_options]
 testpaths = "test/"
 

@@ -1,7 +1,6 @@
 # Worklist
 
-For next procstar release:
-
+Current:
 - [x] Add a reconnect timeout to `Server` (but attach it to each connection).
 - [x] In `run()`, enforce the timeout.
 - [x] When the timeout elapses,
@@ -11,26 +10,8 @@ For next procstar release:
 - [x] In the procstar agent program, handle the "no connection" msg and error the run
 - [x] Communicate clean agent shutdown to the server and drop the connection immediately.
 - [x] Change `Connection.send()` to raise proper exception types for not connected, connection not open.
-
 - [x] Handle proc-specific error in `Processes.on_message()` .
 - [x] orderly shutdown
-- [ ] compress procstar output as with old agent
-
-
-### Orderly shutdown
-
-- in agent
-  - add a global "shutting down" flag to the agent
-  - set this flag on shutdown signal
-  - send a `BeginShutdown` message when it is sent
-  - also send it on each reconnection
-- in server
-  - track the "shutting down" flag of a connection
-  - honor this flag when choosing connections 
-- in UI
-  - show the shutdown state on the agents screen
-
-Current:
 - [x] fix procstar unit tests
 - [x] test incremental results manually
 - [x] test incremental output manually
@@ -42,7 +23,7 @@ Current:
 - [ ] design UI for incremental / large output
 - [ ] in web UI, follow bottom of output if scrolled all the way down
 - [ ] automated test incremental output
-- [ ] compress output on completion
+- [x] compress output on completion
 
 
 - [x] deal with ws ping/pong
@@ -94,7 +75,7 @@ Current:
 - [x] bad exe and other starting failures => error state in Apsis
 - [x] push intermediate Procstar metadata to running runs
 - [x] Procstar conda package
-- [ ] if a connection goes away, error its process's runs after a while
+- [x] if a connection goes away, error its process's runs after a while
       - age out connections in `procstar.agent.server`
       - notify proc and raise from `anext(results)` when this happens
       - erorr out the run
@@ -106,10 +87,9 @@ Current:
     - [x] don't include captured results in output
     - [x] HTTP API for requesting full output
     - [ ] HTTP API for requesting part output
-    - [ ] WebSocket API for requesting full output
-    - [ ] WebSocket API for requesting part output
+    - [x] WebSocket API for requesting full output
+    - [x] WebSocket API for requesting part output
 - [ ] incremental output in Apsis Procstar program
-- [ ] output compression in procstar
 - [ ] live-update run log in web UI: either cram this into `RunStore.query_live()`, or create some other protocol?
 - [ ] auth in procstar HTTP service
 - [ ] HTTPS in procstar HTTP service

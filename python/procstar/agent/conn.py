@@ -144,6 +144,7 @@ class Connection:
 
     def to_jso(self):
         return {
+            "shutdown_state": self.shutdown_state.name,
             "info": self.info.to_jso(),
         }
 
@@ -219,6 +220,7 @@ class Connections(Mapping, Subscribeable):
             self,
             conn_info: ConnectionInfo,
             proc_info: ProcessInfo,
+            shutdown_state: ShutdownState,
             time: datetime,
             ws,
     ) -> Connection:
@@ -252,7 +254,8 @@ class Connections(Mapping, Subscribeable):
                 proc        =proc_info,
                 stats       =stats,
             )
-            conn = self.__conns[conn_id] = Connection(info=info, ws=ws)
+            conn = self.__conns[conn_id] = Connection(
+                info=info, shutdown_state=shutdown_state, ws=ws)
             # Add it to the group.
             group = self.__groups.setdefault(group_id, set())
             group.add(conn_id)
@@ -276,6 +279,7 @@ class Connections(Mapping, Subscribeable):
             # Use the new websocket with the old connection object.
             conn = old_conn
             conn.ws = ws
+            conn.shutdown_state = shutdown_state
             conn.info.socket = socket_info
 
             # Update stats.

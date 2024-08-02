@@ -184,7 +184,8 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                register_msg.conn, register_msg.proc, time, ws
+                register_msg.conn, register_msg.proc,
+                register_msg.shutdown_state, time, ws
             )
             conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
@@ -227,9 +228,13 @@ class Server:
                 conn.info.stats.num_received += 1
                 self.processes.on_message(conn.info, msg)
 
-                if msg == proto.ShutDown(shutdown_state="done"):
-                    logger.info(f"shut down: {conn_id}")
-                    done = True
+                match msg:
+                    case proto.ShutDown(shutdown_state):
+                        logger.info(f"shut down: {conn_id}: {shutdown_state}")
+                        conn.shutdown_state = shutdown_state
+                        if shutdown_state == proto.ShutdownState.done:
+                            logger.info(f"shut down: {conn_id}")
+                            done = True
 
             # Update stats.
             conn.info.stats.connected = False

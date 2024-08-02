@@ -293,7 +293,7 @@ class Server:
             timeout=conn_timeout,
         )
 
-        await conn.send(proto.ProcStart(specs={proc_id: spec}))
+        await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
         return self.processes.create(conn, proc_id)
 
 

@@ -30,7 +30,7 @@ class Registered:
 
 
 @dataclass
-class ProcStart:
+class ProcStartRequest:
     specs: Dict[str, dict]
 
 
@@ -72,7 +72,7 @@ OUTGOING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
             Registered,
-            ProcStart,
+            ProcStartRequest,
             ProcidListRequest,
             ProcResultRequest,
             ProcSignalRequest,
@@ -153,7 +153,7 @@ class Register:
 
 
 @dataclass
-class IncomingMessageError:
+class RequestError:
     msg: dict
     err: str
 
@@ -231,7 +231,7 @@ class ShutDown:
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
-            IncomingMessageError,
+            RequestError,
             ProcDelete,
             ProcResult,
             ProcFdData,

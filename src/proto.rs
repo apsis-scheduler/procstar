@@ -86,7 +86,7 @@ pub enum IncomingMessage {
 
     /// Requests new processes to be started.  `specs` maps proc IDs to process
     /// specs.  Proc IDs may not already be in use.
-    ProcStart { specs: BTreeMap<ProcId, spec::Proc> },
+    ProcStartRequest { specs: BTreeMap<ProcId, spec::Proc> },
 
     /// Requests a list of current proc IDs.
     ProcidListRequest {},
@@ -124,7 +124,7 @@ fn format_data(_data: &Vec<u8>) -> String {
 #[serde(tag = "type")]
 pub enum OutgoingMessage {
     /// An incoming message could not be processed.
-    IncomingMessageError {
+    RequestError {
         msg: IncomingMessage,
         err: String,
     },
@@ -176,7 +176,7 @@ pub enum OutgoingMessage {
 }
 
 fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
-    OutgoingMessage::IncomingMessageError {
+    OutgoingMessage::RequestError {
         msg,
         err: err.to_string(),
     }
@@ -184,14 +184,14 @@ fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
 
 pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
     match msg {
-        IncomingMessage::Registered => Some(OutgoingMessage::IncomingMessageError {
+        IncomingMessage::Registered => Some(OutgoingMessage::RequestError {
             msg,
             err: "unexpected".to_owned(),
         }),
 
-        IncomingMessage::ProcStart { ref specs } => {
+        IncomingMessage::ProcStartRequest { ref specs } => {
             if let Err(err) = start_procs(specs.clone(), procs) {
-                Some(OutgoingMessage::IncomingMessageError {
+                Some(OutgoingMessage::RequestError {
                     msg: msg.clone(),
                     err: err.to_string(),
                 })

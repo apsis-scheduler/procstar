@@ -160,7 +160,7 @@ class Process:
                 case proto.ProcUnknown(_):
                     raise ProcessUnknownError(self.proc_id)
 
-                case proto.IncomingMessageError(msg, err):
+                case proto.RequestError(msg, err):
                     logger.error(f"agent error: {err}")
                     raise AgentMessageError(msg, err)
 
@@ -288,12 +288,12 @@ class Processes(Mapping):
                 # We should receive this only immediately after connection.
                 logger.error(f"msg unexpected: {msg}")
 
-            case proto.IncomingMessageError():
+            case proto.RequestError():
                 try:
                     proc_id = msg.msg["proc_id"]
                 except KeyError:
-                    # An error in response to ProcStart may pertain to multiple proc IDs.
-                    if msg.msg["type"] == "ProcStart":
+                    # An error in response to ProcStartRequest may pertain to multiple proc IDs.
+                    if msg.msg["type"] == "ProcStartRequest":
                         for proc_id in msg.msg["specs"].keys():
                             get_proc(proc_id)._on_message(msg)
                     else:

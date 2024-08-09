@@ -20,6 +20,7 @@ requires-python = ">=3.10"
 dependencies = [
     "orjson >=3",
     "msgpack >=1",
+    "requests",
     "websockets >=10",
 ]
 optional-dependencies = {dev = ["build", "httpx", "pytest", "pytest-asyncio", "bump-my-version", "sphinx", "sphinx-rtd-theme"]}
@@ -44,7 +45,7 @@ testpaths = "test/"
 select = ["F", "E999"]
 
 [tool.bumpversion]
-current_version = "0.3.1"
+current_version = "0.3.2"
 commit = true
 tag = true
 tag_name = "v{new_version}"

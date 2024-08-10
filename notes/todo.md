@@ -16,6 +16,7 @@ Current:
 - [x] test incremental results manually
 - [x] test incremental output manually
 - [x] config for incremental results / output frequency
+- [ ] remove metadata from ProcResult stringification, to reduce logs
 - [ ] automated test incremental results
 - [x] request incremental output from agent
 - [ ] update incremental output from program, into DB and to clients

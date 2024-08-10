@@ -176,14 +176,22 @@ class ProcResult:
     res: dict
 
     def __str__(self):
+        class Omitted:
+            def __repr__(self):
+                return "…"
+        OMITTED = Omitted()
+
         # Omit fd data from the output.
         name = self.__class__.__name__
         proc_id = self.proc_id
         res = self.res.copy()
         for fd in res["fds"].values():
             if fd is not None and "data" in fd:
-                fd["data"] = ...
-        return f'{name}(proc_id={proc_id!r}, res={res!r})'
+                fd["data"] = OMITTED
+        for key in ("proc_stat", "proc_statm", "rusage"):
+            if key in res:
+                res[key] = OMITTED
+        return f'{name}(proc_id={proc_id!r}, res={res})'
 
 
 
@@ -205,7 +213,7 @@ class ProcFdData:
             start   =self.start,
             stop    =self.stop,
             encoding=self.encoding,
-            data    =elide(self.data, 64, ellipsis=b"...", pos=0.8),
+            data    =elide(self.data, 32, ellipsis=b"...", pos=0.8),
         )
 
 

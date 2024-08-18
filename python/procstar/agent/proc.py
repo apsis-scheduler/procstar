@@ -240,13 +240,15 @@ class Processes(Mapping):
         return proc
 
 
-    def on_message(self, procstar_info, msg):
+    def on_message(self, conn, msg):
         """
         Processes `msg` to the corresponding process.
 
-        :param procstar_info:
-          About the procstar instance from which the message was received.
+        :param conn:
+          The connection from which the message was received.
         """
+        conn_id = conn.conn_id
+
         def get_proc(proc_id):
             """
             Looks up or creates, if necessary, the `Process` object.
@@ -254,15 +256,13 @@ class Processes(Mapping):
             try:
                 return self.__procs[proc_id]
             except KeyError:
-                conn_id = procstar_info.conn.conn_id
                 logger.info(f"new proc on {conn_id}: {proc_id}")
-                return self.create(self, proc_id)
+                return self.create(conn, proc_id)
 
         def send_by_conn():
             """
             Dispatches the current msg to all processes on this connection.
             """
-            conn_id = procstar_info.conn.conn_id
             for proc in self.__procs.values():
                 if proc.conn_id == conn_id:
                     proc._on_message(msg)
@@ -275,7 +275,7 @@ class Processes(Mapping):
 
             case proto.ProcResult(proc_id):
                 # Attach Procstar server and connection info to the result.
-                msg.res["procstar"] = procstar_info
+                msg.res["procstar"] = conn.info
                 get_proc(proc_id)._on_message(msg)
 
             case proto.ProcFdData(proc_id):
@@ -304,11 +304,11 @@ class Processes(Mapping):
                     get_proc(proc_id)._on_message(msg)
 
             case proto.ConnectionTimeout():
-                logger.error(f"agent connection timeout: {procstar_info.conn}")
+                logger.error(f"agent connection timeout: {conn_id}")
                 send_by_conn()
 
             case proto.ShutDown(shutdown_state):
-                logger.info(f"agent shut down: {procstar_info.conn}: {shutdown_state}")
+                logger.info(f"agent shut down: {conn_id}: {shutdown_state}")
 
             case _:
                 logger.error(f"unknown msg: {msg}")

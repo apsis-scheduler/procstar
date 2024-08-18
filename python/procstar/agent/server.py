@@ -147,7 +147,6 @@ class Server:
 
         Use this bound method with `websockets.server.serve()`.
         """
-        logging.info(f"_serve connection timeout={reconnect_timeout}")
         assert ws.open
         time = now()
 
@@ -226,7 +225,7 @@ class Server:
                 # Process the message.
                 logger.debug(f"recv: {msg}")
                 conn.info.stats.num_received += 1
-                self.processes.on_message(conn.info, msg)
+                self.processes.on_message(conn, msg)
 
                 match msg:
                     case proto.ShutDown(shutdown_state):
@@ -254,8 +253,7 @@ class Server:
                     logger.info(f"reconnect timeout: {conn_id}")
                     assert self.connections._pop(conn_id) is conn
                     # Let processes know that a connection timeout occurred.
-                    self.processes.on_message(
-                        conn.info, proto.ConnectionTimeout())
+                    self.processes.on_message(conn, proto.ConnectionTimeout())
 
                 logging.info(
                     "setting reconnect timeout: "

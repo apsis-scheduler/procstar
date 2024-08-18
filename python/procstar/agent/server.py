@@ -199,17 +199,24 @@ class Server:
         done = False
 
         try:
-            # Request results for all procs on this connection.
-            # FIXME: Not here; in Apsis program instead?
-            try:
-                for proc_id, proc in self.processes.items():
-                    if proc.conn_id == conn_id:
-                        await conn.send(proto.ProcResultRequest(proc_id))
-
-            except Exception as exc:
-                logger.warning(f"{ws}: {exc}", exc_info=True)
-                await ws.close()
-                return
+            # CLEANUP#38: Should not be none.
+            if register_msg.proc_ids is not None:
+                # Reconcile proc IDs from the register msg.
+                conn_proc_ids = set(register_msg.proc_ids)
+                our_proc_ids = {
+                    i for i, p in self.processes.items()
+                    if p.conn_id == conn_id
+                }
+                for proc_id in conn_proc_ids - our_proc_ids:
+                    # New proc ID.
+                    self.processes.create(conn, proc_id)
+                for proc_id in our_proc_ids - conn_proc_ids:
+                    # The agent doesn't know of this proc ID.
+                    logging.warning(f"unknown proc {proc_id} on conn {conn_id}")
+                    self.processes.on_message(conn, proto.ProcUnknown(proc_id))
+                # Request results for all of them.
+                for proc_id in conn_proc_ids & our_proc_ids:
+                    await conn.send(proto.ProcResultRequest(proc_id))
 
             # Receive messages.
             while True:
@@ -240,7 +247,10 @@ class Server:
             conn.info.stats.last_disconnect_time = now()
 
             await ws.close()
-            assert ws.closed
+
+        except Exception as exc:
+            logger.warning(f"{ws}: {exc}", exc_info=True)
+            await ws.close()
 
         finally:
             if done:

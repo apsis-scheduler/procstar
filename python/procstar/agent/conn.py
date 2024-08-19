@@ -175,8 +175,19 @@ class Connection:
             # Connection closed.  Don't forget about it; it may reconnect.
             logger.warning(f"{self.info.socket}: connection closed")
             # FIXME: Think carefully the temporarily dropped connection logic.
+            raise WebSocketNotOpen(self.conn_id)
         else:
             self.info.stats.num_sent += 1
+
+
+    async def try_send(self, msg):
+        """
+        Sends a message, ignoring connection/not open errors.
+        """
+        try:
+            await self.send(msg)
+        except (NotConnectedError, WebSocketNotOpen):
+            pass
 
 
     def set_reconnect_timeout(self, duration, fn):

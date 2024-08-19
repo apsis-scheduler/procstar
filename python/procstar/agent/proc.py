@@ -8,6 +8,7 @@ from   dataclasses import dataclass
 from   functools import cached_property
 import logging
 
+from   .exc import ProcessUnknownError
 from   procstar import proto
 from   procstar.lib.asyn import iter_queue
 from   procstar.lib.py import Interval
@@ -16,17 +17,6 @@ import procstar.lib.json
 logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
-
-class ProcessUnknownError(RuntimeError):
-    """
-    The process is unknown to the remote agent.
-    """
-
-    def __init__(self, proc_id):
-        super().__init__(f"process unknown: {proc_id}")
-        self.proc_id = proc_id
-
-
 
 class ProcessDeletedError(RuntimeError):
     """
@@ -176,14 +166,14 @@ class Process:
         """
         Returns a coro that sends a request for updated result.
         """
-        return self.__conn.send(proto.ProcResultRequest(self.proc_id))
+        return self.__conn.try_send(proto.ProcResultRequest(self.proc_id))
 
 
     def request_fd_data(self, fd, *, interval=Interval(0, None)):
         """
         Returns a coro that requests updated output data,
         """
-        return self.__conn.send(proto.ProcFdDataRequest(
+        return self.__conn.try_send(proto.ProcFdDataRequest(
             proc_id =self.proc_id,
             fd      =fd,
             start   =interval.start,
@@ -304,7 +294,7 @@ class Processes(Mapping):
                     get_proc(proc_id)._on_message(msg)
 
             case proto.ConnectionTimeout():
-                logger.error(f"agent connection timeout: {conn_id}")
+                logger.warning(f"agent connection timeout: {conn_id}")
                 send_by_conn()
 
             case proto.ShutDown(shutdown_state):

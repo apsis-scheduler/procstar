@@ -128,6 +128,7 @@ class ProcessInfo:
 class Register:
     conn: ConnectionInfo
     proc: ProcessInfo
+    proc_ids: List[str]
     access_token: str = ""
     shutdown_state: ShutdownState = ShutdownState.active
 
@@ -136,6 +137,8 @@ class Register:
         return cls(
             conn            =ConnectionInfo(**jso["conn"]),
             proc            =ProcessInfo(**jso["proc"]),
+            # Allow none for backward compatibility.  CLEANUP#38
+            proc_ids        =jso.get("proc_ids", None),
             access_token    =jso["access_token"],
             shutdown_state  =ShutdownState[jso["shutdown_state"]],
         )
@@ -149,6 +152,7 @@ class Register:
             proc            =self.proc,
             access_token    ="***",
             shutdown_state  =self.shutdown_state.name,
+            proc_ids        =self.proc_ids,
         )
 
 

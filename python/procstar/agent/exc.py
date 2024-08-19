@@ -47,3 +47,14 @@ class WebSocketNotOpen(RuntimeError):
 
 
 
+class ProcessUnknownError(RuntimeError):
+    """
+    The process is unknown to the remote agent.
+    """
+
+    def __init__(self, proc_id):
+        super().__init__(f"process unknown: {proc_id}")
+        self.proc_id = proc_id
+
+
+

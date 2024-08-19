@@ -8,6 +8,7 @@ from   dataclasses import dataclass
 from   functools import cached_property
 import logging
 
+from   .exc import ProcessUnknownError
 from   procstar import proto
 from   procstar.lib.asyn import iter_queue
 from   procstar.lib.py import Interval
@@ -16,17 +17,6 @@ import procstar.lib.json
 logger = logging.getLogger(__name__)
 
 #-------------------------------------------------------------------------------
-
-class ProcessUnknownError(RuntimeError):
-    """
-    The process is unknown to the remote agent.
-    """
-
-    def __init__(self, proc_id):
-        super().__init__(f"process unknown: {proc_id}")
-        self.proc_id = proc_id
-
-
 
 class ProcessDeletedError(RuntimeError):
     """

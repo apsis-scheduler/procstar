@@ -198,6 +198,8 @@ impl Status {
 pub struct Times {
     /// System time when the process started.
     pub start: String,
+    /// Current time when this result was generated.
+    pub now: String,
     /// System time when the process terminated.
     pub stop: Option<String>,
     /// Duration of the process.  This is not necessarily `stop - start`, as it

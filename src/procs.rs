@@ -117,14 +117,18 @@ impl Proc {
             })
             .collect::<BTreeMap<_, _>>();
 
+        // FIXME: Combine these!
+        let now_time = Utc::now();
+        let now_instant = Instant::now();
         let elapsed = if let Some(elapsed) = self.elapsed {
             elapsed
         } else {
             // Compute elapsed to now.
-            Instant::now().duration_since(self.start_instant)
+            now_instant.duration_since(self.start_instant)
         };
         let times = res::Times {
             start: self.start_time.to_rfc3339(),
+            now: now_time.to_rfc3339(),
             stop: self.stop_time.map(|t| t.to_rfc3339()),
             elapsed: elapsed.as_secs_f64(),
         };

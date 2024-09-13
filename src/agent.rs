@@ -98,7 +98,7 @@ async fn send(sender: &mut SocketSender, msg: OutgoingMessage) -> Result<(), Err
 
 async fn connect(
     connection: &mut Connection,
-    shutdown_state: shutdown::State,
+    procs: &SharedProcs,
 ) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector()?);
     let (ws_stream, _) =
@@ -109,8 +109,9 @@ async fn connect(
     let register = OutgoingMessage::Register {
         conn: connection.conn.clone(),
         proc: connection.proc.clone(),
+        proc_ids: procs.get_proc_ids(),
         access_token: get_access_token(),
-        shutdown_state,
+        shutdown_state: procs.get_shutdown(),
     };
     send(&mut sender, register).await?;
 
@@ -209,7 +210,7 @@ pub async fn run(
 
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection, procs.get_shutdown()).await
+        let (mut sender, mut receiver) = match connect(&mut connection, &procs).await
         {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);

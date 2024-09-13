@@ -138,6 +138,7 @@ pub enum OutgoingMessage {
     Register {
         conn: ConnectionInfo,
         proc: ProcessInfo,
+        proc_ids: Vec<ProcId>,
         access_token: String,
         shutdown_state: shutdown::State,
     },

@@ -5,6 +5,10 @@ class Interval:
         self.stop = stop
 
 
+    def __str__(self):
+        return f"[{self.start}, {self.stop})"
+
+
     def __iter__(self):
         return iter((self.start, self.stop))
 

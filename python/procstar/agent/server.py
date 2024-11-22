@@ -161,7 +161,6 @@ class Server:
 
             # Only Register is acceptable.
             type, register_msg = proto.deserialize_message(msg)
-            logger.debug(f"recv: {register_msg}")
             if type != "Register":
                 raise proto.ProtocolError(f"expected register; got {type}")
 
@@ -230,7 +229,6 @@ class Server:
                     break
                 type, msg = proto.deserialize_message(msg)
                 # Process the message.
-                logger.debug(f"recv: {msg}")
                 conn.info.stats.num_received += 1
                 self.processes.on_message(conn, msg)
 

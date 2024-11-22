@@ -160,8 +160,6 @@ class Connection:
 
 
     async def send(self, msg):
-        logger.debug(f"send: {msg!r}")
-
         if self.ws is None:
             raise NotConnectedError(self.conn_id)
         if not self.ws.open:

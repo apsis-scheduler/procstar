@@ -1,8 +1,25 @@
 class Interval:
+    """
+    Closed-open interval.
+
+      >>> i = Interval(10, 20)
+      >>> assert i == i
+      >>> assert tuple(i) == (10, 20)
+      >>> print(i)
+      [10, 20)
+
+    """
 
     def __init__(self, start, stop=None):
         self.start = start
         self.stop = stop
+
+
+    def __eq__(self, other):
+        return (
+            other is self
+            or (other.start == self.start and other.stop == self.stop)
+        )
 
 
     def __str__(self):

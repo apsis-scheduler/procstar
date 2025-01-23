@@ -26,7 +26,7 @@ dependencies = [
 optional-dependencies = {dev = ["build", "httpx", "pytest", "pytest-asyncio", "bump-my-version", "sphinx", "sphinx-rtd-theme"]}
 
 [project.urls]
-Repository = "https://github.com/alexhsamuel/procstar"
+Repository = "https://github.com/apsis-scheduler/procstar"
 
 [tool.setuptools]
 package-dir = {"" = "python"}

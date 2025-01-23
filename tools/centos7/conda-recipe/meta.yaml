@@ -3,7 +3,7 @@
 {% set version = "0.4.3" %}
 
 about:
-  home: https://github.com/alexhsamuel/procstar
+  home: https://github.com/apsis-scheduler/procstar
   license_family: BSD
   license: BSD-3-Clause
   summary: A process nanny and remote process execution agent.
@@ -13,7 +13,7 @@ package:
   version: {{ version }}
 
 source:
-  git_url: https://github.com/alexhsamuel/procstar.git
+  git_url: https://github.com/apsis-scheduler/procstar.git
   git_rev: v{{ version }}
 
 requirements:

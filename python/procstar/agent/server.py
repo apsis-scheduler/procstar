@@ -239,6 +239,7 @@ class Server:
                         if shutdown_state == proto.ShutdownState.done:
                             logger.info(f"shut down: {conn_id}")
                             done = True
+                        self.connections._publish((conn_id, conn))
 
             # Update stats.
             conn.info.stats.connected = False
@@ -249,6 +250,8 @@ class Server:
         except Exception as exc:
             logger.warning(f"{ws}: {exc}", exc_info=True)
             await ws.close()
+
+            self.connections._publish((conn_id, conn))
 
         finally:
             if done:

@@ -261,6 +261,7 @@ class Server:
             # we may add a timeout to do this.
             elif reconnect_timeout is not None:
                 def on_timeout(conn):
+                    logger.warning(f"reconnect timed out: {conn_id}")
                     assert self.connections._pop(conn_id) is conn
                     # Let processes know that a connection timeout occurred.
                     self.processes.on_message(conn, proto.ConnectionTimeout())

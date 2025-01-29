@@ -266,7 +266,7 @@ def deserialize_message(msg):
     # We use only binary WebSocket messages.
     if not isinstance(msg, bytes):
         raise ProtocolError(f"wrong ws msg type: {type(msg)}")
-    # Parse JSON.
+    # Parse MessagePack.
     try:
         jso = msgpack.loads(msg)
     except msgpack.UnpackException as err:

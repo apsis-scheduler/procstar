@@ -3,6 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use log::*;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time;
 use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{
@@ -19,6 +20,8 @@ use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
 use crate::shutdown;
 
 //------------------------------------------------------------------------------
+
+const PING_INTERVAL: u64 = 30;
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -81,6 +84,7 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
             }
         }
         Message::Ping(payload) => Ok(Some(Message::Pong(payload))),
+        Message::Pong(_) => Ok(None),
         Message::Close(_) => Err(Error::from(proto::Error::Close)),
         _ => Err(Error::from(proto::Error::WrongMessageType(format!(
             "unexpected ws msg: {:?}",
@@ -210,8 +214,7 @@ pub async fn run(
 
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection, &procs).await
-        {
+        let (mut sender, mut receiver) = match connect(&mut connection, &procs).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -245,10 +248,19 @@ pub async fn run(
 
         let mut sub = procs.subscribe();
 
+        let mut ping_interval = time::interval(Duration::from_secs(PING_INTERVAL));
+
         // Simultaneously wait for an incoming websocket message or a
         // notification, dispatching either.  Also watch for shutdown.
         while !done {
             tokio::select! {
+                _ = ping_interval.tick()  => {
+                    trace!("pinging...");
+                    if let Err(err) = sender.send(Message::Ping(vec![])).await {
+                        warn!("websocket ping error: {:?}", err);
+                        done = true;
+                    }
+                },
                 ws_msg = receiver.next() => {
                     match ws_msg {
                         Some(Ok(Message::Close(_))) => {

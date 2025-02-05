@@ -21,7 +21,7 @@ use crate::shutdown;
 
 //------------------------------------------------------------------------------
 
-const PING_INTERVAL: u64 = 30;
+const PING_INTERVAL: Duration = Duration::from_secs(20);
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -248,57 +248,73 @@ pub async fn run(
 
         let mut sub = procs.subscribe();
 
-        let mut ping_interval = time::interval(Duration::from_secs(PING_INTERVAL));
+        let mut ping_interval = time::interval(PING_INTERVAL);
+        let pong_timeout = 3 * PING_INTERVAL;  // set conservatively
+        let mut pong_deadline = time::Instant::now() + pong_timeout;
 
         // Simultaneously wait for an incoming websocket message or a
         // notification, dispatching either.  Also watch for shutdown.
         while !done {
+
             tokio::select! {
                 _ = ping_interval.tick()  => {
-                    trace!("pinging...");
                     if let Err(err) = sender.send(Message::Ping(vec![])).await {
                         warn!("websocket ping error: {:?}", err);
-                        done = true;
+                        break;
                     }
                 },
-                ws_msg = receiver.next() => {
-                    match ws_msg {
-                        Some(Ok(Message::Close(_))) => {
-                            if let Err(err) = sender.close().await {
-                                warn!(
-                                    "agent connection close error: {}: {:?}",
-                                    connection.url, err
-                                );
-                            } else {
-                                info!("agent connection closed: {}", connection.url);
+                // We expected some type of websocket messages every pong_timeout interval
+                // because of the pings we're sending.
+                res = time::timeout(pong_deadline.duration_since(time::Instant::now()), receiver.next()) => {
+                    match res {
+                        Err(_) => {
+                            warn!("{:?} pong timeout reached", pong_timeout);
+                            break;
+                        }
+                        Ok(ws_msg) => {
+                            // Got a message, reset pong deadline
+                            pong_deadline = time::Instant::now() + pong_timeout;
+
+                            match ws_msg {
+                                Some(Ok(Message::Close(_))) => {
+                                    if let Err(err) = sender.close().await {
+                                        warn!(
+                                            "agent connection close error: {}: {:?}",
+                                            connection.url, err
+                                        );
+                                    } else {
+                                        info!("agent connection closed: {}", connection.url);
+                                    }
+                                    break;
+                                }
+                                Some(Ok(msg)) => match handle(&procs, msg).await {
+                                    Ok(Some(rsp))
+                                        // Handling the incoming message produced a response;
+                                        // send it back.
+                                        => if let Err(err) = sender.send(rsp).await {
+                                            warn!("msg send error: {:?}", err);
+                                            break;
+                                        },
+                                    Ok(None)
+                                        // Handling the message produced no response.
+                                        => {},
+                                    Err(err)
+                                        // Error while handling the message.
+                                        => {
+                                            warn!("msg handle error: {:?}", err);
+                                            break;
+                                        },
+                                },
+                                Some(Err(err)) => {
+                                    warn!("msg receive error: {:?}", err);
+                                    break;
+                                }
+                                None => {
+                                    warn!("msg stream end");
+                                    break;
+                                }
                             }
-                            break;
-                        }
-                        Some(Ok(msg)) => match handle(&procs, msg).await {
-                            Ok(Some(rsp))
-                                // Handling the incoming message produced a response;
-                                // send it back.
-                                => if let Err(err) = sender.send(rsp).await {
-                                    warn!("msg send error: {:?}", err);
-                                    break;
-                                },
-                            Ok(None)
-                                // Handling the message produced no response.
-                                => {},
-                            Err(err)
-                                // Error while handling the message.
-                                => {
-                                    warn!("msg handle error: {:?}", err);
-                                    break;
-                                },
-                        },
-                        Some(Err(err)) => {
-                            warn!("msg receive error: {:?}", err);
-                            break;
-                        }
-                        None => {
-                            warn!("msg stream end");
-                            break;
+
                         }
                     }
                 },

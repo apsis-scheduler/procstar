@@ -214,7 +214,7 @@ pub async fn run(
 
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection, &procs).await {
+        let (mut sender, receiver) = match connect(&mut connection, &procs).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -249,13 +249,17 @@ pub async fn run(
         let mut sub = procs.subscribe();
 
         let mut ping_interval = time::interval(PING_INTERVAL);
-        let pong_timeout = 3 * PING_INTERVAL;  // set conservatively
-        let mut pong_deadline = time::Instant::now() + pong_timeout;
+
+        let pong_interval = PING_INTERVAL * 3;
+        let mut receiver = tokio_stream::StreamExt::timeout_repeating(
+            receiver,
+            // Avoid the instant first tick from a standard interval
+            time::interval_at(time::Instant::now() + pong_interval, pong_interval),
+        );
 
         // Simultaneously wait for an incoming websocket message or a
         // notification, dispatching either.  Also watch for shutdown.
         while !done {
-
             tokio::select! {
                 _ = ping_interval.tick()  => {
                     if let Err(err) = sender.send(Message::Ping(vec![])).await {
@@ -265,56 +269,46 @@ pub async fn run(
                 },
                 // We expected some type of websocket messages every pong_timeout interval
                 // because of the pings we're sending.
-                res = time::timeout(pong_deadline.duration_since(time::Instant::now()), receiver.next()) => {
-                    match res {
-                        Err(_) => {
-                            warn!("{:?} pong timeout reached", pong_timeout);
+                res = receiver.next() => {
+                    let ws_msg = match res {
+                        None => { warn!("msg stream end"); break },
+                        Some(Err(_)) => {warn!("timeout error after {:?}", pong_interval); break; }
+                        Some(Ok(ws_msg)) => ws_msg,
+                    };
+
+                    match ws_msg {
+                        Ok(Message::Close(_)) => {
+                            if let Err(err) = sender.close().await {
+                                warn!(
+                                    "agent connection close error: {}: {:?}",
+                                    connection.url, err
+                                );
+                            } else {
+                                info!("agent connection closed: {}", connection.url);
+                            }
                             break;
                         }
-                        Ok(ws_msg) => {
-                            // Got a message, reset pong deadline
-                            pong_deadline = time::Instant::now() + pong_timeout;
-
-                            match ws_msg {
-                                Some(Ok(Message::Close(_))) => {
-                                    if let Err(err) = sender.close().await {
-                                        warn!(
-                                            "agent connection close error: {}: {:?}",
-                                            connection.url, err
-                                        );
-                                    } else {
-                                        info!("agent connection closed: {}", connection.url);
-                                    }
+                        Ok(msg) => match handle(&procs, msg).await {
+                            Ok(Some(rsp))
+                                // Handling the incoming message produced a response;
+                                // send it back.
+                                => if let Err(err) = sender.send(rsp).await {
+                                    warn!("msg send error: {:?}", err);
                                     break;
-                                }
-                                Some(Ok(msg)) => match handle(&procs, msg).await {
-                                    Ok(Some(rsp))
-                                        // Handling the incoming message produced a response;
-                                        // send it back.
-                                        => if let Err(err) = sender.send(rsp).await {
-                                            warn!("msg send error: {:?}", err);
-                                            break;
-                                        },
-                                    Ok(None)
-                                        // Handling the message produced no response.
-                                        => {},
-                                    Err(err)
-                                        // Error while handling the message.
-                                        => {
-                                            warn!("msg handle error: {:?}", err);
-                                            break;
-                                        },
                                 },
-                                Some(Err(err)) => {
-                                    warn!("msg receive error: {:?}", err);
+                            Ok(None)
+                                // Handling the message produced no response.
+                                => {},
+                            Err(err)
+                                // Error while handling the message.
+                                => {
+                                    warn!("msg handle error: {:?}", err);
                                     break;
-                                }
-                                None => {
-                                    warn!("msg stream end");
-                                    break;
-                                }
-                            }
-
+                                },
+                        },
+                        Err(err) => {
+                            warn!("msg receive error: {:?}", err);
+                            break;
                         }
                     }
                 },

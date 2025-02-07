@@ -3,6 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use log::*;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time;
 use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{
@@ -19,6 +20,9 @@ use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
 use crate::shutdown;
 
 //------------------------------------------------------------------------------
+
+const PING_INTERVAL: Duration = Duration::from_secs(20);
+const PONG_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -81,6 +85,7 @@ async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Er
             }
         }
         Message::Ping(payload) => Ok(Some(Message::Pong(payload))),
+        Message::Pong(_) => Ok(None),
         Message::Close(_) => Err(Error::from(proto::Error::Close)),
         _ => Err(Error::from(proto::Error::WrongMessageType(format!(
             "unexpected ws msg: {:?}",
@@ -210,8 +215,7 @@ pub async fn run(
 
         // (Re)connect to the service.
         info!("agent connecting: {}", connection.url);
-        let (mut sender, mut receiver) = match connect(&mut connection, &procs).await
-        {
+        let (mut sender, receiver) = match connect(&mut connection, &procs).await {
             Ok(pair) => {
                 info!("agent connected: {}", connection.url);
                 pair
@@ -245,13 +249,35 @@ pub async fn run(
 
         let mut sub = procs.subscribe();
 
+        let mut ping_interval = time::interval(PING_INTERVAL);
+
+        let mut receiver = tokio_stream::StreamExt::timeout_repeating(
+            receiver,
+            // Avoid the instant first tick from a standard interval
+            time::interval_at(time::Instant::now() + PONG_TIMEOUT, PONG_TIMEOUT),
+        );
+
         // Simultaneously wait for an incoming websocket message or a
         // notification, dispatching either.  Also watch for shutdown.
         while !done {
             tokio::select! {
-                ws_msg = receiver.next() => {
+                _ = ping_interval.tick()  => {
+                    if let Err(err) = sender.send(Message::Ping(vec![])).await {
+                        warn!("websocket ping error: {:?}", err);
+                        break;
+                    }
+                },
+                // We expected some type of websocket messages every pong_timeout interval
+                // because of the pings we're sending.
+                res = receiver.next() => {
+                    let ws_msg = match res {
+                        None => { warn!("msg stream end"); break },
+                        Some(Err(_)) => {warn!("timeout error after {:?}", PONG_TIMEOUT); break; }
+                        Some(Ok(ws_msg)) => ws_msg,
+                    };
+
                     match ws_msg {
-                        Some(Ok(Message::Close(_))) => {
+                        Ok(Message::Close(_)) => {
                             if let Err(err) = sender.close().await {
                                 warn!(
                                     "agent connection close error: {}: {:?}",
@@ -262,7 +288,7 @@ pub async fn run(
                             }
                             break;
                         }
-                        Some(Ok(msg)) => match handle(&procs, msg).await {
+                        Ok(msg) => match handle(&procs, msg).await {
                             Ok(Some(rsp))
                                 // Handling the incoming message produced a response;
                                 // send it back.
@@ -280,12 +306,8 @@ pub async fn run(
                                     break;
                                 },
                         },
-                        Some(Err(err)) => {
+                        Err(err) => {
                             warn!("msg receive error: {:?}", err);
-                            break;
-                        }
-                        None => {
-                            warn!("msg stream end");
                             break;
                         }
                     }

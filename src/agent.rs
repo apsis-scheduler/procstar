@@ -22,6 +22,7 @@ use crate::shutdown;
 //------------------------------------------------------------------------------
 
 const PING_INTERVAL: Duration = Duration::from_secs(20);
+const PONG_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -250,11 +251,10 @@ pub async fn run(
 
         let mut ping_interval = time::interval(PING_INTERVAL);
 
-        let pong_interval = PING_INTERVAL * 3;
         let mut receiver = tokio_stream::StreamExt::timeout_repeating(
             receiver,
             // Avoid the instant first tick from a standard interval
-            time::interval_at(time::Instant::now() + pong_interval, pong_interval),
+            time::interval_at(time::Instant::now() + PONG_TIMEOUT, PONG_TIMEOUT),
         );
 
         // Simultaneously wait for an incoming websocket message or a
@@ -272,7 +272,7 @@ pub async fn run(
                 res = receiver.next() => {
                     let ws_msg = match res {
                         None => { warn!("msg stream end"); break },
-                        Some(Err(_)) => {warn!("timeout error after {:?}", pong_interval); break; }
+                        Some(Err(_)) => {warn!("timeout error after {:?}", PONG_TIMEOUT); break; }
                         Some(Ok(ws_msg)) => ws_msg,
                     };
 

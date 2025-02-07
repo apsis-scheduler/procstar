@@ -1,6 +1,6 @@
 [package]
 name = "procstar"
-version = "0.4.3" # procstar
+version = "0.4.4" # procstar
 edition = "2021"
 authors = ["Alex Samuel <alex@alexsamuel.net>"]
 

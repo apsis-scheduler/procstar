@@ -10,10 +10,6 @@ from procstar.testing.agent import Assembly
 
 @pytest.mark.asyncio
 async def test_reconnect_timeout():
-    """
-    Test that reconnect timeout wont be set on live connections if agents concurrently
-    reconnect before the timeout would be set
-    """
     async with Assembly.start(counts={"default": 1}, reconnect_timeout=0) as asm:
         proc, _ = await asm.server.start(
             "proc", spec.make_proc(["/usr/bin/sleep", "1"])

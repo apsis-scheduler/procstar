@@ -23,6 +23,7 @@ use crate::shutdown;
 
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
+const REGISTER_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The read end of a split websocket.
 pub type SocketReceiver = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -106,37 +107,40 @@ async fn connect(
     procs: &SharedProcs,
 ) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector()?);
-    let (ws_stream, _) =
-        connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
-    let (mut sender, mut receiver) = ws_stream.split();
 
-    // Send a register message.
-    let register = OutgoingMessage::Register {
-        conn: connection.conn.clone(),
-        proc: connection.proc.clone(),
-        proc_ids: procs.get_proc_ids(),
-        access_token: get_access_token(),
-        shutdown_state: procs.get_shutdown(),
-    };
-    send(&mut sender, register).await?;
+    time::timeout(REGISTER_TIMEOUT, async {
+        let (ws_stream, _) =
+            connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
+        let (mut sender, mut receiver) = ws_stream.split();
 
-    // The first message we received should be Registered.
-    let msg = receiver.next().await;
-    match msg {
-        Some(Ok(Message::Binary(ref data))) => match deserialize(data)? {
-            IncomingMessage::Registered => Ok((sender, receiver)),
-            _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
-        },
-        Some(Ok(Message::Close(_))) => Err(proto::Error::WrongMessageType(
-            "websocket closed".to_owned(),
-        ))?,
-        Some(Ok(_)) => Err(proto::Error::WrongMessageType(format!(
-            "unexpected ws msg: {:?}",
-            msg
-        )))?,
-        Some(Err(err)) => Err(err)?,
-        None => Err(proto::Error::Close)?,
-    }
+        // Send a register message.
+        let register = OutgoingMessage::Register {
+            conn: connection.conn.clone(),
+            proc: connection.proc.clone(),
+            proc_ids: procs.get_proc_ids(),
+            access_token: get_access_token(),
+            shutdown_state: procs.get_shutdown(),
+        };
+        send(&mut sender, register).await?;
+
+        // The first message we received should be Registered.
+        let msg = receiver.next().await;
+        match msg {
+            Some(Ok(Message::Binary(ref data))) => match deserialize(data)? {
+                IncomingMessage::Registered => Ok((sender, receiver)),
+                _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
+            },
+            Some(Ok(Message::Close(_))) => Err(proto::Error::WrongMessageType(
+                "websocket closed".to_owned(),
+            ))?,
+            Some(Ok(_)) => Err(proto::Error::WrongMessageType(format!(
+                "unexpected ws msg: {:?}",
+                msg
+            )))?,
+            Some(Err(err)) => Err(err)?,
+            None => Err(proto::Error::Close)?,
+        }
+    }).await?
 }
 
 /// Constructs an outgoing message corresponding to a notification message.

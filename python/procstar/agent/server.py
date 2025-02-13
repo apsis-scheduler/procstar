@@ -12,7 +12,7 @@ import websockets.server
 from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from   . import DEFAULT_PORT
-from   .conn import Connections
+from   .conn import Connection, Connections
 from   .conn import choose_connection, wait_for_connection
 from   .exc import NoConnectionError
 from   .proc import Processes, Process, Result
@@ -64,6 +64,27 @@ def _expand_tls_cert(tls_cert):
         raise RuntimeError(f"missing TLS key: {key_path}")
 
     return cert_path, key_path
+
+
+# NOTE: the only reason why this function needs to be async is to make it more mockable
+# to reproduce a specific race condition
+async def maybe_set_reconnect_timeout(
+    *, reconnect_timeout, conn: Connection, on_timeout
+):
+    if reconnect_timeout is None:
+        return
+    # Conn may actually be open if the agently rapidly reconnected
+    # concurrently in a new ._serve_connection task. This prevents setting
+    # a timeout on connections that are actually live.
+    if conn.open:
+        logger.info(
+            f"not setting reconnect timeout: {conn.conn_id}: already reconnected"
+        )
+    else:
+        logger.info(
+            f"setting reconnect timeout: {conn.conn_id}: {reconnect_timeout} s"
+        )
+        conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
 
 
 class Server:
@@ -259,19 +280,23 @@ class Server:
 
             # Else don't drop the connection yet; the agent may reconnect.  But
             # we may add a timeout to do this.
-            elif reconnect_timeout is not None:
-                def on_timeout(conn):
-                    logger.warning(f"reconnect timed out: {conn_id}")
-                    assert self.connections._pop(conn_id) is conn
-                    # Let processes know that a connection timeout occurred.
-                    self.processes.on_message(conn, proto.ConnectionTimeout())
+            def on_timeout(conn):
+                if conn.open:
+                    # This case isn't expected to be hit without an unforseen
+                    # concurrency bug. Including to be extra defensive against timing
+                    # out live connections.
+                    logger.warning(
+                        "ignoring reconnect timeout because conn is open: {conn_id}"
+                    )
+                    return
+                logger.warning(f"reconnect timed out: {conn_id}")
+                assert self.connections._pop(conn_id) is conn
+                # Let processes know that a connection timeout occurred.
+                self.processes.on_message(conn, proto.ConnectionTimeout())
 
-                logging.info(
-                    "setting reconnect timeout: "
-                    f"{conn_id}: {reconnect_timeout} s"
-                )
-                conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
-
+            await maybe_set_reconnect_timeout(
+                reconnect_timeout=reconnect_timeout, conn=conn, on_timeout=on_timeout
+            )
 
     async def request_start(
             self,

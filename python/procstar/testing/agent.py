@@ -44,13 +44,15 @@ class Assembly:
     procstar instances connecting to it.
     """
 
-    def __init__(self, *, access_token=DEFAULT):
+    def __init__(self, *, access_token=DEFAULT, reconnect_timeout=None):
         """
         Does not start the websocket server or any procstar instances.
         """
         if access_token is DEFAULT:
             access_token = secrets.token_urlsafe(32)
         self.access_token = access_token
+
+        self.reconnect_timeout = reconnect_timeout
 
         # The procstar server.
         self.server = procstar.agent.server.Server()
@@ -84,10 +86,11 @@ class Assembly:
         # new port the first time, then keep using the same port, so procstar
         # instances can reconnect.
         self.ws_server = await self.server.run(
-            host        ="localhost",
-            port        =self.port,
-            tls_cert    =(TLS_CERT_PATH, TLS_KEY_PATH),
-            access_token=self.access_token,
+            host              ="localhost",
+            port              =self.port,
+            tls_cert          =(TLS_CERT_PATH, TLS_KEY_PATH),
+            access_token      =self.access_token,
+            reconnect_timeout =self.reconnect_timeout,
         )
         self.port = self.locs[0][1]
         logger.info(f"started on port {self.port}")
@@ -254,14 +257,16 @@ class Assembly:
 
     @classmethod
     @asynccontextmanager
-    async def start(cls, *, counts={"default": 1}, access_token=DEFAULT):
+    async def start(
+        cls, *, counts={"default": 1}, access_token=DEFAULT, reconnect_timeout=None,
+    ):
         """
         Async context manager for a ready-to-go assembly.
 
         Yields an assembley with procstar instances and the websocket server
         already started.  Shuts them down on exit.
         """
-        asm = cls(access_token=access_token)
+        asm = cls(access_token=access_token, reconnect_timeout=reconnect_timeout)
         await asm.start_server()
         await asm.start_procstars(counts)
         try:

@@ -76,15 +76,15 @@ async def maybe_set_reconnect_timeout(
     # Conn may actually be open if the agently rapidly reconnected
     # concurrently in a new ._serve_connection task. This prevents setting
     # a timeout on connections that are actually live.
-    if not conn.open:
+    if conn.open:
+        logger.info(
+            f"not setting reconnect timeout: {conn.conn_id}: already reconnected"
+        )
+    else:
         logger.info(
             f"setting reconnect timeout: {conn.conn_id}: {reconnect_timeout} s"
         )
         conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
-    else:
-        logger.info(
-            f"not setting reconnect timeout: {conn.conn_id}: already reconnected"
-        )
 
 
 class Server:

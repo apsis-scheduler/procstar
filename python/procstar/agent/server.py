@@ -66,6 +66,8 @@ def _expand_tls_cert(tls_cert):
     return cert_path, key_path
 
 
+# NOTE: the only reason why this function needs to be async is to make it more mockable
+# to reproduce a specific race condition
 async def maybe_set_reconnect_timeout(
     *, reconnect_timeout, conn: Connection, on_timeout
 ):

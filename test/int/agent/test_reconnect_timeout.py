@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 
 import pytest
 
@@ -12,7 +13,7 @@ from procstar.testing.agent import Assembly
 async def test_reconnect_timeout():
     async with Assembly.start(counts={"default": 1}, reconnect_timeout=0) as asm:
         proc, _ = await asm.server.start(
-            "proc", spec.make_proc(["/usr/bin/sleep", "1"])
+            "proc", spec.make_proc([shutil.which("sleep"), "1"])
         )
 
         # trigger a disconnection
@@ -31,7 +32,7 @@ async def test_reconnect_timeout_race(monkeypatch):
     """
     async with Assembly.start(counts={"default": 1}, reconnect_timeout=0) as asm:
         proc, _ = await asm.server.start(
-            "proc", spec.make_proc(["/usr/bin/sleep", "3"])
+            "proc", spec.make_proc([shutil.which("sleep"), "3"])
         )
 
         # trigger a disconnection

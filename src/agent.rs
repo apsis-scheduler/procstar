@@ -102,13 +102,33 @@ async fn send(sender: &mut SocketSender, msg: OutgoingMessage) -> Result<(), Err
     Ok(())
 }
 
+async fn receive(receiver: &mut SocketReceiver) -> Result<IncomingMessage, Error> {
+    let Some(value) = receiver.next().await else {
+        // websocket closed
+        return Err(proto::Error::Close)?;
+    };
+    let ws_msg = value?;
+
+    let procstar_msg = match ws_msg {
+        Message::Binary(ref data) => deserialize(data)?,
+        Message::Close(_) => Err(proto::Error::WrongMessageType(
+            "websocket closed".to_owned(),
+        ))?,
+        _ => Err(proto::Error::WrongMessageType(format!(
+            "unexpected ws msg: {:?}",
+            ws_msg
+        )))?,
+    };
+
+    Ok(procstar_msg)
+}
+
 async fn connect(
     connection: &mut Connection,
     procs: &SharedProcs,
 ) -> Result<(SocketSender, SocketReceiver), Error> {
     let connector = Connector::NativeTls(get_tls_connector()?);
-
-    time::timeout(REGISTER_TIMEOUT, async {
+    let register = async {
         let (ws_stream, _) =
             connect_async_tls_with_config(&connection.url, None, false, Some(connector)).await?;
         let (mut sender, mut receiver) = ws_stream.split();
@@ -124,24 +144,16 @@ async fn connect(
         send(&mut sender, register).await?;
 
         // The first message we received should be Registered.
-        let msg = receiver.next().await;
-        match msg {
-            Some(Ok(Message::Binary(ref data))) => match deserialize(data)? {
-                IncomingMessage::Registered => Ok((sender, receiver)),
-                _msg => Err(proto::Error::UnexpectedMessage(_msg))?,
-            },
-            Some(Ok(Message::Close(_))) => Err(proto::Error::WrongMessageType(
-                "websocket closed".to_owned(),
-            ))?,
-            Some(Ok(_)) => Err(proto::Error::WrongMessageType(format!(
-                "unexpected ws msg: {:?}",
-                msg
-            )))?,
-            Some(Err(err)) => Err(err)?,
-            None => Err(proto::Error::Close)?,
-        }
-    })
-    .await.unwrap_or(Err(Error::RegisterTimeout))
+        let msg = receive(&mut receiver).await?;
+        let IncomingMessage::Registered = msg else {
+            return Err(proto::Error::UnexpectedMessage(msg))?;
+        };
+
+        Ok((sender, receiver))
+    };
+    time::timeout(REGISTER_TIMEOUT, register)
+        .await
+        .unwrap_or(Err(Error::RegisterTimeout))
 }
 
 /// Constructs an outgoing message corresponding to a notification message.

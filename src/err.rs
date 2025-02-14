@@ -64,6 +64,7 @@ pub enum Error {
     Spec(spec::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
+    RegisterTimeout,
 }
 
 impl Error {
@@ -94,6 +95,7 @@ impl std::fmt::Display for Error {
             }
             Error::Spec(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
+            Error::RegisterTimeout => write!(f, "registration took too long"),
         }
     }
 }

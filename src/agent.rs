@@ -140,7 +140,8 @@ async fn connect(
             Some(Err(err)) => Err(err)?,
             None => Err(proto::Error::Close)?,
         }
-    }).await?
+    })
+    .await.unwrap_or(Err(Error::RegisterTimeout))
 }
 
 /// Constructs an outgoing message corresponding to a notification message.

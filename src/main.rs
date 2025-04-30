@@ -32,7 +32,8 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
             eprintln!("no agent server hostname; use --agent-host or set PROCSTAR_AGENT_HOST");
             std::process::exit(2);
         });
-        let url = url::Url::parse(&format!("wss://{}:{}", hostname, args.agent_port)).unwrap();
+        let port = proto::expand_port(args.agent_port);
+        let url = url::Url::parse(&format!("wss://{}:{}", hostname, port)).unwrap();
 
         let connection =
             agent::Connection::new(&url, args.conn_id.as_deref(), args.group_id.as_deref());

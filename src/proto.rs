@@ -37,13 +37,13 @@ pub fn expand_hostname(hostname: &Option<String>) -> Option<String> {
 }
 
 /// Expands the agent server port.
-pub fn expand_port(port: Option<u32>) -> Option<u32> {
+pub fn expand_port(port: Option<u32>) -> u32 {
     port.or_else(|| {
         getenv("PROCSTAR_AGENT_PORT").map(|p| {
             p.parse()
                 .unwrap_or_else(|err| panic!("invalid agent port: {}: {}", p, err))
         })
-    })
+    }).unwrap_or(DEFAULT_PORT)
 }
 
 pub fn get_default_conn_id() -> String {

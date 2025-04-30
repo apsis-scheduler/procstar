@@ -2,7 +2,6 @@ use clap::Parser;
 use std::time::Duration;
 
 use procstar::agent;
-use procstar::proto::DEFAULT_PORT;
 
 //------------------------------------------------------------------------------
 
@@ -60,8 +59,8 @@ pub struct Args {
     #[arg(long, value_name = "HOST")]
     pub agent_host: Option<String>,
     /// Connect as agent to PORT
-    #[arg(long, value_name = "PORT", default_value_t = DEFAULT_PORT)]
-    pub agent_port: u32,
+    #[arg(long, value_name = "PORT")]
+    pub agent_port: Option<u32>,
     /// Connection ID for agent connection; for debugging only
     #[arg(long, hide = true, value_name = "ID")]
     pub conn_id: Option<String>,

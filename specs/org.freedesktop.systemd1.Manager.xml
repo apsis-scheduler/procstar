@@ -1,3 +1,14 @@
+<!--
+Collected on RHEL 9.4 / systemd 252 with:
+
+busctl --system 
+       introspect \
+       org.freedesktop.systemd1 \
+       /org/freedesktop/systemd1 \
+       org.freedesktop.systemd1.Manager \
+       --xml-interface
+
+-->
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
 "https://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>

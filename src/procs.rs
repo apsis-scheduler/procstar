@@ -452,7 +452,11 @@ impl SharedProcs {
     }
 }
 
-async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver, systemd: SharedSystemdClient) {
+async fn wait_for_proc(
+    proc: SharedProc,
+    mut sigchld_receiver: SignalReceiver,
+    systemd: SharedSystemdClient,
+) {
     let pid = proc.borrow().pid;
 
     loop {
@@ -647,8 +651,19 @@ pub async fn start_procs(
                     .start_transient_unit(
                         UnitType::Slice,
                         &[
-                            UnitProperty::from(("MemoryMax", 2_u64 << 30)),
+                            UnitProperty::from(("MemoryMax", 1_u64 << 30)),
                             UnitProperty::from(("MemorySwapMax", 0_u64)),
+                        ],
+                    )
+                    .await
+                    .unwrap();
+
+                systemd
+                    .start_transient_unit(
+                        UnitType::Scope,
+                        &[
+                            UnitProperty::from(("Slice", &slice)),
+                            UnitProperty::from(("PIDs", vec![child_pid as u32])),
                         ],
                     )
                     .await

@@ -449,7 +449,7 @@ impl SharedProcs {
     }
 }
 
-async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
+async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver, systemd: SharedSystemdClient) {
     let pid = proc.borrow().pid;
 
     loop {
@@ -481,7 +481,12 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
 }
 
 /// Runs a recently-forked/execed process.
-async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe: ErrorPipe) {
+async fn run_proc(
+    proc: SharedProc,
+    sigchld_receiver: SignalReceiver,
+    error_pipe: ErrorPipe,
+    systemd: SharedSystemdClient,
+) {
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {
@@ -492,7 +497,7 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
         })
     };
 
-    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
+    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver, systemd));
 
     _ = error_task.await;
     _ = wait_task.await;
@@ -654,7 +659,7 @@ pub async fn start_procs(
                 procs.insert(proc_id.clone(), proc.clone());
 
                 // Build the task that awaits the process.
-                let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe);
+                let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe, systemd.clone());
                 // Let subscribers know when it terminates.
                 let fut = {
                     let procs = procs.clone();

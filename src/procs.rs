@@ -35,6 +35,7 @@ type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
+    pub slice: Option<String>,
 
     pub errors: Vec<String>,
 
@@ -51,12 +52,14 @@ pub struct Proc {
 impl Proc {
     pub fn new(
         pid: pid_t,
+        slice: Option<String>,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,
     ) -> Self {
         Self {
             pid,
+            slice,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
@@ -468,8 +471,14 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver, s
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            // Process terminated; update its stuff.
             let mut proc = proc.borrow_mut();
+
+            if let Some(ref slice) = proc.slice {
+                systemd.stop(slice).await.unwrap();
+                debug!("stopped slice: {}", slice);
+            };
+
+            // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
@@ -634,6 +643,17 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
+                let slice = systemd
+                    .start_transient_unit(
+                        UnitType::Slice,
+                        &[
+                            UnitProperty::from(("MemoryMax", 2_u64 << 30)),
+                            UnitProperty::from(("MemorySwapMax", 0_u64)),
+                        ],
+                    )
+                    .await
+                    .unwrap();
+
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();
                 let _fd_handler_tasks = fd_handlers
@@ -648,7 +668,13 @@ pub async fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, start_time, start_instant, fd_handlers);
+                let mut proc = Proc::new(
+                    child_pid,
+                    Some(slice),
+                    start_time,
+                    start_instant,
+                    fd_handlers,
+                );
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);

@@ -13,20 +13,22 @@ use procstar::shutdown;
 use procstar::shutdown::{install_signal_handler, SignalStyle};
 use procstar::sig::{SIGINT, SIGQUIT, SIGTERM, SIGUSR1};
 use procstar::spec;
+use procstar::systemd::api::{SharedSystemdClient, SystemdClient};
+use std::rc::Rc;
 
 //------------------------------------------------------------------------------
 
-async fn maybe_run_http(args: &argv::Args, procs: &SharedProcs) {
+async fn maybe_run_http(args: &argv::Args, procs: &SharedProcs, systemd: &SharedSystemdClient) {
     if args.serve {
         // Run the HTTP server until we receive a shutdown signal.
         tokio::select! {
-            res = http::run_http(procs.clone(), args.serve_port) => { res.unwrap() },
+            res = http::run_http(procs.clone(), args.serve_port, systemd) => { res.unwrap() },
             _ = procs.wait_for_shutdown() => {},
         }
     }
 }
 
-async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
+async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs, systemd: &SharedSystemdClient) {
     if args.agent {
         let hostname = proto::expand_hostname(&args.agent_host).unwrap_or_else(|| {
             eprintln!("no agent server hostname; use --agent-host or set PROCSTAR_AGENT_HOST");
@@ -40,7 +42,7 @@ async fn maybe_run_agent(args: &argv::Args, procs: &SharedProcs) {
 
         // Run the connection to the agent server.
         let mut run = std::pin::pin!(async {
-            if let Err(err) = agent::run(connection, procs.clone(), &cfg).await {
+            if let Err(err) = agent::run(connection, procs.clone(), &cfg, systemd.clone()).await {
                 error!("websocket connection failed: {err}");
                 std::process::exit(1);
             }
@@ -125,6 +127,8 @@ async fn main() {
         restrict_exe(exe);
     }
 
+    let systemd = Rc::new(SystemdClient::new().await.unwrap());
+
     // We run tokio in single-threaded mode.
     let local_set = tokio::task::LocalSet::new();
 
@@ -164,7 +168,7 @@ async fn main() {
     // LocalSet since it starts other tasks itself.
     if !input.specs.is_empty() {
         let _tasks = local_set
-            .run_until(start_procs(input.specs, &procs))
+            .run_until(start_procs(input.specs, &procs, &systemd))
             .await
             .unwrap_or_else(|err| {
                 error!("failed to start processes: {}", err);
@@ -184,8 +188,8 @@ async fn main() {
     local_set
         .run_until(async {
             tokio::join!(
-                maybe_run_http(&args, &procs),
-                maybe_run_agent(&args, &procs),
+                maybe_run_http(&args, &procs, &systemd),
+                maybe_run_agent(&args, &procs, &systemd),
                 maybe_run_until_exit(&args, &procs),
                 maybe_run_until_idle(&args, &procs),
             )

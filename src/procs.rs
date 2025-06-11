@@ -25,6 +25,8 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
+use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::manager::UnitProperty;
 
 //------------------------------------------------------------------------------
 
@@ -527,6 +529,7 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 pub async fn start_procs(
     specs: spec::Procs,
     procs: &SharedProcs,
+    systemd: &SharedSystemdClient,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {
     // Check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();

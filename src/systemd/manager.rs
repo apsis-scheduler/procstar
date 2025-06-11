@@ -19,8 +19,31 @@
 //!
 //! [Writing a client proxy]: https://dbus2.github.io/zbus/client.html
 //! [D-Bus standard interfaces]: https://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces,
-use zbus::proxy;
-#[proxy(interface = "org.freedesktop.systemd1.Manager", assume_defaults = true)]
+use serde::Serialize;
+use zbus::{proxy, zvariant};
+
+#[derive(Debug, zvariant::Type, Serialize)]
+pub struct UnitProperty<'a> {
+    pub name: String,
+    pub value: zvariant::Value<'a>,
+}
+
+impl<'a, T> From<(&str, T)> for UnitProperty<'a>
+where
+    T: Into<zvariant::Value<'a>>,
+{
+    fn from((name, value): (&str, T)) -> Self {
+        let name = name.to_owned();
+        let value = value.into();
+        Self { name, value }
+    }
+}
+
+#[proxy(
+    interface = "org.freedesktop.systemd1.Manager",
+    default_service = "org.freedesktop.systemd1",
+    default_path = "/org/freedesktop/systemd1"
+)]
 pub trait Manager {
     /// AbandonScope method
     fn abandon_scope(&self, name: &str) -> zbus::Result<()>;
@@ -467,7 +490,7 @@ pub trait Manager {
         &self,
         name: &str,
         mode: &str,
-        properties: &[&(&str, &zbus::zvariant::Value<'_>)],
+        properties: &[UnitProperty<'_>],
         aux: &[&(&str, &[&(&str, &zbus::zvariant::Value<'_>)])],
     ) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 

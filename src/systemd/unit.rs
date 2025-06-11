@@ -21,7 +21,7 @@
 //! [D-Bus standard interfaces]: https://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces,
 use zbus::proxy;
 #[proxy(
-    interface = "org.freedesktop.systemd1.Slice",
+    interface = "org.freedesktop.systemd1.Unit",
     default_service = "org.freedesktop.systemd1",
 )]
 pub trait Unit {

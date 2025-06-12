@@ -581,6 +581,7 @@ pub async fn start_procs(
             argv,
             env,
             fds,
+            systemd_properties,
             ..
         } = spec;
         let exe = get_exe(exe, &argv);
@@ -647,25 +648,19 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
+                let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
+                let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
+
                 let slice = systemd
-                    .start_transient_unit(
-                        UnitType::Slice,
-                        &[
-                            UnitProperty::from(("MemoryMax", 1_u64 << 30)),
-                            UnitProperty::from(("MemorySwapMax", 0_u64)),
-                        ],
-                    )
+                    .start_transient_unit(UnitType::Slice, &slice_properties)
                     .await
                     .unwrap();
 
+                scope_properties.push(UnitProperty::from(("PIDs", vec![child_pid as u32])));
+                scope_properties.push(UnitProperty::from(("Slice", &slice)));
+
                 systemd
-                    .start_transient_unit(
-                        UnitType::Scope,
-                        &[
-                            UnitProperty::from(("Slice", &slice)),
-                            UnitProperty::from(("PIDs", vec![child_pid as u32])),
-                        ],
-                    )
+                    .start_transient_unit(UnitType::Scope, &scope_properties)
                     .await
                     .unwrap();
 

@@ -10,6 +10,7 @@ use std::string::String;
 use std::vec::Vec;
 
 use crate::sys::fd_t;
+use crate::systemd::manager::UnitProperty;
 
 //------------------------------------------------------------------------------
 // Spec error
@@ -326,6 +327,113 @@ pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
 }
 
 //------------------------------------------------------------------------------
+// Systemd spec
+//------------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OOMPolicy {
+    Continue,
+    Stop,
+    Kill,
+}
+
+impl OOMPolicy {
+    fn as_str(&self) -> &'static str {
+        match self {
+            OOMPolicy::Continue => "continue",
+            OOMPolicy::Stop => "stop",
+            OOMPolicy::Kill => "kill",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Scope {
+    pub oom_policy: Option<OOMPolicy>,
+    pub runtime_max_usec: Option<u64>,
+    pub runtime_randomized_extra_usec: Option<u64>,
+}
+
+impl<'a> From<Scope> for Vec<UnitProperty<'a>> {
+    fn from(scope: Scope) -> Self {
+        let mut output: Vec<UnitProperty> = Vec::new();
+
+        if let Some(val) = scope.oom_policy {
+            output.push(UnitProperty::from(("OOMPolicy", val.as_str())));
+        }
+        if let Some(val) = scope.runtime_max_usec {
+            output.push(UnitProperty::from(("RuntimeMaxUSec", val)));
+        }
+        if let Some(val) = scope.runtime_randomized_extra_usec {
+            output.push(UnitProperty::from(("RuntimeRandomizedExtraUSec", val)));
+        }
+
+        output
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Slice {
+    pub memory_accounting: Option<bool>,
+    pub memory_min: Option<u64>,
+    pub memory_low: Option<u64>,
+    pub memory_high: Option<u64>,
+    pub memory_max: Option<u64>,
+    pub memory_swap_max: Option<u64>,
+    pub memory_zswap_max: Option<u64>,
+
+    pub tasks_accounting: Option<bool>,
+    pub tasks_max: Option<u64>,
+}
+
+impl<'a> From<Slice> for Vec<UnitProperty<'a>> {
+    fn from(slice: Slice) -> Self {
+        let mut output: Vec<UnitProperty> = Vec::new();
+
+        if let Some(val) = slice.memory_accounting {
+            output.push(UnitProperty::from(("MemoryAccounting", val)));
+        }
+        if let Some(val) = slice.memory_min {
+            output.push(UnitProperty::from(("MemoryMin", val)));
+        }
+        if let Some(val) = slice.memory_low {
+            output.push(UnitProperty::from(("MemoryLow", val)));
+        }
+        if let Some(val) = slice.memory_high {
+            output.push(UnitProperty::from(("MemoryHigh", val)));
+        }
+        if let Some(val) = slice.memory_max {
+            output.push(UnitProperty::from(("MemoryMax", val)));
+        }
+        if let Some(val) = slice.memory_swap_max {
+            output.push(UnitProperty::from(("MemorySwapMax", val)));
+        }
+        if let Some(val) = slice.memory_zswap_max {
+            output.push(UnitProperty::from(("MemoryZSwapMax", val)));
+        }
+
+        if let Some(val) = slice.tasks_accounting {
+            output.push(UnitProperty::from(("TasksAccounting", val)));
+        }
+        if let Some(val) = slice.tasks_max {
+            output.push(UnitProperty::from(("TasksMax", val)));
+        }
+
+        output
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SystemdProperties {
+    pub scope: Scope,
+    pub slice: Slice,
+}
+
+//------------------------------------------------------------------------------
 // Process spec
 //------------------------------------------------------------------------------
 
@@ -338,6 +446,7 @@ pub struct Proc {
     pub argv: Vec<String>,
     pub env: Env,
     pub fds: Vec<(FdName, Fd)>,
+    pub systemd_properties: SystemdProperties,
 }
 
 pub type Procs = BTreeMap<ProcId, Proc>;

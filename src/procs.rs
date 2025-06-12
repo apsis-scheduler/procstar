@@ -653,16 +653,14 @@ pub async fn start_procs(
 
                 let slice = systemd
                     .start_transient_unit(UnitType::Slice, &slice_properties)
-                    .await
-                    .unwrap();
+                    .await?;
 
                 scope_properties.push(UnitProperty::from(("PIDs", vec![child_pid as u32])));
                 scope_properties.push(UnitProperty::from(("Slice", &slice)));
 
                 systemd
                     .start_transient_unit(UnitType::Scope, &scope_properties)
-                    .await
-                    .unwrap();
+                    .await?;
 
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();

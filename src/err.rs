@@ -63,6 +63,8 @@ pub enum Error {
     ShuttingDown(shutdown::State),
     /// Wraps a proc spec error.
     Spec(spec::Error),
+    /// Wraps a systemd zbus error.
+    Systemd(zbus::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
 }
@@ -95,6 +97,7 @@ impl std::fmt::Display for Error {
                 write!(f, "agent shutting down: {}", shutdown_state)
             }
             Error::Spec(ref err) => err.fmt(f),
+            Error::Systemd(ref err) => write!(f, "error with systemd: {}", err),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }
@@ -145,6 +148,12 @@ impl From<rmp_serde::encode::Error> for Error {
 impl From<spec::Error> for Error {
     fn from(err: spec::Error) -> Error {
         Error::Spec(err)
+    }
+}
+
+impl From<zbus::Error> for Error {
+    fn from(err: zbus::Error) -> Error {
+        Error::Systemd(err)
     }
 }
 

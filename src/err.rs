@@ -54,6 +54,7 @@ pub enum Error {
     ProcRunning(ProcId),
     /// Protocol error.
     Proto(proto::Error),
+    RegisterTimeout,
     /// Wraps a RMP (MessagePack) decoding error.
     RMPDecode(rmp_serde::decode::Error),
     /// Wraps a RMP (MessagePack) encoding error.
@@ -64,7 +65,6 @@ pub enum Error {
     Spec(spec::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
-    RegisterTimeout,
 }
 
 impl Error {
@@ -88,6 +88,7 @@ impl std::fmt::Display for Error {
             Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
             Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
             Error::Proto(ref err) => err.fmt(f),
+            Error::RegisterTimeout => write!(f, "registration took too long"),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
             Error::ShuttingDown(shutdown_state) => {
@@ -95,7 +96,6 @@ impl std::fmt::Display for Error {
             }
             Error::Spec(ref err) => err.fmt(f),
             Error::Websocket(ref err) => err.fmt(f),
-            Error::RegisterTimeout => write!(f, "registration took too long"),
         }
     }
 }

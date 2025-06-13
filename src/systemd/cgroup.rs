@@ -5,10 +5,20 @@
 
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 fn load_scalar(path: &PathBuf) -> Result<String, std::io::Error> {
     Ok(std::fs::read_to_string(path)?.trim().to_owned())
+}
+
+fn load_flat_keyed(path: &PathBuf) -> Result<HashMap<String, String>, std::io::Error> {
+    let contents = std::fs::read_to_string(path)?.trim().to_owned();
+    Ok(contents
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .chunks(2)
+        .filter_map(|pair| (pair.len() == 2).then(|| (pair[0].to_owned(), pair[1].to_owned())))
+        .collect())
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -19,9 +29,28 @@ struct CPUStat {
     // below are only available when cpu controller is enabled
     pub nr_periods: Option<u64>,
     pub nr_throttled: Option<u64>,
-    pub nr_throttled_usec: Option<u64>,
+    pub throttled_usec: Option<u64>,
     pub nr_bursts: Option<u64>,
     pub burst_usec: Option<u64>,
+}
+
+impl CPUStat {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+        let mapping = load_flat_keyed(&cgroup_path.join("cpu.stat"))?;
+        Ok(Self {
+            usage_usec: mapping.get("usage_usec").unwrap().parse().unwrap(),
+            user_usec: mapping.get("user_usec").unwrap().parse().unwrap(),
+            system_usec: mapping.get("system_usec").unwrap().parse().unwrap(),
+            // optional, only available if cpu controller is enabled
+            nr_periods: mapping.get("nr_periods").map(|val| val.parse().unwrap()),
+            nr_throttled: mapping.get("nr_throttled").map(|val| val.parse().unwrap()),
+            throttled_usec: mapping
+                .get("throttled_usec")
+                .map(|val| val.parse().unwrap()),
+            nr_bursts: mapping.get("nr_bursts").map(|val| val.parse().unwrap()),
+            burst_usec: mapping.get("burst_usec").map(|val| val.parse().unwrap()),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -30,7 +59,6 @@ struct Memory {
     pub peak: u64,
     pub swap_current: u64,
     pub swap_peak: u64,
-    // TODO: include memory.swap.*
 }
 
 impl Memory {
@@ -48,14 +76,14 @@ impl Memory {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CGroupAccounting {
-    cpu: Option<CPUStat>,
+    cpu_stat: Option<CPUStat>,
     memory: Option<Memory>,
 }
 
 impl CGroupAccounting {
     pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
         Ok(CGroupAccounting {
-            cpu: None,
+            cpu_stat: Some(CPUStat::load(cgroup_path)?),
             memory: Some(Memory::load(cgroup_path)?),
         })
     }

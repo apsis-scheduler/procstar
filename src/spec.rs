@@ -383,7 +383,6 @@ pub struct Slice {
     pub memory_high: Option<u64>,
     pub memory_max: Option<u64>,
     pub memory_swap_max: Option<u64>,
-    pub memory_zswap_max: Option<u64>,
 
     pub tasks_accounting: Option<bool>,
     pub tasks_max: Option<u64>,
@@ -410,9 +409,6 @@ impl<'a> From<Slice> for Vec<UnitProperty<'a>> {
         }
         if let Some(val) = slice.memory_swap_max {
             output.push(UnitProperty::from(("MemorySwapMax", val)));
-        }
-        if let Some(val) = slice.memory_zswap_max {
-            output.push(UnitProperty::from(("MemoryZSwapMax", val)));
         }
 
         if let Some(val) = slice.tasks_accounting {

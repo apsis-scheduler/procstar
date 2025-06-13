@@ -26,6 +26,7 @@ use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
 use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::cgroup::CGroupAccounting;
 use crate::systemd::manager::UnitProperty;
 
 //------------------------------------------------------------------------------
@@ -45,6 +46,7 @@ pub struct Proc {
 
     pub wait_info: Option<WaitInfo>,
     pub proc_stat: Option<ProcStat>,
+    pub cgroup_accounting: Option<CGroupAccounting>,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -63,6 +65,7 @@ impl Proc {
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
+            cgroup_accounting: None,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -151,6 +154,7 @@ impl Proc {
             pid: self.pid,
             proc_stat,
             proc_statm,
+            cgroup_accounting: self.cgroup_accounting.clone(),
             times,
             status,
             rusage,
@@ -477,15 +481,28 @@ async fn wait_for_proc(
 
             let mut proc = proc.borrow_mut();
 
-            if let Some(ref slice) = proc.slice {
-                systemd.stop(slice).await.unwrap();
-                debug!("stopped slice: {}", slice);
-            };
+            let mut cgroup_accounting: Option<CGroupAccounting> = None;
+
+            if let Some(slice) = &proc.slice {
+                match systemd.get_slice_cgroup_path(slice).await {
+                    Ok(cgroup_path) => {
+                        cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path)
+                    }
+                    Err(err) => error!("getting slice {} cgroup failed: {}", slice, err),
+                };
+
+                debug!("stopping slice: {}", slice);
+                systemd
+                    .stop(&slice)
+                    .await
+                    .unwrap_or_else(|err| error!("stop slice failed {}: {}", slice, err));
+            }
 
             // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
+            proc.cgroup_accounting = cgroup_accounting;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;

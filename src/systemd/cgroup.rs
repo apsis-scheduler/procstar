@@ -1,7 +1,4 @@
-// Should these include settable values of the controllers themselves?
-// What is the hierarchy and naming convention?
-// FIXME: error handling
-// - create enum with various error types e.g. (OS error, parsing error)
+// TODO: load other interesting accounting files
 
 use log::error;
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,6 @@
 use super::manager::{ManagerProxy, UnitProperty};
 use super::slice::SliceProxy;
+use log::debug;
 use std::path::PathBuf;
 use std::rc::Rc;
 use uuid::Uuid;
@@ -67,4 +68,19 @@ impl SystemdClient {
     }
 }
 
-pub type SharedSystemdClient = Rc<SystemdClient> ;
+pub type SharedSystemdClient = Rc<SystemdClient>;
+
+pub async fn maybe_connect() -> Option<SystemdClient> {
+    let systemd = SystemdClient::new()
+        .await
+        .map_err(|err| {
+            debug!("unable to create systemd client: {err}");
+        })
+        .ok()?;
+
+    if !std::fs::metadata(PathBuf::from(CGROUP_ROOT).join("cgroup.controllers")).is_ok() {
+        debug!("cgroup v2 hierarchy not detected");
+        return None;
+    }
+    Some(systemd)
+}

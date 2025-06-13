@@ -101,7 +101,7 @@ async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> JsonResult {
 }
 
 /// Handles `POST /procs`.
-async fn procs_post(procs: SharedProcs, input: Input, systemd: &SharedSystemdClient) -> JsonResult {
+async fn procs_post(procs: SharedProcs, input: Input, systemd: Option<&SharedSystemdClient>) -> JsonResult {
     // FIXME: Check duplicate proc IDs.
     if let Err(err) = start_procs(input.specs, &procs, systemd).await {
         Err(RspError::bad_request(&err.to_string()))
@@ -192,7 +192,7 @@ impl Router {
         }
     }
 
-    async fn dispatch(&self, req: Req, procs: SharedProcs, systemd: SharedSystemdClient) -> Rsp {
+    async fn dispatch(&self, req: Req, procs: SharedProcs, systemd: Option<SharedSystemdClient>) -> Rsp {
         let (parts, body) = req.into_parts();
         match self.router.at(parts.uri.path()) {
             Ok(m) => {
@@ -206,7 +206,7 @@ impl Router {
                             Ok(input) => input,
                             Err(error) => return json_response(Err(error)),
                         };
-                        json_response(procs_post(procs, input, &systemd).await)
+                        json_response(procs_post(procs, input, systemd.as_ref()).await)
                     }
                     (1, Method::GET) => json_response(procs_id_get(procs, param("id")).await),
                     (1, Method::DELETE) => json_response(procs_id_delete(procs, param("id")).await),
@@ -235,7 +235,7 @@ impl Router {
 pub async fn run_http(
     procs: SharedProcs,
     port: u16,
-    systemd: &SharedSystemdClient,
+    systemd: Option<&SharedSystemdClient>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
 
@@ -251,7 +251,7 @@ pub async fn run_http(
         let (stream, _) = listener.accept().await?;
         let procs = procs.clone();
         let router = router.clone();
-        let systemd = systemd.clone();
+        let systemd = systemd.map(|rc| rc.clone());
 
         let service = hyper::service::service_fn(move |req: Req| {
             let procs = procs.clone();

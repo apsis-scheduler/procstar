@@ -22,6 +22,22 @@ fn load_flat_keyed(path: &PathBuf) -> Result<HashMap<String, String>, std::io::E
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+struct Pids {
+    pub current: u64,
+    pub peak: u64,
+}
+
+impl Pids {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+        let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
+        Ok(Self {
+            current: load_scalar("pids.current")?.parse().unwrap(),
+            peak: load_scalar("pids.peak")?.parse().unwrap(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct CPUStat {
     pub usage_usec: u64,
     pub user_usec: u64,
@@ -76,6 +92,7 @@ impl Memory {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CGroupAccounting {
+    pids: Option<Pids>,
     cpu_stat: Option<CPUStat>,
     memory: Option<Memory>,
 }
@@ -83,6 +100,7 @@ pub struct CGroupAccounting {
 impl CGroupAccounting {
     pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
         Ok(CGroupAccounting {
+            pids: Some(Pids::load(cgroup_path)?),
             cpu_stat: Some(CPUStat::load(cgroup_path)?),
             memory: Some(Memory::load(cgroup_path)?),
         })

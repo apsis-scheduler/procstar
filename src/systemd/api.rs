@@ -1,4 +1,3 @@
-use super::cgroup::ResourceAccounting;
 use super::manager::{ManagerProxy, UnitProperty};
 use super::slice::SliceProxy;
 use std::path::PathBuf;
@@ -60,14 +59,6 @@ impl SystemdClient {
         let slice_proxy = SliceProxy::new(&self.connection, &unit_path).await?;
         let cgroup_rel = slice_proxy.control_group().await?;
         Ok(PathBuf::from(CGROUP_ROOT).join(cgroup_rel.trim_start_matches("/")))
-    }
-
-    pub async fn read_cgroup_accounting(
-        &self,
-        name: &str,
-    ) -> Result<ResourceAccounting, zbus::Error> {
-        let cgroup_path = self.get_slice_cgroup_path(name).await?;
-        Ok(ResourceAccounting::read(&cgroup_path))
     }
 
     pub async fn stop(&self, name: &str) -> Result<(), zbus::Error> {

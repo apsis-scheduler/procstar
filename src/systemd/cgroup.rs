@@ -3,19 +3,15 @@
 // FIXME: error handling
 // - create enum with various error types e.g. (OS error, parsing error)
 
+use log::error;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::str::FromStr;
 
-fn parse_scalar<T>(input: &str) -> T
-where
-    T: FromStr,
-    <T as FromStr>::Err: std::fmt::Debug,
-{
-    // What do we do if there is a parse error? We could just return 0
-    input.trim().parse::<T>().unwrap()
+fn load_scalar(path: &PathBuf) -> Result<String, std::io::Error> {
+    Ok(std::fs::read_to_string(path)?.trim().to_owned())
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct CPUStat {
     pub usage_usec: u64,
     pub user_usec: u64,
@@ -28,35 +24,48 @@ struct CPUStat {
     pub burst_usec: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct Memory {
     pub current: u64,
     pub peak: u64,
+    pub swap_current: u64,
+    pub swap_peak: u64,
     // TODO: include memory.swap.*
 }
 
 impl Memory {
-    pub fn read(cgroup_path: &PathBuf) -> Self {
-        Memory {
-            current: parse_scalar(
-                &std::fs::read_to_string(cgroup_path.join("memory.current")).unwrap(),
-            ),
-            peak: parse_scalar(&std::fs::read_to_string(cgroup_path.join("memory.peak")).unwrap()),
-        }
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+        let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
+
+        Ok(Memory {
+            current: load_scalar("memory.current")?.parse().unwrap(),
+            peak: load_scalar("memory.peak")?.parse().unwrap(),
+            swap_current: load_scalar("memory.swap.current")?.parse().unwrap(),
+            swap_peak: load_scalar("memory.swap.peak")?.parse().unwrap(),
+        })
     }
 }
 
-#[derive(Debug)]
-pub struct ResourceAccounting {
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct CGroupAccounting {
     cpu: Option<CPUStat>,
     memory: Option<Memory>,
 }
 
-impl ResourceAccounting {
-    pub fn read(cgroup_path: &PathBuf) -> Self {
-        ResourceAccounting {
+impl CGroupAccounting {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+        Ok(CGroupAccounting {
             cpu: None,
-            memory: Some(Memory::read(cgroup_path)),
-        }
+            memory: Some(Memory::load(cgroup_path)?),
+        })
+    }
+
+    pub fn load_or_log(cgroup_path: &PathBuf) -> Option<Self> {
+        Self::load(cgroup_path)
+            .or_else(|err| {
+                error!("failed to load accounting for {}", cgroup_path.display());
+                Err(err)
+            })
+            .ok()
     }
 }

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use futures_util::future::FutureExt;
 use libc::pid_t;
 use log::*;
+use nix::sys::eventfd::{EfdFlags, EventFd};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
@@ -609,6 +610,12 @@ pub async fn start_procs(
             std::process::exit(1);
         });
 
+        let exec_ready_event = EventFd::from_value_and_flags(0, EfdFlags::EFD_CLOEXEC)
+            .unwrap_or_else(|err| {
+                error!("failed to create eventfd: {}", err);
+                std::process::exit(1);
+            });
+
         let fd_handlers = fds
             .into_iter()
             .map(|(fd_str, fd_spec)| fd::make_fd_handler(&proc_id, fd_str, fd_spec, &mut pipes))
@@ -649,6 +656,11 @@ pub async fn start_procs(
                     ok_to_exec = false;
                 }
 
+                if let Err(err) = exec_ready_event.read() {
+                    error_writer.try_write(format!("read eventfd failed: {}", err));
+                    ok_to_exec = false;
+                }
+
                 if ok_to_exec {
                     // execve() only returns with an error; on success, the program is
                     // replaced.
@@ -678,6 +690,8 @@ pub async fn start_procs(
                 systemd
                     .start_transient_unit(UnitType::Scope, &scope_properties)
                     .await?;
+
+                exec_ready_event.write(1_u64).unwrap();
 
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();

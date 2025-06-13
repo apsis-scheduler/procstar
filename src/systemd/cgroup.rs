@@ -2,20 +2,55 @@
 
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, fmt, io, path::PathBuf, str::FromStr};
 
-fn load_scalar(path: &PathBuf) -> Result<String, std::io::Error> {
-    Ok(std::fs::read_to_string(path)?.trim().to_owned())
+pub enum Error {
+    Io(std::io::Error),
+    Parse(PathBuf),
 }
 
-fn load_flat_keyed(path: &PathBuf) -> Result<HashMap<String, String>, std::io::Error> {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Io(err) => err.fmt(f),
+            Error::Parse(target) => f.write_str(&format!("failed to parse: {target:?}")),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
+    }
+}
+
+fn load_scalar<T: FromStr>(path: &PathBuf) -> Result<T, Error> {
+    std::fs::read_to_string(path)?
+        .trim()
+        .parse()
+        .map_err(|_| Error::Parse(path.file_name().map_or(PathBuf::from(""), PathBuf::from)))
+}
+
+fn load_flat_keyed<T: FromStr>(path: &PathBuf) -> Result<HashMap<String, T>, Error> {
     let contents = std::fs::read_to_string(path)?.trim().to_owned();
-    Ok(contents
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .chunks(2)
-        .filter_map(|pair| (pair.len() == 2).then(|| (pair[0].to_owned(), pair[1].to_owned())))
-        .collect())
+    let mut tokens = contents.split_whitespace();
+    let mut output = HashMap::new();
+
+    while let (Some(k), Some(v)) = (tokens.next(), tokens.next()) {
+        if let Ok(value) = v.parse::<T>() {
+            output.insert(k.to_owned(), value);
+        } else {
+            return Err(Error::Parse(
+                path.file_name().map_or(PathBuf::from(""), PathBuf::from),
+            ));
+        };
+    }
+
+    if tokens.next().is_some() {
+        Err(Error::Parse(path.to_path_buf()))
+    } else {
+        Ok(output)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -25,11 +60,11 @@ struct Pids {
 }
 
 impl Pids {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
         let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
         Ok(Self {
-            current: load_scalar("pids.current")?.parse().unwrap(),
-            peak: load_scalar("pids.peak")?.parse().unwrap(),
+            current: load_scalar("pids.current")?,
+            peak: load_scalar("pids.peak")?,
         })
     }
 }
@@ -48,20 +83,18 @@ struct CPUStat {
 }
 
 impl CPUStat {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
-        let mapping = load_flat_keyed(&cgroup_path.join("cpu.stat"))?;
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
+        let mut mapping: HashMap<String, u64> = load_flat_keyed(&cgroup_path.join("cpu.stat"))?;
         Ok(Self {
-            usage_usec: mapping.get("usage_usec").unwrap().parse().unwrap(),
-            user_usec: mapping.get("user_usec").unwrap().parse().unwrap(),
-            system_usec: mapping.get("system_usec").unwrap().parse().unwrap(),
+            usage_usec: mapping.remove("usage_usec").unwrap(),
+            user_usec: mapping.remove("user_usec").unwrap(),
+            system_usec: mapping.remove("system_usec").unwrap(),
             // optional, only available if cpu controller is enabled
-            nr_periods: mapping.get("nr_periods").map(|val| val.parse().unwrap()),
-            nr_throttled: mapping.get("nr_throttled").map(|val| val.parse().unwrap()),
-            throttled_usec: mapping
-                .get("throttled_usec")
-                .map(|val| val.parse().unwrap()),
-            nr_bursts: mapping.get("nr_bursts").map(|val| val.parse().unwrap()),
-            burst_usec: mapping.get("burst_usec").map(|val| val.parse().unwrap()),
+            nr_periods: mapping.remove("nr_periods"),
+            nr_throttled: mapping.remove("nr_throttled"),
+            throttled_usec: mapping.remove("throttled_usec"),
+            nr_bursts: mapping.remove("nr_bursts"),
+            burst_usec: mapping.remove("burst_usec"),
         })
     }
 }
@@ -75,14 +108,14 @@ struct Memory {
 }
 
 impl Memory {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
         let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
 
         Ok(Memory {
-            current: load_scalar("memory.current")?.parse().unwrap(),
-            peak: load_scalar("memory.peak")?.parse().unwrap(),
-            swap_current: load_scalar("memory.swap.current")?.parse().unwrap(),
-            swap_peak: load_scalar("memory.swap.peak")?.parse().unwrap(),
+            current: load_scalar("memory.current")?,
+            peak: load_scalar("memory.peak")?,
+            swap_current: load_scalar("memory.swap.current")?,
+            swap_peak: load_scalar("memory.swap.peak")?,
         })
     }
 }
@@ -95,7 +128,7 @@ pub struct CGroupAccounting {
 }
 
 impl CGroupAccounting {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, std::io::Error> {
+    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
         Ok(CGroupAccounting {
             pids: Some(Pids::load(cgroup_path)?),
             cpu_stat: Some(CPUStat::load(cgroup_path)?),

@@ -13,7 +13,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Io(err) => err.fmt(f),
-            Error::Parse(target) => f.write_str(&format!("failed to parse: {target:?}")),
+            Error::Parse(target) => write!(f, "failed to parse: {target:?}"),
         }
     }
 }

@@ -69,7 +69,7 @@ fn serialize(msg: &OutgoingMessage) -> Result<Vec<u8>, Error> {
 async fn handle(
     procs: &SharedProcs,
     msg: Message,
-    systemd: Option<&SharedSystemdClient>,
+    systemd: Option<SharedSystemdClient>,
 ) -> Result<Option<Message>, Error> {
     match msg {
         Message::Binary(ref data) => {
@@ -312,7 +312,7 @@ pub async fn run(
                             }
                             break;
                         }
-                        Ok(msg) => match handle(&procs, msg, systemd.as_ref()).await {
+                        Ok(msg) => match handle(&procs, msg, systemd.clone()).await {
                             Ok(Some(rsp))
                                 // Handling the incoming message produced a response;
                                 // send it back.

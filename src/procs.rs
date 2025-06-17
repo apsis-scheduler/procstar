@@ -567,7 +567,7 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 pub async fn start_procs(
     specs: spec::Procs,
     procs: &SharedProcs,
-    systemd: Option<&SharedSystemdClient>,
+    systemd: Option<SharedSystemdClient>,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {
     // Check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
@@ -682,7 +682,7 @@ pub async fn start_procs(
                 let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
                 let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
 
-                let slice = if let Some(systemd) = systemd {
+                let slice = if let Some(ref systemd) = systemd {
                     let slice = systemd
                         .start_transient_unit(UnitType::Slice, &slice_properties)
                         .await?;
@@ -726,12 +726,7 @@ pub async fn start_procs(
                 procs.insert(proc_id.clone(), proc.clone());
 
                 // Build the task that awaits the process.
-                let fut = run_proc(
-                    proc,
-                    sigchld_receiver.clone(),
-                    error_pipe,
-                    systemd.map(Rc::clone),
-                );
+                let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe, systemd.clone());
                 // Let subscribers know when it terminates.
                 let fut = {
                     let procs = procs.clone();

@@ -21,7 +21,7 @@ use std::rc::Rc;
 async fn maybe_run_http(
     args: &argv::Args,
     procs: &SharedProcs,
-    systemd: Option<&SharedSystemdClient>,
+    systemd: Option<SharedSystemdClient>,
 ) {
     if args.serve {
         // Run the HTTP server until we receive a shutdown signal.
@@ -35,7 +35,7 @@ async fn maybe_run_http(
 async fn maybe_run_agent(
     args: &argv::Args,
     procs: &SharedProcs,
-    systemd: Option<&SharedSystemdClient>,
+    systemd: Option<SharedSystemdClient>,
 ) {
     if args.agent {
         let hostname = proto::expand_hostname(&args.agent_host).unwrap_or_else(|| {
@@ -50,9 +50,7 @@ async fn maybe_run_agent(
 
         // Run the connection to the agent server.
         let mut run = std::pin::pin!(async {
-            if let Err(err) =
-                agent::run(connection, procs.clone(), &cfg, systemd.map(Rc::clone)).await
-            {
+            if let Err(err) = agent::run(connection, procs.clone(), &cfg, systemd.clone()).await {
                 error!("websocket connection failed: {err}");
                 std::process::exit(1);
             }
@@ -184,7 +182,7 @@ async fn main() {
     // LocalSet since it starts other tasks itself.
     if !input.specs.is_empty() {
         let _tasks = local_set
-            .run_until(start_procs(input.specs, &procs, systemd.as_ref()))
+            .run_until(start_procs(input.specs, &procs, systemd.clone()))
             .await
             .unwrap_or_else(|err| {
                 error!("failed to start processes: {}", err);
@@ -204,8 +202,8 @@ async fn main() {
     local_set
         .run_until(async {
             tokio::join!(
-                maybe_run_http(&args, &procs, systemd.as_ref()),
-                maybe_run_agent(&args, &procs, systemd.as_ref()),
+                maybe_run_http(&args, &procs, systemd.clone()),
+                maybe_run_agent(&args, &procs, systemd.clone()),
                 maybe_run_until_exit(&args, &procs),
                 maybe_run_until_idle(&args, &procs),
             )

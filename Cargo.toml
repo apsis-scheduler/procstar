@@ -38,6 +38,7 @@ tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
 tungstenite = "*"
 url = "*"
 uuid = { version = "1.4", features = ["v4", "fast-rng"] }
+zbus = { version = "5.7.1", features = ["tokio"] }
 
 # [[bin]]
 # name = "pipeclose"

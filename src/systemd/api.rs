@@ -3,15 +3,11 @@ use super::slice::SliceProxy;
 use log::debug;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::LazyLock;
 use uuid::Uuid;
 
-// need a way stop a slice
-// Do we need a UnitProxy also to get unit specific properties
-// FIXME: error handling
-// Create an enum with zbus:Error and cgroup accounting error
-
 // TODO: make this portable
-const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+static CGROUP_ROOT: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("/sys/fs/cgroup"));
 
 #[derive(Debug)]
 pub enum UnitType {
@@ -59,7 +55,7 @@ impl SystemdClient {
         let unit_path = self.manager_proxy.get_unit(name).await?;
         let slice_proxy = SliceProxy::new(&self.connection, &unit_path).await?;
         let cgroup_rel = slice_proxy.control_group().await?;
-        Ok(PathBuf::from(CGROUP_ROOT).join(cgroup_rel.trim_start_matches("/")))
+        Ok(CGROUP_ROOT.join(cgroup_rel.trim_start_matches("/")))
     }
 
     pub async fn stop(&self, name: &str) -> Result<(), zbus::Error> {
@@ -78,7 +74,7 @@ pub async fn maybe_connect() -> Option<SystemdClient> {
         })
         .ok()?;
 
-    if !std::fs::metadata(PathBuf::from(CGROUP_ROOT).join("cgroup.controllers")).is_ok() {
+    if !std::fs::metadata(CGROUP_ROOT.join("cgroup.controllers")).is_ok() {
         debug!("cgroup v2 hierarchy not detected");
         return None;
     }

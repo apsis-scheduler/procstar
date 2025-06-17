@@ -34,10 +34,12 @@ use crate::systemd::manager::UnitProperty;
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
+type Slice = String;
+
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
-    pub slice: Option<String>,
+    pub slice: Option<Slice>,
 
     pub errors: Vec<String>,
 
@@ -559,6 +561,32 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 
 //------------------------------------------------------------------------------
 
+async fn set_up_slice(
+    pid: u32,
+    systemd_properties: spec::SystemdProperties,
+    systemd: Option<SharedSystemdClient>,
+) -> Result<Option<Slice>, Error> {
+    let Some(systemd) = systemd else {
+        return Ok(None);
+    };
+
+    let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
+    let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
+
+    let slice = systemd
+        .start_transient_unit(UnitType::Slice, &slice_properties)
+        .await?;
+
+    scope_properties.push(UnitProperty::from(("PIDs", vec![pid])));
+    scope_properties.push(UnitProperty::from(("Slice", &slice)));
+
+    systemd
+        .start_transient_unit(UnitType::Scope, &scope_properties)
+        .await?;
+
+    Ok(Some(slice))
+}
+
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
 ///
@@ -679,25 +707,8 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
-                let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
-                let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
-
-                let slice = if let Some(ref systemd) = systemd {
-                    let slice = systemd
-                        .start_transient_unit(UnitType::Slice, &slice_properties)
-                        .await?;
-
-                    scope_properties.push(UnitProperty::from(("PIDs", vec![child_pid as u32])));
-                    scope_properties.push(UnitProperty::from(("Slice", &slice)));
-
-                    systemd
-                        .start_transient_unit(UnitType::Scope, &scope_properties)
-                        .await?;
-
-                    Some(slice)
-                } else {
-                    None
-                };
+                let slice =
+                    set_up_slice(child_pid as u32, systemd_properties, systemd.clone()).await?;
 
                 exec_ready_event.write(1_u64).unwrap();
 

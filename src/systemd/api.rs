@@ -1,5 +1,6 @@
 use super::manager::{ManagerProxy, UnitProperty};
 use super::slice::SliceProxy;
+use futures_util::StreamExt;
 use log::debug;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -44,9 +45,22 @@ impl SystemdClient {
         properties: &[UnitProperty<'_>],
     ) -> Result<String, zbus::Error> {
         let name = generate_unit_name(unit_type);
-        self.manager_proxy
+
+        let mut removed_stream = self.manager_proxy.receive_job_removed().await?;
+
+        // request to start unit
+        let job_path = self
+            .manager_proxy
             .start_transient_unit(&name, "replace", properties, &[])
             .await?;
+
+        // wait for request to actually complete
+        while let Some(job_removed) = removed_stream.next().await {
+            let args = job_removed.args()?;
+            if *job_path == *args.job() {
+                break;
+            }
+        }
         Ok(name)
     }
 

@@ -84,11 +84,18 @@ struct CPUStat {
 
 impl CPUStat {
     pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
-        let mut mapping: HashMap<String, u64> = load_flat_keyed(&cgroup_path.join("cpu.stat"))?;
+        let stat_rel = PathBuf::from("cpu.stat");
+        let mut mapping: HashMap<String, u64> = load_flat_keyed(&cgroup_path.join(&stat_rel))?;
         Ok(Self {
-            usage_usec: mapping.remove("usage_usec").unwrap(),
-            user_usec: mapping.remove("user_usec").unwrap(),
-            system_usec: mapping.remove("system_usec").unwrap(),
+            usage_usec: mapping
+                .remove("usage_usec")
+                .ok_or(Error::Parse(stat_rel.clone()))?,
+            user_usec: mapping
+                .remove("user_usec")
+                .ok_or(Error::Parse(stat_rel.clone()))?,
+            system_usec: mapping
+                .remove("system_usec")
+                .ok_or(Error::Parse(stat_rel.clone()))?,
             // optional, only available if cpu controller is enabled
             nr_periods: mapping.remove("nr_periods"),
             nr_throttled: mapping.remove("nr_throttled"),

@@ -33,24 +33,23 @@ fn load_scalar<T: FromStr>(path: &PathBuf) -> Result<T, Error> {
 
 fn load_flat_keyed<T: FromStr>(path: &PathBuf) -> Result<HashMap<String, T>, Error> {
     let contents = std::fs::read_to_string(path)?.trim().to_owned();
-    let mut tokens = contents.split_whitespace();
     let mut output = HashMap::new();
 
-    while let (Some(k), Some(v)) = (tokens.next(), tokens.next()) {
-        if let Ok(value) = v.parse::<T>() {
-            output.insert(k.to_owned(), value);
+    let name = path.file_name().map_or(PathBuf::from(""), PathBuf::from);
+
+    for line in contents.lines() {
+        let mut parts = line.split_whitespace();
+        if let (Some(k), Ok(v)) = (
+            parts.next(),
+            parts.next().ok_or(Error::Parse(name.clone()))?.parse::<T>(),
+        ) {
+            output.insert(k.to_owned(), v);
         } else {
-            return Err(Error::Parse(
-                path.file_name().map_or(PathBuf::from(""), PathBuf::from),
-            ));
-        };
+            return Err(Error::Parse(name.clone()));
+        }
     }
 
-    if tokens.next().is_some() {
-        Err(Error::Parse(path.to_path_buf()))
-    } else {
-        Ok(output)
-    }
+    return Ok(output);
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

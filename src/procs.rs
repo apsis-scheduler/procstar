@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use futures_util::future::FutureExt;
 use libc::pid_t;
 use log::*;
+use nix::sys::eventfd::{EfdFlags, EventFd};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
@@ -25,14 +26,20 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
+use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::cgroup::CGroupAccounting;
+use crate::systemd::manager::UnitProperty;
 
 //------------------------------------------------------------------------------
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
+type Slice = String;
+
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
+    pub slice: Option<Slice>,
 
     pub errors: Vec<String>,
 
@@ -42,6 +49,7 @@ pub struct Proc {
 
     pub wait_info: Option<WaitInfo>,
     pub proc_stat: Option<ProcStat>,
+    pub cgroup_accounting: Option<CGroupAccounting>,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -49,15 +57,18 @@ pub struct Proc {
 impl Proc {
     pub fn new(
         pid: pid_t,
+        slice: Option<String>,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,
     ) -> Self {
         Self {
             pid,
+            slice,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
+            cgroup_accounting: None,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -146,6 +157,7 @@ impl Proc {
             pid: self.pid,
             proc_stat,
             proc_statm,
+            cgroup_accounting: self.cgroup_accounting.clone(),
             times,
             status,
             rusage,
@@ -470,11 +482,32 @@ async fn wait_for_proc(
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            // Process terminated; update its stuff.
             let mut proc = proc.borrow_mut();
+
+            let mut cgroup_accounting: Option<CGroupAccounting> = None;
+
+            if let Some(systemd) = systemd {
+                if let Some(slice) = &proc.slice {
+                    match systemd.get_slice_cgroup_path(slice).await {
+                        Ok(cgroup_path) => {
+                            cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path)
+                        }
+                        Err(err) => error!("getting slice {} cgroup failed: {}", slice, err),
+                    };
+
+                    debug!("stopping slice: {}", slice);
+                    systemd
+                        .stop(&slice)
+                        .await
+                        .unwrap_or_else(|err| error!("stop slice failed {}: {}", slice, err));
+                }
+            };
+
+            // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
+            proc.cgroup_accounting = cgroup_accounting;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
@@ -528,6 +561,32 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 
 //------------------------------------------------------------------------------
 
+async fn set_up_slice(
+    pid: u32,
+    systemd_properties: spec::SystemdProperties,
+    systemd: Option<SharedSystemdClient>,
+) -> Result<Option<Slice>, Error> {
+    let Some(systemd) = systemd else {
+        return Ok(None);
+    };
+
+    let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
+    let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
+
+    let slice = systemd
+        .start_transient_unit(UnitType::Slice, &slice_properties)
+        .await?;
+
+    scope_properties.push(UnitProperty::from(("PIDs", vec![pid])));
+    scope_properties.push(UnitProperty::from(("Slice", &slice)));
+
+    systemd
+        .start_transient_unit(UnitType::Scope, &scope_properties)
+        .await?;
+
+    Ok(Some(slice))
+}
+
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
 ///
@@ -570,6 +629,7 @@ pub async fn start_procs(
             argv,
             env,
             fds,
+            systemd_properties,
             ..
         } = spec;
         let exe = get_exe(exe, &argv);
@@ -579,6 +639,12 @@ pub async fn start_procs(
             error!("failed to create pipe: {}", err);
             std::process::exit(1);
         });
+
+        let exec_ready_event = EventFd::from_value_and_flags(0, EfdFlags::EFD_CLOEXEC)
+            .unwrap_or_else(|err| {
+                error!("failed to create eventfd: {}", err);
+                std::process::exit(1);
+            });
 
         let fd_handlers = fds
             .into_iter()
@@ -620,6 +686,11 @@ pub async fn start_procs(
                     ok_to_exec = false;
                 }
 
+                if let Err(err) = exec_ready_event.read() {
+                    error_writer.try_write(format!("read eventfd failed: {}", err));
+                    ok_to_exec = false;
+                }
+
                 if ok_to_exec {
                     // execve() only returns with an error; on success, the program is
                     // replaced.
@@ -636,6 +707,11 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
+                let slice =
+                    set_up_slice(child_pid as u32, systemd_properties, systemd.clone()).await?;
+
+                exec_ready_event.write(1_u64).unwrap();
+
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();
                 let _fd_handler_tasks = fd_handlers
@@ -650,7 +726,7 @@ pub async fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, start_time, start_instant, fd_handlers);
+                let mut proc = Proc::new(child_pid, slice, start_time, start_instant, fd_handlers);
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);

@@ -10,6 +10,7 @@ use crate::sig;
 use crate::spec::{CaptureEncoding, FdName, ProcId};
 use crate::state::State;
 use crate::string::elide;
+use crate::systemd::cgroup::CGroupAccounting;
 
 //------------------------------------------------------------------------------
 
@@ -222,6 +223,9 @@ pub struct ProcRes {
 
     /// Recent memory usage, if the process has not terminated.
     pub proc_statm: Option<ProcStatm>,
+
+    /// Accounting information read from the cgroup filesystem.
+    pub cgroup_accounting: Option<CGroupAccounting>,
 
     /// Process timing.
     pub times: Times,

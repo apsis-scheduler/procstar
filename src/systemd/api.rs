@@ -88,7 +88,7 @@ pub async fn maybe_connect() -> Option<SystemdClient> {
         })
         .ok()?;
 
-    if !std::fs::metadata(CGROUP_ROOT.join("cgroup.controllers")).is_ok() {
+    if !CGROUP_ROOT.join("cgroup.controllers").is_file() {
         debug!("cgroup v2 hierarchy not detected");
         return None;
     }

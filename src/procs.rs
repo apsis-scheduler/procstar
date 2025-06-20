@@ -524,7 +524,7 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 ///
 /// Because this function starts tasks with `spawn_local`, it must be run within
 /// a `LocalSet`.
-pub fn start_procs(
+pub async fn start_procs(
     specs: spec::Procs,
     procs: &SharedProcs,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {

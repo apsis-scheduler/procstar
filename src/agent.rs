@@ -18,6 +18,7 @@ use crate::procs::{get_restricted_exe, Notification, SharedProcs};
 use crate::proto;
 use crate::proto::{ConnectionInfo, IncomingMessage, OutgoingMessage};
 use crate::shutdown;
+use crate::systemd::api::SharedSystemdClient;
 
 //------------------------------------------------------------------------------
 
@@ -65,13 +66,17 @@ fn serialize(msg: &OutgoingMessage) -> Result<Vec<u8>, Error> {
 }
 
 /// Handler for incoming messages on a websocket client connection.
-async fn handle(procs: &SharedProcs, msg: Message) -> Result<Option<Message>, Error> {
+async fn handle(
+    procs: &SharedProcs,
+    msg: Message,
+    systemd: Option<SharedSystemdClient>,
+) -> Result<Option<Message>, Error> {
     match msg {
         Message::Binary(ref data) => {
             match deserialize(data) {
                 Ok(msg) => {
                     trace!("< {:?}", msg);
-                    if let Some(rsp) = proto::handle_incoming(procs, msg).await {
+                    if let Some(rsp) = proto::handle_incoming(procs, msg, systemd).await {
                         // FIXME: ProcResult is too big to log.
                         trace!("> {:?}", rsp);
                         Ok(Some(Message::Binary(serialize(&rsp)?)))
@@ -218,6 +223,7 @@ pub async fn run(
     mut connection: Connection,
     procs: SharedProcs,
     cfg: &ConnectConfig,
+    systemd: Option<SharedSystemdClient>,
 ) -> Result<(), Error> {
     info!("agent starting: {}", connection.url);
 
@@ -284,6 +290,7 @@ pub async fn run(
                         break;
                     }
                 },
+
                 // We expected some type of websocket messages every pong_timeout interval
                 // because of the pings we're sending.
                 res = receiver.next() => {
@@ -305,7 +312,7 @@ pub async fn run(
                             }
                             break;
                         }
-                        Ok(msg) => match handle(&procs, msg).await {
+                        Ok(msg) => match handle(&procs, msg, systemd.clone()).await {
                             Ok(Some(rsp))
                                 // Handling the incoming message produced a response;
                                 // send it back.

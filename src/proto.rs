@@ -12,6 +12,7 @@ use crate::sig::Signum;
 use crate::spec;
 use crate::spec::{parse_fd, CaptureEncoding, FdName, ProcId};
 use crate::sys::getenv;
+use crate::systemd::api::SharedSystemdClient;
 
 //------------------------------------------------------------------------------
 
@@ -183,7 +184,11 @@ fn incoming_error(msg: IncomingMessage, err: &str) -> OutgoingMessage {
     }
 }
 
-pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Option<OutgoingMessage> {
+pub async fn handle_incoming(
+    procs: &SharedProcs,
+    msg: IncomingMessage,
+    systemd: Option<SharedSystemdClient>,
+) -> Option<OutgoingMessage> {
     match msg {
         IncomingMessage::Registered => Some(OutgoingMessage::RequestError {
             msg,
@@ -191,7 +196,7 @@ pub async fn handle_incoming(procs: &SharedProcs, msg: IncomingMessage) -> Optio
         }),
 
         IncomingMessage::ProcStartRequest { ref specs } => {
-            if let Err(err) = start_procs(specs.clone(), procs) {
+            if let Err(err) = start_procs(specs.clone(), procs, systemd).await {
                 Some(OutgoingMessage::RequestError {
                     msg: msg.clone(),
                     err: err.to_string(),

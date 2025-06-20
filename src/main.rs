@@ -135,6 +135,14 @@ async fn main() {
         restrict_exe(exe);
     }
 
+    let systemd = if let Some(client) = maybe_connect().await {
+        info!("systemd available");
+        Some(Rc::new(client))
+    } else {
+        warn!("user systemd with cgroups v2 unavailable");
+        None
+    };
+
     // We run tokio in single-threaded mode.
     let local_set = tokio::task::LocalSet::new();
 

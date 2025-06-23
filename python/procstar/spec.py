@@ -201,12 +201,73 @@ class Proc:
                     "fd": self.__fd,
                 }
 
+    class SystemdProperties:
+        class Scope:
+            def __init__(
+                self,
+                oom_policy: str | None = None,
+                runtime_max_usec: int | None = None,
+                runtime_randomized_extra_usec: int | None = None,
+            ):
+                self.__oom_policy = oom_policy
+                self.__runtime_max_usec = runtime_max_usec
+                self.__runtime_randomized_usec = runtime_randomized_extra_usec
+
+            def to_jso(self):
+                return {
+                    "oom_policy": self.__oom_policy,
+                    "runtime_max_usec": self.__runtime_max_usec,
+                    "runtime_randomized_extra_usec": self.__runtime_randomized_usec
+                }
+
+        class Slice:
+            def __init__(
+                self,
+                memory_accounting: bool | None = None,
+                memory_min: int | None = None,
+                memory_low: int | None = None,
+                memory_high: int | None = None,
+                memory_max: int | None = None,
+                memory_swap_max: int | None = None,
+                tasks_accounting: bool | None = None,
+                tasks_max: int | None = None,
+            ):
+                self.__memory_accounting = memory_accounting
+                self.__memory_min = memory_min
+                self.__memory_low = memory_low
+                self.__memory_high = memory_high
+                self.__memory_max = memory_max
+                self.__memory_swap_max = memory_swap_max
+                self.__tasks_accounting = tasks_accounting
+                self.__tasks_max = tasks_max
+
+            def to_jso(self):
+                return {
+                    "memory_accounting": self.__memory_accounting,
+                    "memory_min": self.__memory_min,
+                    "memory_low": self.__memory_low,
+                    "memory_high": self.__memory_high,
+                    "memory_max": self.__memory_max,
+                    "memory_swap_max": self.__memory_swap_max,
+                    "tasks_accounting": self.__tasks_accounting,
+                    "tasks_max": self.__tasks_max,
+                }
+
+        def __init__(self, scope=Scope(), slice=Slice()):
+            self.__scope = scope
+            self.__slice = slice
+
+        def to_jso(self):
+            return {"scope": self.__scope.to_jso(), "slice": self.__slice.to_jso()}
 
 
-    def __init__(self, argv, *, env=Env(), fds={}):
+    def __init__(
+        self, argv, *, env=Env(), fds={}, systemd_properties=SystemdProperties()
+    ):
         self.__argv = tuple( str(a) for a in argv )
         self.__env  = env
         self.__fds = dict(fds)
+        self.__systemd_properties = systemd_properties
 
 
     def to_jso(self):
@@ -214,6 +275,7 @@ class Proc:
             "argv"  : self.__argv,
             "env"   : self.__env.to_jso(),
             "fds"   : [ (n, f.to_jso()) for n, f in self.__fds.items() ],
+            "systemd_properties": self.__systemd_properties.to_jso(),
         }
 
 

@@ -459,6 +459,29 @@ impl SharedProcs {
     }
 }
 
+async fn finalize_slice(
+    slice: Option<&String>,
+    systemd: Option<SharedSystemdClient>,
+) -> Option<CGroupAccounting> {
+    let systemd = systemd?;
+    let slice = slice?;
+
+    let cgroup_path = systemd
+        .get_slice_cgroup_path(slice)
+        .await
+        .map_err(|e| error!("getting slice {slice} cgroup failed: {e}"))
+        .ok()?;
+    let cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path);
+
+    debug!("stopping slice: {}", slice);
+    systemd
+        .stop(&slice)
+        .await
+        .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
+
+    cgroup_accounting
+}
+
 async fn wait_for_proc(
     proc: SharedProc,
     mut sigchld_receiver: SignalReceiver,
@@ -484,24 +507,7 @@ async fn wait_for_proc(
 
             let mut proc = proc.borrow_mut();
 
-            let mut cgroup_accounting: Option<CGroupAccounting> = None;
-
-            if let Some(systemd) = systemd {
-                if let Some(slice) = &proc.slice {
-                    match systemd.get_slice_cgroup_path(slice).await {
-                        Ok(cgroup_path) => {
-                            cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path)
-                        }
-                        Err(err) => error!("getting slice {} cgroup failed: {}", slice, err),
-                    };
-
-                    debug!("stopping slice: {}", slice);
-                    systemd
-                        .stop(&slice)
-                        .await
-                        .unwrap_or_else(|err| error!("stop slice failed {}: {}", slice, err));
-                }
-            };
+            let cgroup_accounting = finalize_slice(proc.slice.as_ref(), systemd).await;
 
             // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());

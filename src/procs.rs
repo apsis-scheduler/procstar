@@ -475,7 +475,7 @@ async fn finalize_slice(
 
     debug!("stopping slice: {}", slice);
     systemd
-        .stop(&slice)
+        .stop(slice)
         .await
         .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
 

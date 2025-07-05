@@ -57,7 +57,7 @@ pub struct Proc {
 impl Proc {
     pub fn new(
         pid: pid_t,
-        slice: Option<String>,
+        slice: Option<Slice>,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,

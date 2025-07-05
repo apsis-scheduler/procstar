@@ -262,7 +262,7 @@ class Proc:
 
 
     def __init__(
-        self, argv, *, env=Env(), fds={}, systemd_properties=SystemdProperties()
+        self, argv, *, env=Env(), fds={}, systemd_properties=None,
     ):
         self.__argv = tuple( str(a) for a in argv )
         self.__env  = env
@@ -272,11 +272,16 @@ class Proc:
 
     def to_jso(self):
         return {
-            "argv"  : self.__argv,
-            "env"   : self.__env.to_jso(),
-            "fds"   : [ (n, f.to_jso()) for n, f in self.__fds.items() ],
-            "systemd_properties": self.__systemd_properties.to_jso(),
-        }
+            "argv": self.__argv,
+            "env": self.__env.to_jso(),
+            "fds": [(n, f.to_jso()) for n, f in self.__fds.items()],
+        } | (
+            {}
+            if self.__systemd_properties is None
+            # only insert systemd_properties field if its explicitly set to remain
+            # compatible with agents that don't yet support it
+            else {"systemd_properties": self.__systemd_properties.to_jso()}
+        )
 
 
 

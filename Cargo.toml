@@ -26,6 +26,7 @@ libc = "0.2"
 log = "0.4"
 matchit = "0.7"
 native-tls = { version = "*", features = ["vendored"] }
+nix = { version = "0.30.1", features = ["event"] }
 rmp-serde = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"

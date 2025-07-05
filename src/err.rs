@@ -54,6 +54,7 @@ pub enum Error {
     ProcRunning(ProcId),
     /// Protocol error.
     Proto(proto::Error),
+    RegisterTimeout,
     /// Wraps a RMP (MessagePack) decoding error.
     RMPDecode(rmp_serde::decode::Error),
     /// Wraps a RMP (MessagePack) encoding error.
@@ -62,9 +63,10 @@ pub enum Error {
     ShuttingDown(shutdown::State),
     /// Wraps a proc spec error.
     Spec(spec::Error),
+    /// Wraps a systemd zbus error.
+    Systemd(zbus::Error),
     /// Wraps a WebSocket connection error.
     Websocket(tokio_tungstenite::tungstenite::error::Error),
-    RegisterTimeout,
 }
 
 impl Error {
@@ -88,14 +90,15 @@ impl std::fmt::Display for Error {
             Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
             Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
             Error::Proto(ref err) => err.fmt(f),
+            Error::RegisterTimeout => write!(f, "registration took too long"),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
             Error::ShuttingDown(shutdown_state) => {
                 write!(f, "agent shutting down: {}", shutdown_state)
             }
             Error::Spec(ref err) => err.fmt(f),
+            Error::Systemd(ref err) => write!(f, "error with systemd: {}", err),
             Error::Websocket(ref err) => err.fmt(f),
-            Error::RegisterTimeout => write!(f, "registration took too long"),
         }
     }
 }
@@ -145,6 +148,12 @@ impl From<rmp_serde::encode::Error> for Error {
 impl From<spec::Error> for Error {
     fn from(err: spec::Error) -> Error {
         Error::Spec(err)
+    }
+}
+
+impl From<zbus::Error> for Error {
+    fn from(err: zbus::Error) -> Error {
+        Error::Systemd(err)
     }
 }
 

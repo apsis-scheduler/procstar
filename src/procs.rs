@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use futures_util::future::FutureExt;
 use libc::pid_t;
 use log::*;
+use nix::sys::eventfd::{EfdFlags, EventFd};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::os::fd::RawFd;
@@ -25,14 +26,20 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
+use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::cgroup::CGroupAccounting;
+use crate::systemd::manager::UnitProperty;
 
 //------------------------------------------------------------------------------
 
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
+type Slice = String;
+
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
+    pub slice: Option<Slice>,
 
     pub errors: Vec<String>,
 
@@ -42,6 +49,7 @@ pub struct Proc {
 
     pub wait_info: Option<WaitInfo>,
     pub proc_stat: Option<ProcStat>,
+    pub cgroup_accounting: Option<CGroupAccounting>,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -49,15 +57,18 @@ pub struct Proc {
 impl Proc {
     pub fn new(
         pid: pid_t,
+        slice: Option<Slice>,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,
     ) -> Self {
         Self {
             pid,
+            slice,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
+            cgroup_accounting: None,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -146,6 +157,7 @@ impl Proc {
             pid: self.pid,
             proc_stat,
             proc_statm,
+            cgroup_accounting: self.cgroup_accounting.clone(),
             times,
             status,
             rusage,
@@ -447,7 +459,34 @@ impl SharedProcs {
     }
 }
 
-async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
+async fn finalize_slice(
+    slice: Option<&String>,
+    systemd: Option<SharedSystemdClient>,
+) -> Option<CGroupAccounting> {
+    let systemd = systemd?;
+    let slice = slice?;
+
+    let cgroup_path = systemd
+        .get_slice_cgroup_path(slice)
+        .await
+        .map_err(|e| error!("getting slice {slice} cgroup failed: {e}"))
+        .ok()?;
+    let cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path);
+
+    debug!("stopping slice: {}", slice);
+    systemd
+        .stop(slice)
+        .await
+        .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
+
+    cgroup_accounting
+}
+
+async fn wait_for_proc(
+    proc: SharedProc,
+    mut sigchld_receiver: SignalReceiver,
+    systemd: Option<SharedSystemdClient>,
+) {
     let pid = proc.borrow().pid;
 
     loop {
@@ -466,11 +505,15 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            // Process terminated; update its stuff.
             let mut proc = proc.borrow_mut();
+
+            let cgroup_accounting = finalize_slice(proc.slice.as_ref(), systemd).await;
+
+            // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
+            proc.cgroup_accounting = cgroup_accounting;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
@@ -479,7 +522,12 @@ async fn wait_for_proc(proc: SharedProc, mut sigchld_receiver: SignalReceiver) {
 }
 
 /// Runs a recently-forked/execed process.
-async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe: ErrorPipe) {
+async fn run_proc(
+    proc: SharedProc,
+    sigchld_receiver: SignalReceiver,
+    error_pipe: ErrorPipe,
+    systemd: Option<SharedSystemdClient>,
+) {
     // FIXME: Error pipe should append directly to errors, so that they are
     // available earlier.
     let error_task = {
@@ -490,7 +538,7 @@ async fn run_proc(proc: SharedProc, sigchld_receiver: SignalReceiver, error_pipe
         })
     };
 
-    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver));
+    let wait_task = tokio::task::spawn_local(wait_for_proc(proc, sigchld_receiver, systemd));
 
     _ = error_task.await;
     _ = wait_task.await;
@@ -519,14 +567,41 @@ fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
 
 //------------------------------------------------------------------------------
 
+async fn set_up_slice(
+    pid: u32,
+    systemd_properties: spec::SystemdProperties,
+    systemd: Option<SharedSystemdClient>,
+) -> Result<Option<Slice>, Error> {
+    let Some(systemd) = systemd else {
+        return Ok(None);
+    };
+
+    let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
+    let mut scope_properties: Vec<UnitProperty> = systemd_properties.scope.into();
+
+    let slice = systemd
+        .start_transient_unit(UnitType::Slice, &slice_properties)
+        .await?;
+
+    scope_properties.push(UnitProperty::from(("PIDs", vec![pid])));
+    scope_properties.push(UnitProperty::from(("Slice", &slice)));
+
+    systemd
+        .start_transient_unit(UnitType::Scope, &scope_properties)
+        .await?;
+
+    Ok(Some(slice))
+}
+
 /// Starts zero or more new processes.  `input` maps new proc IDs to
 /// corresponding process specs.  All proc IDs must be unused.
 ///
 /// Because this function starts tasks with `spawn_local`, it must be run within
 /// a `LocalSet`.
-pub fn start_procs(
+pub async fn start_procs(
     specs: spec::Procs,
     procs: &SharedProcs,
+    systemd: Option<SharedSystemdClient>,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, Error> {
     // Check that proc IDs aren't already in use.
     let old_proc_ids = procs.get_proc_ids::<HashSet<_>>();
@@ -560,6 +635,7 @@ pub fn start_procs(
             argv,
             env,
             fds,
+            systemd_properties,
             ..
         } = spec;
         let exe = get_exe(exe, &argv);
@@ -569,6 +645,12 @@ pub fn start_procs(
             error!("failed to create pipe: {}", err);
             std::process::exit(1);
         });
+
+        let exec_ready_event = EventFd::from_value_and_flags(0, EfdFlags::EFD_CLOEXEC)
+            .unwrap_or_else(|err| {
+                error!("failed to create eventfd: {}", err);
+                std::process::exit(1);
+            });
 
         let fd_handlers = fds
             .into_iter()
@@ -610,6 +692,11 @@ pub fn start_procs(
                     ok_to_exec = false;
                 }
 
+                if let Err(err) = exec_ready_event.read() {
+                    error_writer.try_write(format!("read eventfd failed: {}", err));
+                    ok_to_exec = false;
+                }
+
                 if ok_to_exec {
                     // execve() only returns with an error; on success, the program is
                     // replaced.
@@ -626,6 +713,11 @@ pub fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
+                let slice =
+                    set_up_slice(child_pid as u32, systemd_properties, systemd.clone()).await?;
+
+                exec_ready_event.write(1_u64).unwrap();
+
                 // FIXME: What do we do with these tasks?  We should await them later.
                 let mut fd_errs: Vec<String> = Vec::new();
                 let _fd_handler_tasks = fd_handlers
@@ -640,7 +732,7 @@ pub fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, start_time, start_instant, fd_handlers);
+                let mut proc = Proc::new(child_pid, slice, start_time, start_instant, fd_handlers);
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);
@@ -651,7 +743,7 @@ pub fn start_procs(
                 procs.insert(proc_id.clone(), proc.clone());
 
                 // Build the task that awaits the process.
-                let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe);
+                let fut = run_proc(proc, sigchld_receiver.clone(), error_pipe, systemd.clone());
                 // Let subscribers know when it terminates.
                 let fut = {
                     let procs = procs.clone();

@@ -11,6 +11,7 @@ use crate::fd::FdData;
 use crate::procs::{start_procs, SharedProcs};
 use crate::sig::parse_signum;
 use crate::spec::{parse_fd, CaptureEncoding, Input, ProcId};
+use crate::systemd::api::SharedSystemdClient;
 
 //------------------------------------------------------------------------------
 
@@ -100,9 +101,13 @@ async fn procs_id_delete(procs: SharedProcs, proc_id: &str) -> JsonResult {
 }
 
 /// Handles `POST /procs`.
-async fn procs_post(procs: SharedProcs, input: Input) -> JsonResult {
+async fn procs_post(
+    procs: SharedProcs,
+    input: Input,
+    systemd: Option<SharedSystemdClient>,
+) -> JsonResult {
     // FIXME: Check duplicate proc IDs.
-    if let Err(err) = start_procs(input.specs, &procs) {
+    if let Err(err) = start_procs(input.specs, &procs, systemd).await {
         Err(RspError::bad_request(&err.to_string()))
     } else {
         Ok(json!({
@@ -191,7 +196,12 @@ impl Router {
         }
     }
 
-    async fn dispatch(&self, req: Req, procs: SharedProcs) -> Rsp {
+    async fn dispatch(
+        &self,
+        req: Req,
+        procs: SharedProcs,
+        systemd: Option<SharedSystemdClient>,
+    ) -> Rsp {
         let (parts, body) = req.into_parts();
         match self.router.at(parts.uri.path()) {
             Ok(m) => {
@@ -205,7 +215,7 @@ impl Router {
                             Ok(input) => input,
                             Err(error) => return json_response(Err(error)),
                         };
-                        json_response(procs_post(procs, input).await)
+                        json_response(procs_post(procs, input, systemd).await)
                     }
                     (1, Method::GET) => json_response(procs_id_get(procs, param("id")).await),
                     (1, Method::DELETE) => json_response(procs_id_delete(procs, param("id")).await),
@@ -231,7 +241,11 @@ impl Router {
 //------------------------------------------------------------------------------
 
 /// Runs the HTTP service.
-pub async fn run_http(procs: SharedProcs, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_http(
+    procs: SharedProcs,
+    port: u16,
+    systemd: Option<SharedSystemdClient>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -246,12 +260,14 @@ pub async fn run_http(procs: SharedProcs, port: u16) -> Result<(), Box<dyn std::
         let (stream, _) = listener.accept().await?;
         let procs = procs.clone();
         let router = router.clone();
+        let systemd = systemd.clone();
 
         let service = hyper::service::service_fn(move |req: Req| {
             let procs = procs.clone();
             let router = router.clone();
+            let systemd = systemd.clone();
             async move {
-                let rsp = router.dispatch(req, procs).await;
+                let rsp = router.dispatch(req, procs, systemd).await;
                 // FIXME: https://jsonapi.org/format
                 Ok::<Rsp, hyper::Error>(rsp)
             }

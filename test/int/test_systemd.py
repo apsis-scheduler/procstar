@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from procstar.spec import Proc
 from procstar.testing.proc import run1
 from procstar.testing import systemd
 
@@ -51,3 +52,15 @@ def test_unavailable():
         }
     )
     assert res["cgroup_accounting"] is None
+
+
+def test_backward_compatibility():
+    """
+    Double check that a spec that doesn't mention systemd is still compatible with
+    old agents that don't yet have systemd features.
+    """
+    assert not "systemd_properties" in Proc(["/usr/bin/true"]).to_jso()
+    assert (
+        "systemd_properties"
+        in Proc(["/usr/bin/true"], systemd_properties=Proc.SystemdProperties()).to_jso()
+    )

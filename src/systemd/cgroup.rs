@@ -37,24 +37,22 @@ fn load_scalar<T: FromStr>(path: &PathBuf) -> Result<T, Error> {
     std::fs::read_to_string(path)?
         .trim()
         .parse()
-        .map_err(|_| Error::Parse(path.file_name().map_or(PathBuf::from(""), PathBuf::from)))
+        .map_err(|_| Error::Parse(path.clone()))
 }
 
 fn load_flat_keyed<T: FromStr>(path: &PathBuf) -> Result<HashMap<String, T>, Error> {
     let contents = std::fs::read_to_string(path)?.trim().to_owned();
     let mut output = HashMap::new();
 
-    let name = path.file_name().map_or(PathBuf::from(""), PathBuf::from);
-
     for line in contents.lines() {
         let mut parts = line.split_whitespace();
         if let (Some(k), Ok(v)) = (
             parts.next(),
-            parts.next().ok_or(Error::Parse(name.clone()))?.parse::<T>(),
+            parts.next().ok_or(Error::Parse(path.clone()))?.parse::<T>(),
         ) {
             output.insert(k.to_owned(), v);
         } else {
-            return Err(Error::Parse(name.clone()));
+            return Err(Error::Parse(path.clone()));
         }
     }
 
@@ -92,18 +90,18 @@ struct CPUStat {
 
 impl CPUStat {
     pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
-        let stat_rel = PathBuf::from("cpu.stat");
-        let mut mapping: HashMap<String, u64> = load_flat_keyed(&cgroup_path.join(&stat_rel))?;
+        let path = cgroup_path.join("cpu.stat");
+        let mut mapping: HashMap<String, u64> = load_flat_keyed(&path)?;
         Ok(Self {
             usage_usec: mapping
                 .remove("usage_usec")
-                .ok_or(Error::Parse(stat_rel.clone()))?,
+                .ok_or(Error::Parse(path.clone()))?,
             user_usec: mapping
                 .remove("user_usec")
-                .ok_or(Error::Parse(stat_rel.clone()))?,
+                .ok_or(Error::Parse(path.clone()))?,
             system_usec: mapping
                 .remove("system_usec")
-                .ok_or(Error::Parse(stat_rel.clone()))?,
+                .ok_or(Error::Parse(path.clone()))?,
             // optional, only available if cpu controller is enabled
             nr_periods: mapping.remove("nr_periods"),
             nr_throttled: mapping.remove("nr_throttled"),

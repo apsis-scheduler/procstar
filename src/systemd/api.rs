@@ -80,16 +80,14 @@ impl SystemdClient {
 pub type SharedSystemdClient = Rc<SystemdClient>;
 
 pub async fn maybe_connect() -> Option<SystemdClient> {
-    let systemd = SystemdClient::new()
-        .await
-        .map_err(|err| {
-            debug!("unable to create systemd client: {err}");
-        })
-        .ok()?;
-
     if !CGROUP_ROOT.join("cgroup.controllers").is_file() {
         debug!("cgroup v2 hierarchy not detected");
         return None;
     }
-    Some(systemd)
+    SystemdClient::new()
+        .await
+        .map_err(|err| {
+            debug!("unable to create systemd client: {err}");
+        })
+        .ok()
 }

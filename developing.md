@@ -7,10 +7,10 @@ $ python -m build --wheel
 $ twine upload dist/procstar-...
 ```
 
-### RHEL7/CentOS binary
+### RHEL8/Rocky binary
 
 ```
-$ ./tools/centos7/build.sh
-$ ls -l target/centos7/release/procstar
+$ ./tools/rhel8/build.sh
+$ ls -l target/rhel8/release/procstar
 ```
 

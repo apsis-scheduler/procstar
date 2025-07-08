@@ -99,7 +99,7 @@ Current:
 - [ ] clean up `Run.STATE`
 - [ ] replace sigchld_receiver with pidfd-based listener that signals when a
       specific pid completes, so `wait_for_proc()` can inspect it before
-      `wait`ing; NOTE: requires newer kernel than RHEL7/CentOS7
+      `wait`ing
 - [ ] manage file descriptor inheritance flag
 
 

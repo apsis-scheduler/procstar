@@ -80,6 +80,9 @@ pub struct Args {
     /// Maximum number of consecutive agent connection attempts
     #[arg(long, value_name = "COUNT")]
     pub connect_count_max: Option<u64>,
+    /// Agent websocket read timeout in seconds; for testing only
+    #[arg(long, hide = true, value_name = "SECS")]
+    pub agent_read_timeout: Option<f64>,
 
     /// Process specification file, or "-" for stdin
     pub input: Option<String>,
@@ -117,5 +120,8 @@ pub fn get_connect_config(args: &Args) -> agent::ConnectConfig {
             .connect_interval_max
             .map_or(df.interval_max, Duration::from_secs_f64),
         count_max: args.connect_count_max.unwrap_or(df.count_max),
+        read_timeout: args
+            .agent_read_timeout
+            .map_or(df.read_timeout, |s| Duration::from_secs_f64(s)),
     }
 }

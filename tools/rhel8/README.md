@@ -1,5 +1,5 @@
-This directory contains scripts for building Procstar in a CentOS7 container
-using Podman, for compatibility with RHEL7 and similar distributions, and a
+This directory contains scripts for building Procstar in a Rocky Linux 8 container
+using Podman, for compatibility with RHEL8 and similar distributions, and a
 recipe for constructing a Conda package.
 
 - `Containerfile` specifies a container image with Rust/Cargo and Miniconda.

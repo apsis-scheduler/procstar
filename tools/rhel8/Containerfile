@@ -1,14 +1,14 @@
-FROM centos:7.9.2009
+FROM rockylinux:8
 
 # Install things we need to build or run.
 # - Procstar's test setup uses `which` to find executables.
 # - The Rust `native-tls` crate's `vendor` feature includes a vendored OpenSSL, which requires IPC::Cmd to build from source.
 RUN yum group install "Development Tools" -y && \
-    yum install which devtoolset-7 perl-IPC-Cmd -y && \
+    yum install which gcc-toolset-9 perl-IPC-Cmd -y && \
     yum clean all
 
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
-ENV PATH $CARGO_HOME/bin:/opt/rh/devtoolset-7/root/usr/bin:$PATH
+ENV PATH $CARGO_HOME/bin:/opt/rh/gcc-toolset-9/root/usr/bin:$PATH
 
 # Install Rustup and Rust.
 RUN mkdir -p "$CARGO_HOME" && mkdir -p "$RUSTUP_HOME" && \

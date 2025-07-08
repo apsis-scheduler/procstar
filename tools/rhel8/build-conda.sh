@@ -1,26 +1,26 @@
 #!/bin/bash -e
 
-# Builds Procstar in a CentOS7 container and wraps it into a conda package.
+# Builds Procstar in a Rocky Linux 8 container and wraps it into a conda package.
 #
 # Usage: build-conda.sh
 
 dir=$(dirname $(realpath $0))
 root=$(dirname $(dirname $dir))
 
-target=$root/target/centos7-conda
+target=$root/target/rhel8-conda
 
 # Clean up previous build products.
 rm -rf $target
 mkdir -p $target
 
 # Make sure the build container image is ready.
-podman build $dir -t centos7-cargo
+podman build $dir -t rhel8-cargo
 
 # Build.
 podman run --rm \
        -v "$dir/conda-recipe:/source" -v "$target:/conda/conda-bld" \
        --workdir /root \
-       centos7-cargo \
+       rhel8-cargo \
        conda build --python 3.10 /source
 
 echo

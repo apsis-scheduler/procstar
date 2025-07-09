@@ -505,9 +505,12 @@ async fn wait_for_proc(
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            let mut proc = proc.borrow_mut();
+            let slice = proc.borrow().slice.clone();
+            // important: don't await while proc is borrowed mutably to avoid runtime
+            // borrow check failures
+            let cgroup_accounting = finalize_slice(slice.as_ref(), systemd).await;
 
-            let cgroup_accounting = finalize_slice(proc.slice.as_ref(), systemd).await;
+            let mut proc = proc.borrow_mut();
 
             // Process terminated; update its stuff.
             assert!(proc.wait_info.is_none());

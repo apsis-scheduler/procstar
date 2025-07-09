@@ -1,3 +1,10 @@
+import asyncio
+import logging
+from typing import Any, Callable, Iterable, Type
+
+
+logger = logging.getLogger(__name__)
+
 class Interval:
     """
     Closed-open interval.
@@ -45,3 +52,23 @@ def format_call(__fn, *args, **kw_args) -> str:
 
 def format_ctor(obj, *args, **kw_args):
     return format_call(obj.__class__, *args, **kw_args)
+
+
+async def retry_exception(
+    fn: Callable[[], Any],
+    exc_types: Iterable[Type[BaseException]],
+    *,
+    retries,
+    interval,
+):
+    for retry in range(retries + 1):
+        try:
+            return await fn()
+        except tuple(exc_types) as exc:
+            if retry == retries:
+                logger.error(f"failed after {retries} retries")
+                raise
+            else:
+                logger.warning(str(exc))
+                logger.debug(f"retrying in {interval}s")
+                await asyncio.sleep(interval)

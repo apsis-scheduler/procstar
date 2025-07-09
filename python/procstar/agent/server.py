@@ -15,9 +15,10 @@ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from . import DEFAULT_PORT
 from .conn import Connection, Connections
 from .conn import choose_connection, wait_for_connection
-from .exc import NoConnectionError
+from .exc import NoConnectionError, WebSocketNotOpen
 from .proc import Processes, Process, Result
 from procstar import proto
+from procstar.lib.py import retry_exception
 from procstar.lib.time import now
 
 FROM_ENV = object()
@@ -70,14 +71,18 @@ def _expand_tls_cert(tls_cert):
 
 # NOTE: the only reason why this function needs to be async is to make it more mockable
 # to reproduce a specific race condition
-async def maybe_set_reconnect_timeout(*, reconnect_timeout, conn: Connection, on_timeout):
+async def maybe_set_reconnect_timeout(
+    *, reconnect_timeout, conn: Connection, on_timeout
+):
     if reconnect_timeout is None:
         return
     # Conn may actually be open if the agently rapidly reconnected
     # concurrently in a new ._serve_connection task. This prevents setting
     # a timeout on connections that are actually live.
     if conn.open:
-        logger.info(f"not setting reconnect timeout: {conn.conn_id}: already reconnected")
+        logger.info(
+            f"not setting reconnect timeout: {conn.conn_id}: already reconnected"
+        )
     else:
         logger.info(f"setting reconnect timeout: {conn.conn_id}: {reconnect_timeout} s")
         conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
@@ -199,7 +204,11 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                register_msg.conn, register_msg.proc, register_msg.shutdown_state, time, ws
+                register_msg.conn,
+                register_msg.proc,
+                register_msg.shutdown_state,
+                time,
+                ws,
             )
             conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
@@ -218,7 +227,9 @@ class Server:
             if register_msg.proc_ids is not None:
                 # Reconcile proc IDs from the register msg.
                 conn_proc_ids = set(register_msg.proc_ids)
-                our_proc_ids = {i for i, p in self.processes.items() if p.conn_id == conn_id}
+                our_proc_ids = {
+                    i for i, p in self.processes.items() if p.conn_id == conn_id
+                }
                 for proc_id in conn_proc_ids - our_proc_ids:
                     # New proc ID.
                     self.processes.create(conn, proc_id)
@@ -277,7 +288,9 @@ class Server:
                     # This case isn't expected to be hit without an unforseen
                     # concurrency bug. Including to be extra defensive against timing
                     # out live connections.
-                    logger.warning("ignoring reconnect timeout because conn is open: {conn_id}")
+                    logger.warning(
+                        "ignoring reconnect timeout because conn is open: {conn_id}"
+                    )
                     return
                 logger.warning(f"reconnect timed out: {conn_id}")
                 assert self.connections._pop(conn_id) is conn
@@ -311,13 +324,23 @@ class Server:
         except AttributeError:
             pass
 
-        conn = await choose_connection(
-            self.connections,
-            group_id,
-            timeout=conn_timeout,
-        )
+        async def choose_and_start():
+            conn = await choose_connection(
+                self.connections,
+                group_id,
+                timeout=conn_timeout,
+            )
+            # raises a WebSocketNotOpen if the conn was closed after choosing the
+            # connection
+            await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
+            return conn
 
-        await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
+        # We try twice sequentially to avoid an unfortunately common case where an agent
+        # disconnects directly after the connection is chosen. This is prone to
+        # happening after the event loop is unintentionally blocked for period of time.
+        conn = await retry_exception(
+            choose_and_start, (WebSocketNotOpen,), retries=1, interval=0
+        )
         return self.processes.create(conn, proc_id)
 
     async def start(self, *args, **kw_args) -> (Process, Result):

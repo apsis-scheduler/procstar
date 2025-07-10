@@ -8,7 +8,8 @@ import logging
 import os
 from   pathlib import Path
 import ssl
-import websockets.server
+import websockets
+import websockets.protocol
 from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from   . import DEFAULT_PORT
@@ -149,7 +150,7 @@ class Server:
                 logger.debug(f"TLS: {args}")
             ssl_context._msg_callback = msg_callback
 
-        return websockets.server.serve(
+        return websockets.serve(
             partial(self._serve_connection, access_token, reconnect_timeout),
             host, port,
             ssl=ssl_context,
@@ -166,9 +167,9 @@ class Server:
         """
         Serves an incoming connection.
 
-        Use this bound method with `websockets.server.serve()`.
+        Use this bound method with `websockets.serve()`.
         """
-        assert ws.open
+        assert ws.state == websockets.protocol.State.OPEN
         time = now()
 
         try:

@@ -10,6 +10,7 @@ import ipaddress
 import logging
 import random
 import time
+from   websockets import ServerConnection, State
 from   websockets.exceptions import ConnectionClosedError
 
 from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
@@ -133,7 +134,7 @@ class Connection:
     """
 
     info: ProcstarInfo
-    ws: asyncio.protocols.Protocol = None
+    ws: ServerConnection = None
     shutdown_state: ShutdownState = ShutdownState.active
 
     __reconnect_timeout_task: asyncio.Future = None
@@ -156,20 +157,20 @@ class Connection:
 
     @property
     def open(self):
-        return self.ws.open
+        return self.ws.state == State.OPEN
 
 
     async def send(self, msg):
         if self.ws is None:
             raise NotConnectedError(self.conn_id)
-        if not self.ws.open:
+        if not self.ws.state == State.OPEN:
             raise WebSocketNotOpen(self.conn_id)
 
         data = serialize_message(msg)
         try:
             await self.ws.send(data)
         except ConnectionClosedError:
-            assert self.ws.closed
+            assert self.ws.state == State.CLOSED
             # Connection closed.  Don't forget about it; it may reconnect.
             logger.warning(f"{self.info.socket}: connection closed")
             # FIXME: Think carefully the temporarily dropped connection logic.
@@ -281,7 +282,7 @@ class Connections(Mapping, Subscribeable):
                 raise RuntimeError(f"[{conn_id}] new group: {group}")
 
             # If the old connection websocket still open, close it.
-            if not old_conn.ws.closed:
+            if not old_conn.ws.state == State.CLOSED:
                 logger.warning(f"[{conn_id}] closing old connection")
                 _ = asyncio.create_task(old_conn.ws.close())
 

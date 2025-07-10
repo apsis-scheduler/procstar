@@ -157,7 +157,7 @@ class Connection:
 
     @property
     def open(self):
-        return self.ws.state is websockets.protocol.State.OPEN
+        return self.ws.state == websockets.protocol.State.OPEN
 
 
     async def send(self, msg):

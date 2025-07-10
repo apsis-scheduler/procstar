@@ -10,8 +10,7 @@ import ipaddress
 import logging
 import random
 import time
-import websockets.protocol
-from   websockets.asyncio.server import ServerConnection
+from   websockets import ServerConnection, State
 from   websockets.exceptions import ConnectionClosedError
 
 from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen

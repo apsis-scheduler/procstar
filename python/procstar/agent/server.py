@@ -167,7 +167,7 @@ class Server:
         """
         Serves an incoming connection.
 
-        Use this bound method with `websockets.server.serve()`.
+        Use this bound method with `websockets.serve()`.
         """
         assert ws.state is websockets.protocol.State.OPEN
         time = now()

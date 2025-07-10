@@ -169,7 +169,7 @@ class Server:
 
         Use this bound method with `websockets.serve()`.
         """
-        assert ws.state is websockets.protocol.State.OPEN
+        assert ws.state == websockets.protocol.State.OPEN
         time = now()
 
         try:

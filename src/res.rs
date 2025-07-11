@@ -136,10 +136,9 @@ impl std::fmt::Debug for FdRes {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             FdRes::Error => write!(f, "Error"),
-            FdRes::Detached { length, encoding } => write!(
-                f,
-                "Detached {{ length: {length}, encoding: {encoding} }}"
-            ),
+            FdRes::Detached { length, encoding } => {
+                write!(f, "Detached {{ length: {length}, encoding: {encoding} }}")
+            }
             FdRes::File { path } => write!(f, "File {{ path: {path:?} }}"),
             FdRes::Text { text, encoding } => write!(
                 f,

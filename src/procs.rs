@@ -683,8 +683,7 @@ pub async fn start_procs(
                 // If a restricted executable is set, make sure ours matches.
                 if let Some(restricted_exe) = RESTRICTED_EXE.read().unwrap().as_ref() {
                     if exe != *restricted_exe {
-                        error_writer
-                            .try_write(format!("restricted executable: {restricted_exe}"));
+                        error_writer.try_write(format!("restricted executable: {restricted_exe}"));
                         ok_to_exec = false;
                     }
                 }

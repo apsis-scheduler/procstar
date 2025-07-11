@@ -359,7 +359,8 @@ impl SharedFdHandler {
             let len = read_pipe.read(&mut read_buf).await?;
             if len == 0 {
                 break;
-            } else if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+            } else if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut()
+            {
                 buf.extend_from_slice(&read_buf[..len]);
             } else {
                 panic!();

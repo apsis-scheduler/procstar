@@ -52,7 +52,8 @@ pub fn install_signal_handler(
 ) -> Pin<Box<dyn futures::Future<Output = ()> + 'static>> {
     let name = get_abbrev(signum).unwrap();
     let kind = SignalKind::from_raw(signum);
-    let mut signal_stream = signal(kind).unwrap_or_else(|_| panic!("failed to create stream: {name}"));
+    let mut signal_stream =
+        signal(kind).unwrap_or_else(|_| panic!("failed to create stream: {name}"));
 
     let procs = procs.clone();
 

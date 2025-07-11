@@ -301,9 +301,10 @@ pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
     for (_proc_id, proc) in procs.iter() {
         for (_, fd) in proc.fds.iter() {
             if let Fd::PipeRead {
-                    proc_id: from_proc_id,
-                    fd: from_fd_name,
-                } = fd {
+                proc_id: from_proc_id,
+                fd: from_fd_name,
+            } = fd
+            {
                 let key = (from_proc_id.clone(), parse_fd(from_fd_name)?);
                 if !unmatched_pipes.remove(&key) {
                     // A read pipe with no matching write pipe.

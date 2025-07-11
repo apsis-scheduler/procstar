@@ -50,10 +50,7 @@ where
             .collect::<Vec<_>>();
 
         // Grab their pointers into an array.
-        let mut ptrs = strs
-            .iter()
-            .map(|s| s.as_ptr())
-            .collect::<Vec<_>>();
+        let mut ptrs = strs.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         // NULL-terminate the pointer array.
         ptrs.push(std::ptr::null());
 
@@ -90,10 +87,7 @@ pub fn execv(exe: String, args: Vec<String>) -> io::Result<()> {
 
 pub fn execve(exe: String, args: Vec<String>, env: Env) -> io::Result<()> {
     // Construct NAME=val strings for env vars.
-    let env: Vec<String> = env
-        .into_iter()
-        .map(|(n, v)| format!("{n}={v}"))
-        .collect();
+    let env: Vec<String> = env.into_iter().map(|(n, v)| format!("{n}={v}")).collect();
 
     let exe = CString::new(exe).unwrap();
     let res = unsafe {
@@ -433,6 +427,5 @@ lazy_static! {
 
 /// Returns the value of an environment variable.
 pub fn getenv(name: &str) -> Option<String> {
-    std::env::vars().find(|(n, _)| n == name)
-        .map(|(_, v)| v)
+    std::env::vars().find(|(n, _)| n == name).map(|(_, v)| v)
 }

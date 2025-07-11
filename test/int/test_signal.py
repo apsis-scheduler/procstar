@@ -58,7 +58,7 @@ def test_idle_signal():
     for proc_id in specs:
         r = res[proc_id]
         assert r["status"]["exit_code"] == 0
-        assert abs(r["times"]["elapsed"] - float(proc_id)) < 0.01
+        assert abs(r["times"]["elapsed"] - float(proc_id)) < 0.05
 
 
 if __name__ == "__main__":

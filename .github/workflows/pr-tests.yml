@@ -29,5 +29,8 @@ jobs:
     - name: Check Rust formatting  
       run: cargo fmt --all -- --check
 
+    - name: Build Python package with maturin
+      run: uv run maturin develop
+
     - name: Run Python tests
       run: uv run pytest

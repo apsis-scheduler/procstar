@@ -4,6 +4,10 @@ version = "0.6.1" # procstar
 edition = "2021"
 authors = ["Alex Samuel <alex@alexsamuel.net>"]
 
+[[bin]]
+name = "procstar"
+path = "src/main.rs"
+
 [lib]
 name = "procstar"
 path = "src/lib.rs"

@@ -197,7 +197,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749 }
 wheels = [
@@ -264,7 +264,7 @@ name = "importlib-metadata"
 version = "8.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp", marker = "python_full_version < '3.11'" },
+    { name = "zipp" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/66/650a33bd90f786193e4de4b3ad86ea60b53c89b669a5c7be931fac31cdb0/importlib_metadata-8.7.0.tar.gz", hash = "sha256:d13b81ad223b890aa16c5471f2ac3056cf76c5f10f82d6f9292f0b415f389000", size = 56641 }
 wheels = [
@@ -360,6 +360,34 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0d/80/0985960e4b89922cb5a0bac0ed39c5b96cbc1a536a99f30e8c220a996ed9/MarkupSafe-3.0.2-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:131a3c7689c85f5ad20f9f6fb1b866f402c445b220c19fe4308c0b147ccd2ad9", size = 24098 },
     { url = "https://files.pythonhosted.org/packages/82/78/fedb03c7d5380df2427038ec8d973587e90561b2d90cd472ce9254cf348b/MarkupSafe-3.0.2-cp313-cp313t-win32.whl", hash = "sha256:ba8062ed2cf21c07a9e295d5b8a2a5ce678b913b45fdf68c32d95d6c1291e0b6", size = 15208 },
     { url = "https://files.pythonhosted.org/packages/4f/65/6079a46068dfceaeabb5dcad6d674f5f5c61a6fa5673746f42a9f4c233b3/MarkupSafe-3.0.2-cp313-cp313t-win_amd64.whl", hash = "sha256:e444a31f8db13eb18ada366ab3cf45fd4b31e4db1236a4448f68778c1d1a5a2f", size = 15739 },
+]
+
+[[package]]
+name = "maturin"
+version = "1.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/f7/73cf2ae0d6db943a627d28c09f5368735fce6b8b2ad1e1f6bcda2632c80a/maturin-1.9.1.tar.gz", hash = "sha256:97b52fb19d20c1fdc70e4efdc05d79853a4c9c0051030c93a793cd5181dc4ccd", size = 209757 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/f2/de43e8954092bd957fbdfbc5b978bf8be40f27aec1a4ebd65e57cfb3ec8a/maturin-1.9.1-py3-none-linux_armv6l.whl", hash = "sha256:fe8f59f9e387fb19635eab6b7381ef718e5dc7a328218e6da604c91f206cbb72", size = 8270244 },
+    { url = "https://files.pythonhosted.org/packages/b8/72/36966375c2c2bb2d66df4fa756cfcd54175773719b98d4b26a6b4d1f0bfc/maturin-1.9.1-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:6a9c9d176f6df3a8ec1a4c9c72c8a49674ed13668a03c9ead5fab983bbeeb624", size = 16053959 },
+    { url = "https://files.pythonhosted.org/packages/c4/40/4e0da87e563333ff1605fef15bed5858c2a41c0c0404e47f20086f214473/maturin-1.9.1-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:e14eedbc4369dda1347ce9ddc183ade7c513d9975b7ea2b9c9e4211fb74f597a", size = 8407170 },
+    { url = "https://files.pythonhosted.org/packages/d9/27/4b29614964c10370effcdfcf34ec57126c9a4b921b7a2c42a94ae3a59cb0/maturin-1.9.1-py3-none-manylinux_2_12_i686.manylinux2010_i686.musllinux_1_1_i686.whl", hash = "sha256:2f05f07bc887e010c44d32a088aea4f36a2104e301f51f408481e4e9759471a7", size = 8258775 },
+    { url = "https://files.pythonhosted.org/packages/e0/5b/b15ad53e1e6733d8798ce903d25d9e05aa3083b2544f1a6f863ea01dd50d/maturin-1.9.1-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.musllinux_1_1_x86_64.whl", hash = "sha256:e7eb54db3aace213420cd545b24a149842e8d6b1fcec046d0346f299d8adfc34", size = 8787295 },
+    { url = "https://files.pythonhosted.org/packages/72/d8/b97f4767786eae63bb6b700b342766bcea88da98796bfee290bcddd99fd8/maturin-1.9.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl", hash = "sha256:9d037a37b8ef005eebdea61eaf0e3053ebcad3b740162932fbc120db5fdf5653", size = 8053283 },
+    { url = "https://files.pythonhosted.org/packages/95/45/770fc005bceac81f5905c96f37c36f65fa9c3da3f4aa8d4e4d2a883aa967/maturin-1.9.1-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl", hash = "sha256:7c26fb60d80e6a72a8790202bb14dbef956b831044f55d1ce4e2c2e915eb6124", size = 8127120 },
+    { url = "https://files.pythonhosted.org/packages/2f/a6/be684b4fce58f8b3a9d3b701c23961d5fe0e1710ed484e2216441997e74f/maturin-1.9.1-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.musllinux_1_1_ppc64le.whl", hash = "sha256:e0a2c546c123ed97d1ee0c9cc80a912d9174913643c737c12adf4bce46603bb3", size = 10569627 },
+    { url = "https://files.pythonhosted.org/packages/24/ad/7f8a9d8a1b79c2ed6291aaaa22147c98efee729b23df2803c319dd658049/maturin-1.9.1-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:f5dde6fbcc36a1173fe74e6629fee36e89df76236247b64b23055f1f820bdf35", size = 8934678 },
+    { url = "https://files.pythonhosted.org/packages/59/5f/97ff670cb718a40ee21faf38e07e0d773573180de98ee453142e5f932052/maturin-1.9.1-py3-none-win32.whl", hash = "sha256:69d9f752f33a3c95062014f464cbd715e83a175f4601b76a9ce3db6ea18df976", size = 7261272 },
+    { url = "https://files.pythonhosted.org/packages/a6/07/c99058a73d0f7d8e8c87bf60c48a96c44f42ff4ef6a6ae4ca3821605bdd2/maturin-1.9.1-py3-none-win_amd64.whl", hash = "sha256:c8b71cf0f6a5f712ac1466641d520e2ce3fbe44104319a55d875cc8326dcdd61", size = 8280274 },
+    { url = "https://files.pythonhosted.org/packages/06/3d/74e75874b75fc82e4774f2ed78ad546fda3e127bae4a971db3611bdab285/maturin-1.9.1-py3-none-win_arm64.whl", hash = "sha256:0e6e2ddc83999ac3999576b06649a327536a51d57c917fa01416e40f53106bda", size = 6936614 },
+]
+
+[package.optional-dependencies]
+patchelf = [
+    { name = "patchelf" },
 ]
 
 [[package]]
@@ -495,6 +523,21 @@ wheels = [
 ]
 
 [[package]]
+name = "patchelf"
+version = "0.17.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/41/dc3ee5838db2d90be935adb53ae7745135d9c719d070b1989b246f983c7f/patchelf-0.17.2.2.tar.gz", hash = "sha256:080b2ac3074fd4ab257700088e82470425e56609aa0dd07abe548f04b7b3b007", size = 149517 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/80/1bf161e57b8310943220d41d8018ca54bc73a61591114475a9402a72be45/patchelf-0.17.2.2-py3-none-macosx_10_9_universal2.whl", hash = "sha256:47b558db8f7dccc6262e930631991ecdd053724c1d8daf3df5ce03813438da10", size = 184420 },
+    { url = "https://files.pythonhosted.org/packages/8d/15/25b5d10d971f509fe6bc8951b855f0f05be4c24e0dd1616c14a6e1a9116a/patchelf-0.17.2.2-py3-none-manylinux1_i686.manylinux_2_5_i686.musllinux_1_1_i686.whl", hash = "sha256:3b8a4d7cccac04d8231dec321245611bf147b199cbf4da305d1a364ff689fb58", size = 524182 },
+    { url = "https://files.pythonhosted.org/packages/f2/f9/e070956e350ccdfdf059251836f757ad91ac0c01b0ba3e033ea7188d8d42/patchelf-0.17.2.2-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.musllinux_1_1_x86_64.whl", hash = "sha256:e334ebb1c5aa9fc740fd95ebe449271899fe1e45a3eb0941300b304f7e3d1299", size = 466519 },
+    { url = "https://files.pythonhosted.org/packages/56/0d/dc3ac6c6e9e9d0d3e40bee1abe95a07034f83627319e60a7dc9abdbfafee/patchelf-0.17.2.2-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.musllinux_1_1_aarch64.whl", hash = "sha256:3d32cd69442a229724f7f071b61cef1f87ccd80cf755af0b1ecefd553fa9ae3f", size = 462123 },
+    { url = "https://files.pythonhosted.org/packages/1e/f6/b842b19c2b72df1c524ab3793c3ec9cf3926c7c841e0b64b34f95d7fb806/patchelf-0.17.2.2-py3-none-manylinux2014_armv7l.manylinux_2_17_armv7l.musllinux_1_1_armv7l.whl", hash = "sha256:05f6bbdbe484439cb025e20c60abd37e432e6798dfa3f39a072e6b7499072a8c", size = 412347 },
+    { url = "https://files.pythonhosted.org/packages/a8/0b/33eb3087703d903dd01cf6b0d64e067bf3718a5e8b1239bc6fc2c4b1fdb2/patchelf-0.17.2.2-py3-none-manylinux2014_ppc64le.manylinux_2_17_ppc64le.musllinux_1_1_ppc64le.whl", hash = "sha256:b54e79ceb444ec6a536a5dc2e8fc9c771ec6a1fa7d5f4dbb3dc0e5b8e5ff82e1", size = 522827 },
+    { url = "https://files.pythonhosted.org/packages/4f/25/6379dc26714b5a40f51b3c7927d668b00a51517e857da7f3cb09d1d0bcb6/patchelf-0.17.2.2-py3-none-manylinux2014_s390x.manylinux_2_17_s390x.musllinux_1_1_s390x.whl", hash = "sha256:24374cdbd9a072230339024fb6922577cb3231396640610b069f678bc483f21e", size = 565961 },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -531,6 +574,7 @@ dev = [
     { name = "build" },
     { name = "bump-my-version" },
     { name = "httpx" },
+    { name = "maturin", extra = ["patchelf"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -558,6 +602,7 @@ dev = [
     { name = "build", specifier = ">=1.2.2.post1" },
     { name = "bump-my-version", specifier = ">=1.2.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "maturin", extras = ["patchelf"], specifier = ">=1.9.1" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.0.0" },
     { name = "sphinx", specifier = ">=8.1.3" },

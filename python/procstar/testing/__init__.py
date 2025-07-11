@@ -2,7 +2,7 @@ import functools
 import logging
 import os
 from   pathlib import Path
-import shutil
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -14,16 +14,28 @@ def get_procstar_path() -> Path:
     Returns the path to the procstar binary.
 
     Uses the env var `PROCSTAR`, if set.
+    Otherwise builds the binary and uses the debug version.
     """
     try:
-        path = os.environ["PROCSTAR"]
+        path = Path(os.environ["PROCSTAR"])
     except KeyError:
-        path = shutil.which("procstar")
-        if path is None:
-            path = Path(__file__).parents[3] / "target" / "debug" / "procstar"
+        # Build the binary to ensure it's up to date
+        project_root = Path(__file__).parents[3]
+        path = project_root / "target" / "debug" / "procstar"
+
+        logger.info("building procstar binary...")
+        subprocess.run(
+            ["cargo", "build"],
+            cwd=project_root,
+            check=True,
+            capture_output=True
+        )
+
+        if not path.exists():
+            raise FileNotFoundError(f"debug binary not found after build: {path}")
 
     assert os.access(path, os.X_OK), f"missing exe {path}"
-    logging.info(f"using {path}")
+    logger.info(f"using {path}")
     return path
 
 

@@ -45,7 +45,7 @@ test:
     - pytest
     - pytest-asyncio
   source_files:
-    - test/int
+    - tests/int
   commands:
-    - pytest -v test/int
+    - pytest -v tests/int
 

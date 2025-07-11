@@ -104,7 +104,7 @@ impl FdRes {
         match encoding {
             Some(CaptureEncoding::Utf8) => {
                 // FIXME: Handle errors.
-                let text = String::from_utf8_lossy(&buffer).to_string();
+                let text = String::from_utf8_lossy(buffer).to_string();
                 FdRes::Text {
                     text,
                     encoding: "utf-8".to_string(),
@@ -112,7 +112,7 @@ impl FdRes {
             }
             None => {
                 // FIXME: Handle errors.
-                let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
+                let data = base64::engine::general_purpose::STANDARD.encode(buffer);
                 FdRes::Data {
                     data,
                     encoding: "base64".to_string(),
@@ -138,10 +138,9 @@ impl std::fmt::Debug for FdRes {
             FdRes::Error => write!(f, "Error"),
             FdRes::Detached { length, encoding } => write!(
                 f,
-                "Detached {{ length: {}, encoding: {} }}",
-                length, encoding
+                "Detached {{ length: {length}, encoding: {encoding} }}"
             ),
-            FdRes::File { path } => write!(f, "File {{ path: {:?} }}", path),
+            FdRes::File { path } => write!(f, "File {{ path: {path:?} }}"),
             FdRes::Text { text, encoding } => write!(
                 f,
                 "Text {{ text: {}, encoding: {} }}",

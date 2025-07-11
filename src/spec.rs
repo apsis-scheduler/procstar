@@ -30,18 +30,18 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BadFd(name) => f.write_str(&format!("bad fd: {}", name)),
-            Error::DuplicateFd(fd) => f.write_str(&format!("duplicate fd: {}", fd)),
+            Error::BadFd(name) => f.write_str(&format!("bad fd: {name}")),
+            Error::DuplicateFd(fd) => f.write_str(&format!("duplicate fd: {fd}")),
             Error::Io(err) => err.fmt(f),
             Error::Json(err) => err.fmt(f),
             Error::DuplicateProcId(proc_id) => {
-                f.write_str(&format!("duplicate proc id: {}", proc_id))
+                f.write_str(&format!("duplicate proc id: {proc_id}"))
             }
             Error::UnmatchedReadFd(proc_id, fd) => {
-                f.write_str(&format!("unmatched read pipe: {} {}", proc_id, fd))
+                f.write_str(&format!("unmatched read pipe: {proc_id} {fd}"))
             }
             Error::UnmatchedWriteFd(proc_id, fd) => {
-                f.write_str(&format!("unmatched write pipe: {} {}", proc_id, fd))
+                f.write_str(&format!("unmatched write pipe: {proc_id} {fd}"))
             }
         }
     }
@@ -291,35 +291,29 @@ pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
     let mut unmatched_pipes = PipeFds::new();
     for (proc_id, proc) in procs.iter() {
         for (fd_name, fd) in proc.fds.iter() {
-            match fd {
-                Fd::PipeWrite => {
-                    let key = (proc_id.clone(), parse_fd(fd_name)?);
-                    assert!(unmatched_pipes.insert(key));
-                }
-                _ => (),
+            if let Fd::PipeWrite = fd {
+                let key = (proc_id.clone(), parse_fd(fd_name)?);
+                assert!(unmatched_pipes.insert(key));
             }
         }
     }
     // Match up read pipes.
     for (_proc_id, proc) in procs.iter() {
         for (_, fd) in proc.fds.iter() {
-            match fd {
-                Fd::PipeRead {
+            if let Fd::PipeRead {
                     proc_id: from_proc_id,
                     fd: from_fd_name,
-                } => {
-                    let key = (from_proc_id.clone(), parse_fd(from_fd_name)?);
-                    if !unmatched_pipes.remove(&key) {
-                        // A read pipe with no matching write pipe.
-                        return Err(Error::UnmatchedReadFd(key.0, from_fd_name.clone()));
-                    };
-                }
-                _ => (),
+                } = fd {
+                let key = (from_proc_id.clone(), parse_fd(from_fd_name)?);
+                if !unmatched_pipes.remove(&key) {
+                    // A read pipe with no matching write pipe.
+                    return Err(Error::UnmatchedReadFd(key.0, from_fd_name.clone()));
+                };
             }
         }
     }
     // Remaining write pipes are unmatched.
-    for (proc_id, fd_num) in unmatched_pipes.into_iter() {
+    if let Some((proc_id, fd_num)) = unmatched_pipes.into_iter().next() {
         return Err(Error::UnmatchedWriteFd(proc_id.clone(), fd_num.to_string()));
     }
 

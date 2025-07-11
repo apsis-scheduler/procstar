@@ -89,7 +89,7 @@ impl Proc {
     }
 
     pub fn get_state(&self) -> State {
-        if self.errors.len() > 0 {
+        if !self.errors.is_empty() {
             State::Error
         } else if self.wait_info.is_none() {
             State::Running
@@ -228,7 +228,7 @@ impl NotificationSub {
         match self.receiver.recv().await {
             Ok(noti) => Some(noti),
             Err(RecvError::Closed) => None,
-            Err(RecvError::Lagged(i)) => panic!("notification subscriber lagging: {}", i),
+            Err(RecvError::Lagged(i)) => panic!("notification subscriber lagging: {i}"),
         }
     }
 }
@@ -253,6 +253,12 @@ pub struct Procs {
 #[derive(Clone)]
 pub struct SharedProcs(Rc<RefCell<Procs>>);
 
+impl Default for SharedProcs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SharedProcs {
     pub fn new() -> SharedProcs {
         let (sender, _receiver) = broadcast::channel(1024);
@@ -275,11 +281,15 @@ impl SharedProcs {
         self.0.borrow().procs.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.borrow().procs.is_empty()
+    }
+
     pub fn get_proc_ids<T>(&self) -> T
     where
         T: FromIterator<ProcId>,
     {
-        self.0.borrow().procs.keys().map(|s| s.clone()).collect()
+        self.0.borrow().procs.keys().cloned().collect()
     }
 
     pub fn get(&self, proc_id: &str) -> Option<SharedProc> {
@@ -563,7 +573,7 @@ pub fn get_restricted_exe() -> Option<String> {
 }
 
 /// Returns the path to the executable to exec for the process.
-fn get_exe(exe: Option<String>, argv: &Vec<String>) -> String {
+fn get_exe(exe: Option<String>, argv: &[String]) -> String {
     // Use the explicit exe, if given, else argv[0] per convention.
     exe.unwrap_or(argv[0].clone())
 }
@@ -674,14 +684,14 @@ pub async fn start_procs(
                 if let Some(restricted_exe) = RESTRICTED_EXE.read().unwrap().as_ref() {
                     if exe != *restricted_exe {
                         error_writer
-                            .try_write(format!("restricted executable: {}", restricted_exe));
+                            .try_write(format!("restricted executable: {restricted_exe}"));
                         ok_to_exec = false;
                     }
                 }
 
                 for (fd, fd_handler) in fd_handlers.into_iter() {
                     fd_handler.in_child().unwrap_or_else(|err| {
-                        error_writer.try_write(format!("failed to set up fd {}: {}", fd, err));
+                        error_writer.try_write(format!("failed to set up fd {fd}: {err}"));
                         ok_to_exec = false;
                     });
                 }
@@ -691,12 +701,12 @@ pub async fn start_procs(
                 // Put the child process into a new session, to avoid
                 // getting signals from the parent process group.
                 if let Err(err) = setsid() {
-                    error_writer.try_write(format!("setsid failed: {}", err));
+                    error_writer.try_write(format!("setsid failed: {err}"));
                     ok_to_exec = false;
                 }
 
                 if let Err(err) = exec_ready_event.read() {
-                    error_writer.try_write(format!("read eventfd failed: {}", err));
+                    error_writer.try_write(format!("read eventfd failed: {err}"));
                     ok_to_exec = false;
                 }
 
@@ -704,7 +714,7 @@ pub async fn start_procs(
                     // execve() only returns with an error; on success, the program is
                     // replaced.
                     let err = execve(exe.to_string(), argv, env).unwrap_err();
-                    error_writer.try_write(format!("execve failed: {}: {}", exe, err));
+                    error_writer.try_write(format!("execve failed: {exe}: {err}"));
                 }
 
                 std::process::exit(63);
@@ -728,7 +738,7 @@ pub async fn start_procs(
                     .filter_map(|(ref fd, ref fd_handler)| match fd_handler.in_parent() {
                         Ok(task) => Some(task),
                         Err(err) => {
-                            fd_errs.push(format!("failed to set up fd {}: {}", fd, err));
+                            fd_errs.push(format!("failed to set up fd {fd}: {err}"));
                             None
                         }
                     })
@@ -759,7 +769,7 @@ pub async fn start_procs(
                 info!("proc started: {}", child_pid);
             }
 
-            Err(err) => panic!("failed to fork: {}", err),
+            Err(err) => panic!("failed to fork: {err}"),
         }
     }
 

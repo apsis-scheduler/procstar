@@ -84,7 +84,7 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
                 error!("failed to print output: {}", err);
                 std::process::exit(exitcode::OSFILE);
             });
-            println!("");
+            println!();
         }
         if let Some(ref path) = args.output {
             // Write them to a file.
@@ -162,10 +162,10 @@ async fn main() {
         if p == "-" {
             spec::load_stdin()
         } else {
-            spec::load_file(&p)
+            spec::load_file(p)
         }
         .unwrap_or_else(|err| {
-            eprintln!("failed to load {}: {}", p, err);
+            eprintln!("failed to load {p}: {err}");
             std::process::exit(2);
         })
     } else {

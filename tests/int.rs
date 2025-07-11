@@ -1,5 +1,4 @@
 use assert_cmd::prelude::*;
-use serde_json;
 use std::process::Command;
 use std::str;
 
@@ -18,7 +17,7 @@ fn echo_hello() -> Result<(), Box<dyn std::error::Error>> {
     // Second line is JSON result.
     let res_jso: serde_json::Value = serde_json::from_str(lines.next().unwrap())?;
     let jso = &res_jso["test0"];
-    eprintln!("jso: {}", res_jso);
+    eprintln!("jso: {res_jso}");
     assert_eq!(jso["status"]["status"], 0);
     assert!(jso["rusage"]["utime"].as_f64().unwrap() >= 0.);
 

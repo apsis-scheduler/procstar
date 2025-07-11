@@ -121,7 +121,7 @@ async fn procs_signal_signum_post(procs: SharedProcs, proc_id: &str, signum: &st
     let signum = parse_signum(signum).ok_or_else(|| RspError::bad_request("unknwon signum"))?;
     let proc = procs
         .get(proc_id)
-        .ok_or_else(|| RspError(StatusCode::NOT_FOUND, None))?;
+        .ok_or(RspError(StatusCode::NOT_FOUND, None))?;
     proc.borrow()
         .send_signal(signum)
         .map_err(|e| RspError::bad_request(&e.to_string()))?;
@@ -181,18 +181,16 @@ impl Router {
         let bytes = body
             .collect()
             .await
-            .map_err(|err| RspError::bad_request(&format!("reading body: {}", err)))?
+            .map_err(|err| RspError::bad_request(&format!("reading body: {err}")))?
             .to_bytes();
         let content_type = parts.headers.get("content-type");
-        if content_type.is_none() {
+        if content_type.is_none() || content_type.unwrap() != "application/json" {
             Err(RspError::bad_request("body not JSON"))
-        } else if content_type.unwrap() != "application/json" {
-            Err(RspError::bad_request("body not JSON"))
-        } else if bytes.len() == 0 {
+        } else if bytes.is_empty() {
             Err(RspError::bad_request("no body"))
         } else {
             Ok(serde_json::from_slice::<Input>(&bytes)
-                .map_err(|err| RspError::bad_request(&format!("parsing body: {}", err)))?)
+                .map_err(|err| RspError::bad_request(&format!("parsing body: {err}")))?)
         }
     }
 
@@ -278,7 +276,7 @@ pub async fn run_http(
                 .serve_connection(stream, service)
                 .await
             {
-                println!("Error serving connection: {:?}", err);
+                println!("Error serving connection: {err:?}");
             }
         });
     }

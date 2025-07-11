@@ -154,13 +154,10 @@ impl FdHandler {
 
 impl Drop for FdHandler {
     fn drop(&mut self) {
-        match self {
-            FdHandler::UnlinkedFile { file_fd, .. } => {
-                if let Err(err) = sys::close(*file_fd) {
-                    error!("failed to close {file_fd}: {err}");
-                }
+        if let FdHandler::UnlinkedFile { file_fd, .. } = self {
+            if let Err(err) = sys::close(*file_fd) {
+                error!("failed to close {file_fd}: {err}");
             }
-            _ => {}
         }
     }
 }
@@ -201,6 +198,12 @@ pub struct Pipes {
 /// We may set up the proc that connects to either the read or the write end
 /// first.  If the read end, we return the read fd and save the write fd, else
 /// vice versa.
+impl Default for Pipes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pipes {
     pub fn new() -> Self {
         Self {
@@ -349,19 +352,17 @@ impl SharedFdHandler {
             panic!();
         };
 
-        let mut read_buf = [0 as u8; 65536]; // FIXME: What's the right size?
+        let mut read_buf = [0_u8; 65536]; // FIXME: What's the right size?
         loop {
             // Don't hold a ref to the handler object across await, so `buf` is
             // accessible elsewhere.
             let len = read_pipe.read(&mut read_buf).await?;
             if len == 0 {
                 break;
+            } else if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
+                buf.extend_from_slice(&read_buf[..len]);
             } else {
-                if let &mut FdHandler::CaptureMemory { ref mut buf, .. } = &mut *rc.borrow_mut() {
-                    buf.extend_from_slice(&read_buf[..len]);
-                } else {
-                    panic!();
-                };
+                panic!();
             }
         }
         Ok(())
@@ -426,7 +427,7 @@ impl SharedFdHandler {
                 oflags,
                 mode,
             } => {
-                let file_fd = sys::open(&path, oflags, mode)?;
+                let file_fd = sys::open(path, oflags, mode)?;
                 if file_fd != fd {
                     sys::dup2(file_fd, fd)?;
                     sys::close(file_fd)?;
@@ -480,7 +481,7 @@ impl SharedFdHandler {
             }),
 
             FdHandler::CaptureMemory { buf, encoding, .. } => {
-                let stop = stop.unwrap_or_else(|| buf.len());
+                let stop = stop.unwrap_or(buf.len());
                 Some(FdData {
                     data: buf[start..stop].to_vec(),
                     encoding: *encoding,

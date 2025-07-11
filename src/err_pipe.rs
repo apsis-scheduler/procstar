@@ -24,7 +24,6 @@ use crate::sys;
 /// 3. After forking in the parent process, call [`in_parent()`].  This returns
 ///    an async future for retrieving the accumulated error messages send from
 ///    the child.
-
 pub struct ErrorPipe {
     read_fd: RawFd,
     write_fd: RawFd,
@@ -44,7 +43,7 @@ impl ErrorWriter {
 
         // Write sync through the raw fd.
         fdio::write(self.write_fd, &len)?;
-        fdio::write(self.write_fd, &bytes)
+        fdio::write(self.write_fd, bytes)
     }
 
     /// Like [`write`], but ignores errors.
@@ -79,18 +78,17 @@ impl ErrorPipe {
                 Err(e) => {
                     // Any other error is a problem.  There isn't a good place to
                     // report it, so add it as an error here.
-                    errors.push(format!("error pipe: {}", e));
+                    errors.push(format!("error pipe: {e}"));
                     break
                 },
             };
 
             // We know exactly how long the message should be.
-            let mut buf = Vec::with_capacity(len);
-            buf.resize(len, 0);
+            let mut buf = vec![0; len];
             if let Err(e) = read_pipe.read_exact(&mut buf[..]).await {
                 // Unable to read the message.  There isn't a good place to report
                 // the error, so report it here.
-                errors.push(format!("error pipe: {}", e));
+                errors.push(format!("error pipe: {e}"));
                 break;
             }
 

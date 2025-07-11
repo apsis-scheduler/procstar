@@ -22,7 +22,7 @@
 use zbus::proxy;
 #[proxy(
     interface = "org.freedesktop.systemd1.Unit",
-    default_service = "org.freedesktop.systemd1",
+    default_service = "org.freedesktop.systemd1"
 )]
 pub trait Unit {
     /// Clean method

@@ -31,7 +31,6 @@ Repository = "https://github.com/apsis-scheduler/procstar"
 [tool.maturin]
 python-source = "python"
 bindings = "bin"
-strip = true
 
 [tool.setuptools.dynamic]
 version = {attr = "procstar.__version__"}

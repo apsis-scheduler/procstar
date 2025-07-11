@@ -41,7 +41,7 @@ version = {attr = "procstar.__version__"}
 "procstar.testing" = ["*.crt", "*.key"]
 
 [tool.pytest.ini_options]
-testpaths = "test/"
+testpaths = "tests/"
 
 [tool.ruff]
 select = ["F", "E999"]

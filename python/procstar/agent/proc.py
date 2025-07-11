@@ -12,6 +12,7 @@ from   .exc import ProcessUnknownError
 from   procstar import proto
 from   procstar.lib.asyn import iter_queue
 from   procstar.lib.py import Interval
+from   procstar.proto import ProcSignalRequest
 import procstar.lib.json
 
 logger = logging.getLogger(__name__)
@@ -151,8 +152,14 @@ class Process:
                     raise ProcessUnknownError(self.proc_id)
 
                 case proto.RequestError(msg, err):
-                    logger.error(f"agent error: {err}")
-                    raise AgentMessageError(msg, err)
+                    if msg.get("type", "") == ProcSignalRequest.__name__ and err == "no process":
+                        # This is a mitigation for the following race condition:
+                        # since there is no synchronization mechanism between `send_signal` and `wait_for_proc`,
+                        # it is possible that the process is already gone when we send the signal.
+                        logger.info(f"failed to send signal: no process {msg.get('proc_id')}")
+                    else:
+                        logger.error(f"agent error: {err}")
+                        raise AgentMessageError(msg, err)
 
                 case proto.ConnectionTimeout():
                     logger.warning(f"proc {self.proc_id}: agent connection timeout: {self.conn_id}")

@@ -6,6 +6,7 @@ use std::str;
 #[test]
 fn echo_hello() -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::cargo_bin("procstar")?
+        .arg("--print")
         .arg("tests/int/specs/echo.json")
         .output()?;
 

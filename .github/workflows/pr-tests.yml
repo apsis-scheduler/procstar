@@ -29,8 +29,12 @@ jobs:
     - name: Check Rust formatting  
       run: cargo fmt --all -- --check
 
-    - name: Build Python package with maturin
-      run: uv run maturin develop
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: --find-interpreter
+        container: off
+        sccache: true
 
     - name: Run Python tests
       run: uv run pytest

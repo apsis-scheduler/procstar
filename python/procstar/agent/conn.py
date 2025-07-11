@@ -163,6 +163,16 @@ class Connection:
             raise WebSocketNotOpen(self.conn_id)
 
         data = serialize_message(msg)
+
+        # In rare cases the websocket may appear closed while it's still alive for tasks
+        # that run on the event loop before the websocket state can be updated. This
+        # forces it to check if it's closed to avoid quietly sending messages into a
+        # dead websocket.
+        try:
+            await asyncio.wait_for(self.ws.wait_closed(), timeout=0)
+        except asyncio.TimeoutError:
+            pass
+
         try:
             await self.ws.send(data)
         except ConnectionClosedError:

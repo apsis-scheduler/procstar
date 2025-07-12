@@ -83,21 +83,21 @@ impl std::fmt::Display for Error {
             Error::Io(ref err) => err.fmt(f),
             Error::Json(ref err) => err.fmt(f),
             Error::NativeTlsError(ref err) => err.fmt(f),
-            Error::NoFd(fd) => write!(f, "no fd: {}", fd),
+            Error::NoFd(fd) => write!(f, "no fd: {fd}"),
             Error::NoProc => write!(f, "no process"),
-            Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {}", proc_id),
+            Error::NoProcId(proc_id) => write!(f, "unknown proc ID: {proc_id}"),
             Error::ParseInt(ref err) => err.fmt(f),
-            Error::ProcNotRunning(proc_id) => write!(f, "process not running: {}", proc_id),
-            Error::ProcRunning(proc_id) => write!(f, "process running: {}", proc_id),
+            Error::ProcNotRunning(proc_id) => write!(f, "process not running: {proc_id}"),
+            Error::ProcRunning(proc_id) => write!(f, "process running: {proc_id}"),
             Error::Proto(ref err) => err.fmt(f),
             Error::RegisterTimeout => write!(f, "registration took too long"),
             Error::RMPDecode(ref err) => err.fmt(f),
             Error::RMPEncode(ref err) => err.fmt(f),
             Error::ShuttingDown(shutdown_state) => {
-                write!(f, "agent shutting down: {}", shutdown_state)
+                write!(f, "agent shutting down: {shutdown_state}")
             }
             Error::Spec(ref err) => err.fmt(f),
-            Error::Systemd(ref err) => write!(f, "error with systemd: {}", err),
+            Error::Systemd(ref err) => write!(f, "error with systemd: {err}"),
             Error::Websocket(ref err) => err.fmt(f),
         }
     }

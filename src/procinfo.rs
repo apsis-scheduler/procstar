@@ -190,7 +190,7 @@ impl ProcStat {
         let comm = comm.to_owned();
         let text = text.trim();
 
-        let mut parts = text.split(' ').into_iter();
+        let mut parts = text.split(' ');
 
         let state = parts.next().unwrap().to_owned();
         let ppid = parts.next().unwrap().parse().unwrap();
@@ -318,16 +318,16 @@ impl ProcStat {
 
     /// Loads process status from /proc/{pid}/stat.
     pub fn load(pid: pid_t) -> Result<Self, std::io::Error> {
-        let path = format!("/proc/{}/stat", pid);
+        let path = format!("/proc/{pid}/stat");
         let text = std::fs::read_to_string(path)?;
         Ok(Self::parse(&text))
     }
 
     pub fn load_or_log(pid: pid_t) -> Option<Self> {
         Self::load(pid)
-            .or_else(|err| {
+            .map_err(|err| {
                 error!("failed to load /proc/{}/stat: {}", pid, err);
-                Err(err)
+                err
             })
             .ok()
     }
@@ -357,7 +357,7 @@ pub struct ProcStatm {
 impl ProcStatm {
     /// Parses contents of a /proc/{pid}/statm file.  Panics on failure.
     pub fn parse(text: &str) -> Self {
-        let mut parts = text.trim().split(' ').into_iter();
+        let mut parts = text.trim().split(' ');
         let size = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
         let resident = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
         let shared = parts.next().unwrap().parse::<u64>().unwrap() * *PAGE_SIZE;
@@ -378,16 +378,16 @@ impl ProcStatm {
 
     /// Loads process memory usage from /proc/{pid}/statm.
     pub fn load(pid: pid_t) -> Result<Self, std::io::Error> {
-        let path = format!("/proc/{}/statm", pid);
+        let path = format!("/proc/{pid}/statm");
         let text = std::fs::read_to_string(path)?;
         Ok(Self::parse(&text))
     }
 
     pub fn load_or_log(pid: pid_t) -> Option<Self> {
         Self::load(pid)
-            .or_else(|err| {
+            .map_err(|err| {
                 error!("failed to load /proc/{}/statm: {}", pid, err);
-                Err(err)
+                err
             })
             .ok()
     }

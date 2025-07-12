@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fmt, fs, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::LazyLock,
 };
@@ -56,7 +56,7 @@ fn load_flat_keyed<T: FromStr>(path: &PathBuf) -> Result<HashMap<String, T>, Err
         }
     }
 
-    return Ok(output);
+    Ok(output)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -66,7 +66,7 @@ struct Pids {
 }
 
 impl Pids {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
+    pub fn load(cgroup_path: &Path) -> Result<Self, Error> {
         let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
         Ok(Self {
             current: load_scalar("pids.current")?,
@@ -89,7 +89,7 @@ struct CPUStat {
 }
 
 impl CPUStat {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
+    pub fn load(cgroup_path: &Path) -> Result<Self, Error> {
         let path = cgroup_path.join("cpu.stat");
         let mut mapping: HashMap<String, u64> = load_flat_keyed(&path)?;
         Ok(Self {
@@ -121,7 +121,7 @@ struct Memory {
 }
 
 impl Memory {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
+    pub fn load(cgroup_path: &Path) -> Result<Self, Error> {
         let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
 
         Ok(Memory {
@@ -133,7 +133,7 @@ impl Memory {
     }
 }
 
-fn enabled_controllers(cgroup_path: &PathBuf) -> Result<HashSet<String>, Error> {
+fn enabled_controllers(cgroup_path: &Path) -> Result<HashSet<String>, Error> {
     let control_file = if *cgroup_path == *CGROUP_ROOT {
         // in the root cgroup, cgroup.controllers reports all the controllers that can
         // be enabled, not necessarily the ones that are
@@ -158,7 +158,7 @@ pub struct CGroupAccounting {
 }
 
 impl CGroupAccounting {
-    pub fn load(cgroup_path: &PathBuf) -> Result<Self, Error> {
+    pub fn load(cgroup_path: &Path) -> Result<Self, Error> {
         let controllers = enabled_controllers(cgroup_path)?;
         Ok(CGroupAccounting {
             pids: if controllers.contains("pids") {
@@ -177,11 +177,10 @@ impl CGroupAccounting {
         })
     }
 
-    pub fn load_or_log(cgroup_path: &PathBuf) -> Option<Self> {
+    pub fn load_or_log(cgroup_path: &Path) -> Option<Self> {
         Self::load(cgroup_path)
-            .or_else(|err| {
+            .inspect_err(|_err| {
                 error!("failed to load accounting for {}", cgroup_path.display());
-                Err(err)
             })
             .ok()
     }

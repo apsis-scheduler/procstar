@@ -24,8 +24,7 @@ pub fn read_into_vec(fd: fd_t, buf: &mut Vec<u8>, max_len: usize) -> Result<usiz
 /// Reads a string from a file descriptor.  See `write_str`.
 pub fn read_str(fd: fd_t) -> Result<String> {
     let len = read_usize(fd)?;
-    let mut buf = Vec::with_capacity(len);
-    buf.resize(len, 0);
+    let mut buf = vec![0; len];
     sys::read(fd, &mut buf[..])?;
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
@@ -35,7 +34,7 @@ pub fn read_usize(fd: fd_t) -> Result<usize> {
     match sys::read(fd, &mut data)? {
         0 => Err(Error::Eof),
         8 => Ok(usize::from_ne_bytes(data)),
-        ret => panic!("read_usize: read returned {}", ret),
+        ret => panic!("read_usize: read returned {ret}"),
     }
 }
 

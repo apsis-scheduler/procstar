@@ -23,8 +23,12 @@ jobs:
         version: "latest"
         enable-cache: true
 
-    - name: Run Rust tests
-      run: cargo test
+    - name: Install procstar
+      # use dev profile to share cache with cargo test
+      run: uv sync -v --config-settings="build-args=--profile=dev"
+
+    - name: Check Python formatting  
+      run: uv run ruff format --check --diff
 
     - name: Run clippy linting
       run: cargo clippy --all-targets --all-features -- -D warnings
@@ -32,9 +36,8 @@ jobs:
     - name: Check Rust formatting  
       run: cargo fmt --all -- --check
 
-    - name: Install procstar
-      # use dev profile to share cache with cargo test
-      run: uv sync -v --config-settings="build-args=--profile=dev"
+    - name: Run Rust tests
+      run: cargo test
 
     - name: Run Python tests
       run: uv run pytest

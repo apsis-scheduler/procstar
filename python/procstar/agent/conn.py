@@ -3,26 +3,27 @@ Incoming connections to the websocket service.
 """
 
 import asyncio
-from   collections.abc import Mapping
-from   dataclasses import dataclass
-from   datetime import datetime
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 import ipaddress
 import logging
 import random
 import time
-from   websockets import ServerConnection, State
-from   websockets.exceptions import ConnectionClosedError
+from websockets import ServerConnection, State
+from websockets.exceptions import ConnectionClosedError
 
-from   .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
-from   procstar.lib.asyn import Subscribeable
-from   procstar.proto import ConnectionInfo, ProcessInfo, ShutdownState
-from   procstar.proto import serialize_message
+from .exc import NoOpenConnectionInGroup, NotConnectedError, WebSocketNotOpen
+from procstar.lib.asyn import Subscribeable
+from procstar.proto import ConnectionInfo, ProcessInfo, ShutdownState
+from procstar.proto import serialize_message
 
 logger = logging.getLogger(__name__)
 
 # FIXME: Age out old connections.
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @dataclass
 class SocketInfo:
@@ -32,20 +33,17 @@ class SocketInfo:
     def __str__(self):
         return f"{self.address}:{self.port}"
 
-
     @classmethod
     def from_ws(cls, ws):
         address, port, *_ = ws.remote_address
         address = ipaddress.ip_address(address)
         return cls(address, port)
 
-
     def to_jso(self):
         return {
-            "address"   : str(self.address),
-            "port"      : self.port,
+            "address": str(self.address),
+            "port": self.port,
         }
-
 
 
 @dataclass
@@ -53,6 +51,7 @@ class Stats:
     """
     Whether the connection is open.
     """
+
     connected: bool = False
 
     """
@@ -88,15 +87,14 @@ class Stats:
     def to_jso(self):
         niso = lambda t: None if t is None else t.isoformat()
         return {
-            "connected"             : self.connected,
-            "first_connect_time"    : niso(self.first_connect_time),
-            "last_connect_time"     : niso(self.last_connect_time),
-            "last_disconnect_time"  : niso(self.last_disconnect_time),
-            "num_connections"       : self.num_connections,
-            "num_received"          : self.num_received,
-            "num_sent"              : self.num_sent,
+            "connected": self.connected,
+            "first_connect_time": niso(self.first_connect_time),
+            "last_connect_time": niso(self.last_connect_time),
+            "last_disconnect_time": niso(self.last_disconnect_time),
+            "num_connections": self.num_connections,
+            "num_received": self.num_received,
+            "num_sent": self.num_sent,
         }
-
 
 
 @dataclass
@@ -112,15 +110,15 @@ class ProcstarInfo:
 
     def to_jso(self):
         return {
-            "conn"  : self.conn.to_jso(),
+            "conn": self.conn.to_jso(),
             "socket": self.socket.to_jso(),
-            "proc"  : self.proc.to_jso(),
-            "stats" : self.stats.to_jso(),
+            "proc": self.proc.to_jso(),
+            "stats": self.stats.to_jso(),
         }
 
 
+# -------------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------------
 
 @dataclass
 class Connection:
@@ -142,23 +140,19 @@ class Connection:
     def __hash__(self):
         return hash(self.info.conn.conn_id)
 
-
     def to_jso(self):
         return {
             "shutdown_state": self.shutdown_state.name,
             "info": self.info.to_jso(),
         }
 
-
     @property
     def conn_id(self):
         return self.info.conn.conn_id
 
-
     @property
     def open(self):
         return self.ws.state == State.OPEN
-
 
     async def send(self, msg):
         if self.ws is None:
@@ -178,7 +172,6 @@ class Connection:
         else:
             self.info.stats.num_sent += 1
 
-
     async def try_send(self, msg):
         """
         Sends a message, ignoring connection/not open errors.
@@ -187,7 +180,6 @@ class Connection:
             await self.send(msg)
         except (NotConnectedError, WebSocketNotOpen):
             pass
-
 
     def set_reconnect_timeout(self, duration, fn):
         """
@@ -203,15 +195,14 @@ class Connection:
 
         self.__reconnect_timeout_task = asyncio.create_task(timeout())
 
-
     def cancel_reconnect_timeout(self):
         if self.__reconnect_timeout_task is not None:
             self.__reconnect_timeout_task.cancel()
             self.__reconnect_timeout_task = None
 
 
+# -------------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------------
 
 class Connections(Mapping, Subscribeable):
     """
@@ -225,14 +216,13 @@ class Connections(Mapping, Subscribeable):
         self.__conns = {}
         self.__groups = {}
 
-
     def _add(
-            self,
-            conn_info: ConnectionInfo,
-            proc_info: ProcessInfo,
-            shutdown_state: ShutdownState,
-            time: datetime,
-            ws,
+        self,
+        conn_info: ConnectionInfo,
+        proc_info: ProcessInfo,
+        shutdown_state: ShutdownState,
+        time: datetime,
+        ws,
     ) -> Connection:
         """
         Adds a new connection or readds an existing one.
@@ -253,19 +243,20 @@ class Connections(Mapping, Subscribeable):
         except KeyError:
             # New connection.
             stats = Stats(
-                connected           =True,
-                first_connect_time  =time,
-                last_connect_time   =time,
-                num_connections     =1,
+                connected=True,
+                first_connect_time=time,
+                last_connect_time=time,
+                num_connections=1,
             )
             info = ProcstarInfo(
-                conn        =conn_info,
-                socket      =socket_info,
-                proc        =proc_info,
-                stats       =stats,
+                conn=conn_info,
+                socket=socket_info,
+                proc=proc_info,
+                stats=stats,
             )
             conn = self.__conns[conn_id] = Connection(
-                info=info, shutdown_state=shutdown_state, ws=ws)
+                info=info, shutdown_state=shutdown_state, ws=ws
+            )
             # Add it to the group.
             group = self.__groups.setdefault(group_id, set())
             group.add(conn_id)
@@ -300,7 +291,6 @@ class Connections(Mapping, Subscribeable):
         self._publish((conn_id, conn))
         return conn
 
-
     def _pop(self, conn_id) -> Connection:
         """
         Deletes and returns a connection.
@@ -317,19 +307,16 @@ class Connections(Mapping, Subscribeable):
         conn.cancel_reconnect_timeout()
         return conn
 
-
     def _get_open_conns_in_group(self, group_id):
         """
         Returns a sequence of connection IDs of open connections in a group.
         """
         conn_ids = self.__groups.get(group_id, ())
-        return tuple( 
+        return tuple(
             c
-            for i in conn_ids 
-            if (c := self.__conns[i]).open
-            and c.shutdown_state == ShutdownState.active
+            for i in conn_ids
+            if (c := self.__conns[i]).open and c.shutdown_state == ShutdownState.active
         )
-
 
     @property
     def groups(self):
@@ -338,40 +325,33 @@ class Connections(Mapping, Subscribeable):
         """
         return dict(self.__groups)
 
-
     # Mapping methods.
 
     def __contains__(self, conn_id):
         return self.__conns.__contains__(conn_id)
 
-
     def __getitem__(self, conn_id):
         return self.__conns.__getitem__(conn_id)
-
 
     def __len__(self):
         return self.__conns.__len__()
 
-
     def __iter__(self):
         return self.__conns.__iter__()
 
-
     def values(self):
         return self.__conns.values()
-
 
     def items(self):
         return self.__conns.items()
 
 
-
 async def choose_connection(
-        connections: Connections,
-        group_id,
-        *,
-        policy  ="random",
-        timeout =0,
+    connections: Connections,
+    group_id,
+    *,
+    policy="random",
+    timeout=0,
 ) -> Connection:
     """
     Chooses an open connection for 'group_id'.
@@ -390,8 +370,7 @@ async def choose_connection(
             if remain < 0:
                 raise NoOpenConnectionInGroup(group_id)
 
-            logger.debug(
-                f"no agent connection for {group_id}; waiting {remain:.1f} s")
+            logger.debug(f"no agent connection for {group_id}; waiting {remain:.1f} s")
             try:
                 # We don't care what precisely happened.
                 _ = await asyncio.wait_for(anext(sub), timeout=remain)
@@ -422,5 +401,3 @@ async def wait_for_connection(connections: Connections, conn_id) -> Connection:
                     logging.debug("connection not open: {conn_id}")
             # Wait for a connection change.
             await anext(sub)
-
-

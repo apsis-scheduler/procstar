@@ -1,9 +1,10 @@
 import logging
-from   logging import log, debug, info, warning, error, critical
+from logging import log, debug, info, warning, error, critical
 import logging.handlers
 import ora
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def set_log_levels():
     # Quiet some noisy stuff.
@@ -13,16 +14,14 @@ def set_log_levels():
     # logging.getLogger("websockets.protocol").setLevel(logging.INFO)
 
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 class Formatter(logging.Formatter):
-
     def formatMessage(self, rec):
         time = ora.UNIX_EPOCH + rec.created
         level = rec.levelname
-        return (
-            f"{time:%Y-%m-%dT%.3C} {rec.name:24s} {level[0]} {rec.message}"
-        )
+        return f"{time:%Y-%m-%dT%.3C} {rec.name:24s} {level[0]} {rec.message}"
 
 
 def configure(*, level="WARNING"):
@@ -37,5 +36,3 @@ def configure(*, level="WARNING"):
     logging.getLogger().handlers[0].formatter = Formatter()
 
     set_log_levels()
-
-

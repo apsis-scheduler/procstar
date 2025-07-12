@@ -5,10 +5,11 @@ import asyncio
 import pytest
 import sys
 
-from   procstar import spec
-from   procstar.testing.agent import Assembly
+from procstar import spec
+from procstar.testing.agent import Assembly
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_reconnect():
@@ -17,28 +18,29 @@ async def test_reconnect():
     while they are running.
     """
     NUM_PROCS = 256
-    LEN_OUTPUT = 1024 ** 2
+    LEN_OUTPUT = 1024**2
 
     async with Assembly.start() as asm:
-        procs = await asyncio.gather(*(
-            asm.server.start(
-                f"proc{i}",
-                spec.make_proc([
-                    sys.executable,
-                    "-c", f"print('x' * {LEN_OUTPUT})",
-                ])
+        procs = await asyncio.gather(
+            *(
+                asm.server.start(
+                    f"proc{i}",
+                    spec.make_proc(
+                        [
+                            sys.executable,
+                            "-c",
+                            f"print('x' * {LEN_OUTPUT})",
+                        ]
+                    ),
+                )
+                for i in range(NUM_PROCS)
             )
-            for i in range(NUM_PROCS)
-        ))
-        procs = [ p for p, _ in procs ]
+        )
+        procs = [p for p, _ in procs]
 
         # Restart server.
         await asm.stop_server()
         await asm.start_server()
 
-        res = await asyncio.wait_for(
-            asyncio.gather(*( asm.wait(p) for p in procs )),
-            timeout=30
-        )
-        assert all( r.status.exit_code == 0 for r in res )
-
+        res = await asyncio.wait_for(asyncio.gather(*(asm.wait(p) for p in procs)), timeout=30)
+        assert all(r.status.exit_code == 0 for r in res)

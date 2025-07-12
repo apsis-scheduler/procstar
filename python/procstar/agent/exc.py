@@ -1,4 +1,5 @@
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 class NoOpenConnectionInGroup(RuntimeError):
     """
@@ -10,7 +11,6 @@ class NoOpenConnectionInGroup(RuntimeError):
         self.group_id = group_id
 
 
-
 class NoConnectionError(LookupError):
     """
     No connection with the given connection ID.
@@ -19,7 +19,6 @@ class NoConnectionError(LookupError):
     def __init__(self, conn_id):
         super().__init__(f"unknown connection: {conn_id}")
         self.conn_id = conn_id
-
 
 
 class NotConnectedError(RuntimeError):
@@ -35,7 +34,6 @@ class NotConnectedError(RuntimeError):
         self.conn_id = conn_id
 
 
-
 class WebSocketNotOpen(RuntimeError):
     """
     The connection's Web Socket connection is not open.
@@ -46,7 +44,6 @@ class WebSocketNotOpen(RuntimeError):
         self.conn_id = conn_id
 
 
-
 class ProcessUnknownError(RuntimeError):
     """
     The process is unknown to the remote agent.
@@ -55,6 +52,3 @@ class ProcessUnknownError(RuntimeError):
     def __init__(self, proc_id):
         super().__init__(f"process unknown: {proc_id}")
         self.proc_id = proc_id
-
-
-

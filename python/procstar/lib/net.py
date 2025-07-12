@@ -8,5 +8,3 @@ def make_netloc(loc):
     if port is not None:
         netloc += f":{port}"
     return netloc
-
-

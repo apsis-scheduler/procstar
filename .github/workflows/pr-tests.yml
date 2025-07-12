@@ -23,8 +23,11 @@ jobs:
         version: "latest"
         enable-cache: true
 
+    - name: Build Python package
+      run: uv build -v
+
     - name: Check Python formatting  
-      run: uv run cargo format --check --diff
+      run: uv run ruff format --check --diff
 
     - name: Check Rust formatting  
       run: cargo fmt --all -- --check

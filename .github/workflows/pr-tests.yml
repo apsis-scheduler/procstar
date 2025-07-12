@@ -23,8 +23,8 @@ jobs:
         version: "latest"
         enable-cache: true
 
-    - name: Build Python package
-      run: uv build -v
+    - name: Install Python dependencies
+      run: uv sync --no-install-project
 
     - name: Check Python formatting  
       run: uv run ruff format --check --diff

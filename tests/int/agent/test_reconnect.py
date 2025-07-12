@@ -1,13 +1,14 @@
 import asyncio
-from   contextlib import aclosing
+from contextlib import aclosing
 import pytest
 
-from   procstar import spec
-from   procstar.testing.agent import Assembly, ProcstarError
+from procstar import spec
+from procstar.testing.agent import Assembly, ProcstarError
 
 SLEEP_EXE = "/usr/bin/sleep"
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ws_reconnect():
@@ -16,19 +17,13 @@ async def test_ws_reconnect():
     reconnection, and confirms that process results are still accessible.
     """
     async with Assembly.start() as asm:
-        proc0, _ = await asm.server.start(
-            "reconnect0",
-            spec.make_proc([SLEEP_EXE, "0.2"])
-        )
-        proc1, _ = await asm.server.start(
-            "reconnect1",
-            spec.make_proc([SLEEP_EXE, "0.4"])
-        )
+        proc0, _ = await asm.server.start("reconnect0", spec.make_proc([SLEEP_EXE, "0.2"]))
+        proc1, _ = await asm.server.start("reconnect1", spec.make_proc([SLEEP_EXE, "0.4"]))
 
         with asm.server.connections.subscription() as sub:
             for _ in range(3):
                 # Close the connection.
-                conn, = asm.server.connections.values()
+                (conn,) = asm.server.connections.values()
                 await conn.ws.close()
                 assert not conn.open
                 # Wait for reconnect.
@@ -48,17 +43,11 @@ async def test_ws_reconnect_nowait():
     explicitly for reconnect.
     """
     async with Assembly.start() as asm:
-        proc0, _ = await asm.server.start(
-            "reconnect0",
-            spec.make_proc([SLEEP_EXE, "0.2"])
-        )
-        proc1, _ = await asm.server.start(
-            "reconnect1",
-            spec.make_proc([SLEEP_EXE, "0.4"])
-        )
+        proc0, _ = await asm.server.start("reconnect0", spec.make_proc([SLEEP_EXE, "0.2"]))
+        proc1, _ = await asm.server.start("reconnect1", spec.make_proc([SLEEP_EXE, "0.4"]))
 
         # Close the connection.
-        conn, = asm.server.connections.values()
+        (conn,) = asm.server.connections.values()
         await conn.ws.close()
         assert not conn.open
 
@@ -74,14 +63,8 @@ async def test_proc_reconnect():
     Reconnects both the ws and `Process` instances, simulating restart.
     """
     async with Assembly.start() as asm:
-        proc0, _ = await asm.server.start(
-            "reconnect0",
-            spec.make_proc([SLEEP_EXE, "0.2"])
-        )
-        proc1, _ = await asm.server.start(
-            "reconnect1",
-            spec.make_proc([SLEEP_EXE, "0.4"])
-        )
+        proc0, _ = await asm.server.start("reconnect0", spec.make_proc([SLEEP_EXE, "0.2"]))
+        proc1, _ = await asm.server.start("reconnect1", spec.make_proc([SLEEP_EXE, "0.4"]))
 
         # Restart server.
         await asm.stop_server()
@@ -114,6 +97,6 @@ async def test_proc_connect_timeout():
 
 if __name__ == "__main__":
     import logging
+
     logging.getLogger().setLevel(logging.INFO)
     asyncio.run(test_proc_connect_timeout())
-

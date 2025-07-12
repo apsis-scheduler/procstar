@@ -2,14 +2,12 @@ import pytest
 import signal
 import time
 
-from   procstar.testing.proc import Process
+from procstar.testing.proc import Process
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
-@pytest.mark.parametrize(
-    "signum",
-    [signal.SIGTERM, signal.SIGINT, signal.SIGQUIT]
-)
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT, signal.SIGQUIT])
 def test_shutdown_signal(signum):
     """
     Sends a shutdown signal to procstar and confirms that processes all
@@ -17,15 +15,12 @@ def test_shutdown_signal(signum):
     """
     # The signum we expect the client procs to receive.
     proc_signum = {
-        signal.SIGTERM  : signal.SIGTERM,
-        signal.SIGINT   : signal.SIGTERM,
-        signal.SIGQUIT  : signal.SIGKILL,
+        signal.SIGTERM: signal.SIGTERM,
+        signal.SIGINT: signal.SIGTERM,
+        signal.SIGQUIT: signal.SIGKILL,
     }[signum]
 
-    specs = {
-        str(i): {"argv": ["/usr/bin/sleep", "1"]}
-        for i in range(3)
-    }
+    specs = {str(i): {"argv": ["/usr/bin/sleep", "1"]} for i in range(3)}
 
     # Start procstar.
     proc = Process({"specs": specs})
@@ -42,10 +37,7 @@ def test_idle_signal():
     """
     Sends SIGUSR1 and confirms that procstar exits when idle.
     """
-    specs = {
-        str(i): {"argv": ["/usr/bin/sleep", str(i)]}
-        for i in [0.2, 0.3, 0.4]
-    }
+    specs = {str(i): {"argv": ["/usr/bin/sleep", str(i)]} for i in [0.2, 0.3, 0.4]}
 
     # Start procstar.
     proc = Process({"specs": specs})
@@ -63,5 +55,3 @@ def test_idle_signal():
 
 if __name__ == "__main__":
     test_shutdown_signal(signal.SIGTERM)
-
-

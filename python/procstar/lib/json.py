@@ -2,7 +2,8 @@
 JSON-related helpers.
 """
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 class Jso:
     """
@@ -14,11 +15,9 @@ class Jso:
     def __init__(self, jso_dict):
         self.__jso_dict = jso_dict
 
-
     def __repr__(self):
-        args = ", ".join( f"{k}={v!r}" for k, v in self.__jso_dict.items() )
+        args = ", ".join(f"{k}={v!r}" for k, v in self.__jso_dict.items())
         return f"Object({args})"
-
 
     def __getattr__(self, name):
         try:
@@ -27,15 +26,12 @@ class Jso:
             raise AttributeError(name) from None
         return Jso(val) if isinstance(val, dict) else val
 
-
     def __dir__(self):
         return self.__jso_dict.keys()
-
 
     @property
     def __dict__(self):
         return self.__jso_dict
-
 
     @classmethod
     def wrap(cls, jso):
@@ -44,11 +40,8 @@ class Jso:
         any subobjects.
         """
         if isinstance(jso, list):
-            return [ cls.wrap(i) for i in jso ]
+            return [cls.wrap(i) for i in jso]
         elif isinstance(jso, dict):
-            return Jso({ k: cls.wrap(v) for k, v in jso.items() })
+            return Jso({k: cls.wrap(v) for k, v in jso.items()})
         else:
             return jso
-
-
-

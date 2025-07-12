@@ -1,15 +1,16 @@
-from   dataclasses import dataclass
+from dataclasses import dataclass
 import enum
 import msgpack
-from   typing import Dict, List
+from typing import Dict, List
 
-from   .lib.py import format_ctor
-from   .lib.string import elide
+from .lib.py import format_ctor
+from .lib.string import elide
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 DEFAULT_PORT = 18782
 DEFAULT_GROUP = "default"
+
 
 class ProtocolError(Exception):
     """
@@ -17,12 +18,12 @@ class ProtocolError(Exception):
     """
 
 
-
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 ShutdownState = enum.Enum("ShutdownState", ["active", "idling", "done"])
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @dataclass
 class Registered:
@@ -34,11 +35,9 @@ class ProcStartRequest:
     specs: Dict[str, dict]
 
 
-
 @dataclass
 class ProcidListRequest:
     pass
-
 
 
 @dataclass
@@ -46,12 +45,10 @@ class ProcResultRequest:
     proc_id: str
 
 
-
 @dataclass
 class ProcSignalRequest:
     proc_id: str
     signum: int
-
 
 
 @dataclass
@@ -67,19 +64,19 @@ class ProcDeleteRequest:
     proc_id: str
 
 
-
 OUTGOING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
-            Registered,
-            ProcStartRequest,
-            ProcidListRequest,
-            ProcResultRequest,
-            ProcSignalRequest,
-            ProcFdDataRequest,
-            ProcDeleteRequest,
+        Registered,
+        ProcStartRequest,
+        ProcidListRequest,
+        ProcResultRequest,
+        ProcSignalRequest,
+        ProcFdDataRequest,
+        ProcDeleteRequest,
     )
 }
+
 
 def serialize_message(msg):
     """
@@ -94,7 +91,8 @@ def serialize_message(msg):
     return msgpack.dumps({"type": type} | msg.__dict__)
 
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @dataclass
 class ConnectionInfo:
@@ -104,7 +102,6 @@ class ConnectionInfo:
 
     def to_jso(self):
         return dict(self.__dict__)
-
 
 
 @dataclass
@@ -123,7 +120,6 @@ class ProcessInfo:
         return dict(self.__dict__)
 
 
-
 @dataclass
 class Register:
     conn: ConnectionInfo
@@ -135,24 +131,23 @@ class Register:
     @classmethod
     def from_jso(cls, jso):
         return cls(
-            conn            =ConnectionInfo(**jso["conn"]),
-            proc            =ProcessInfo(**jso["proc"]),
+            conn=ConnectionInfo(**jso["conn"]),
+            proc=ProcessInfo(**jso["proc"]),
             # Allow none for backward compatibility.  CLEANUP#38
-            proc_ids        =jso.get("proc_ids", None),
-            access_token    =jso["access_token"],
-            shutdown_state  =ShutdownState[jso["shutdown_state"]],
+            proc_ids=jso.get("proc_ids", None),
+            access_token=jso["access_token"],
+            shutdown_state=ShutdownState[jso["shutdown_state"]],
         )
-
 
     def __repr__(self):
         # Don't format the access token.
         return format_ctor(
             self,
-            conn            =self.conn,
-            proc            =self.proc,
-            access_token    ="***",
-            shutdown_state  =self.shutdown_state.name,
-            proc_ids        =self.proc_ids,
+            conn=self.conn,
+            proc=self.proc,
+            access_token="***",
+            shutdown_state=self.shutdown_state.name,
+            proc_ids=self.proc_ids,
         )
 
 
@@ -160,7 +155,6 @@ class Register:
 class RequestError:
     msg: dict
     err: str
-
 
 
 @dataclass
@@ -173,7 +167,6 @@ class ProcidList:
     proc_ids: List[str]
 
 
-
 @dataclass
 class ProcResult:
     proc_id: str
@@ -183,6 +176,7 @@ class ProcResult:
         class Omitted:
             def __repr__(self):
                 return "…"
+
         OMITTED = Omitted()
 
         # Omit fd data from the output.
@@ -195,8 +189,7 @@ class ProcResult:
         for key in ("proc_stat", "proc_statm", "rusage"):
             if key in res:
                 res[key] = OMITTED
-        return f'{name}(proc_id={proc_id!r}, res={res})'
-
+        return f"{name}(proc_id={proc_id!r}, res={res})"
 
 
 @dataclass
@@ -212,20 +205,18 @@ class ProcFdData:
         # Don't formet the entire data, which may be large.
         return format_ctor(
             self,
-            proc_id =self.proc_id,
-            fd      =self.fd,
-            start   =self.start,
-            stop    =self.stop,
+            proc_id=self.proc_id,
+            fd=self.fd,
+            start=self.start,
+            stop=self.stop,
             encoding=self.encoding,
-            data    =elide(self.data, 32, ellipsis=b"...", pos=0.8),
+            data=elide(self.data, 32, ellipsis=b"...", pos=0.8),
         )
-
 
 
 @dataclass
 class ProcDelete:
     proc_id: str
-
 
 
 @dataclass
@@ -239,20 +230,20 @@ class ShutDown:
         )
 
 
-
 INCOMING_MESSAGE_TYPES = {
     c.__name__: c
     for c in (
-            RequestError,
-            ProcDelete,
-            ProcResult,
-            ProcFdData,
-            ProcUnknown,
-            ProcidList,
-            Register,
-            ShutDown,
+        RequestError,
+        ProcDelete,
+        ProcResult,
+        ProcFdData,
+        ProcUnknown,
+        ProcidList,
+        Register,
+        ShutDown,
     )
 }
+
 
 def deserialize_message(msg):
     """
@@ -296,11 +287,9 @@ def deserialize_message(msg):
     return type_name, obj
 
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @dataclass
 class ConnectionTimeout:
     pass
-
-
-

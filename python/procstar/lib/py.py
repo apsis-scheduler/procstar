@@ -14,21 +14,14 @@ class Interval:
         self.start = start
         self.stop = stop
 
-
     def __eq__(self, other):
-        return (
-            other is self
-            or (other.start == self.start and other.stop == self.stop)
-        )
-
+        return other is self or (other.start == self.start and other.stop == self.stop)
 
     def __str__(self):
         return f"[{self.start}, {self.stop})"
 
-
     def __iter__(self):
         return iter((self.start, self.stop))
-
 
 
 def format_call(__fn, *args, **kw_args) -> str:
@@ -45,12 +38,10 @@ def format_call(__fn, *args, **kw_args) -> str:
         name = __fn.__name__
     except AttributeError:
         name = str(__fn)
-    args = [ repr(a) for a in args ]
-    args.extend( n + "=" + repr(v) for n, v in kw_args.items() )
+    args = [repr(a) for a in args]
+    args.extend(n + "=" + repr(v) for n, v in kw_args.items())
     return f"{name}({', '.join(args)})"
 
 
 def format_ctor(obj, *args, **kw_args):
     return format_call(obj.__class__, *args, **kw_args)
-
-

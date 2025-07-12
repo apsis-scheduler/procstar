@@ -2,26 +2,24 @@ import collections.abc
 import json
 import logging
 import os
-from   pathlib import Path
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
-from   . import get_procstar_path
+from . import get_procstar_path
 
 log = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 
 class TemporaryDirectory(tempfile.TemporaryDirectory):
-
     def __init__(self, *, prefix="procstar-test-tmp-", **kw_args):
         super().__init__(prefix=prefix, **kw_args)
-
 
     def __exit__(self, exc_type, exc, tb):
         if exc is None:
@@ -31,13 +29,10 @@ class TemporaryDirectory(tempfile.TemporaryDirectory):
             self._finalizer.detach()
 
 
-
 class Errors(Exception):
-
     def __init__(self, errors):
         super().__init__("\n".join(errors))
         self.errors = tuple(errors)
-
 
 
 def _thunk_jso(o):
@@ -48,14 +43,13 @@ def _thunk_jso(o):
     elif isinstance(o, str):
         pass
     elif isinstance(o, collections.abc.Mapping):
-        o = { str(k): _thunk_jso(v) for k, v in o.items() }
+        o = {str(k): _thunk_jso(v) for k, v in o.items()}
     elif isinstance(o, collections.abc.Sequence):
-        o = [ _thunk_jso(i) for i in o ]
+        o = [_thunk_jso(i) for i in o]
     return o
 
 
 class Process(subprocess.Popen):
-
     def __init__(self, spec):
         spec_json = json.dumps(_thunk_jso(spec))
         # Make our own pipe so that Popen doesn't manage it.
@@ -64,14 +58,15 @@ class Process(subprocess.Popen):
             [
                 str(get_procstar_path()),
                 "--print",
-                "--log-level", "trace",
+                "--log-level",
+                "trace",
                 "-",
             ],
             encoding="utf-8",
-            stdin   =os.fdopen(stdin_read_fd, "r", encoding="utf-8"),
-            stdout  =subprocess.PIPE,
-            stderr  =subprocess.PIPE,
-            env     =os.environ | {"RUST_BACKTRACE": "1"},
+            stdin=os.fdopen(stdin_read_fd, "r", encoding="utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=os.environ | {"RUST_BACKTRACE": "1"},
         )
         os.write(stdin_write_fd, spec_json.encode())
         os.close(stdin_write_fd)
@@ -83,13 +78,11 @@ class Process(subprocess.Popen):
             if "started processes from specs" in line:
                 break
 
-
     def wait_result(self):
         stdout, stderr = self.communicate()
         sys.stderr.write(stderr)
         assert self.returncode == 0
         return json.loads(stdout)
-
 
 
 def run(spec, *, args=()):
@@ -103,7 +96,8 @@ def run(spec, *, args=()):
         subprocess.run(
             [
                 str(get_procstar_path()),
-                "--output", output_path,
+                "--output",
+                output_path,
                 *args,
                 spec_path,
             ],
@@ -135,5 +129,3 @@ def run_spec(path):
     with open(path) as file:
         spec = json.load(file)
     return run(spec)
-
-

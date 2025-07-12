@@ -43,7 +43,8 @@ version = {attr = "procstar.__version__"}
 testpaths = "tests/"
 
 [tool.ruff]
-select = ["F", "E999"]
+lint.select = ["F"]
+line-length = 100
 
 [tool.bumpversion]
 current_version = "0.6.2"

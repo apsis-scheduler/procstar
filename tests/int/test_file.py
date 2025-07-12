@@ -1,11 +1,12 @@
-from   pathlib import Path
+from pathlib import Path
 
-from   procstar.testing.proc import run1, run_spec
+from procstar.testing.proc import run1, run_spec
 
 SPECS_DIR = Path(__file__).parent / "specs"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def test_echo_hello():
     res = run_spec(SPECS_DIR / "echo-hello.json")
@@ -15,13 +16,15 @@ def test_echo_hello():
 def test_stdout_stderr(tmp_path):
     stdout_path = tmp_path / "stdout"
     stderr_path = tmp_path / "stderr"
-    res = run1({
-        "argv": [SCRIPTS_DIR / "test.py", "--exit", "42"],
-        "fds": [
-            ["1", {"file": {"path": str(stdout_path)}}],
-            ["2", {"file": {"path": str(stderr_path)}}],
-        ]
-    })
+    res = run1(
+        {
+            "argv": [SCRIPTS_DIR / "test.py", "--exit", "42"],
+            "fds": [
+                ["1", {"file": {"path": str(stdout_path)}}],
+                ["2", {"file": {"path": str(stderr_path)}}],
+            ],
+        }
+    )
 
     assert res["status"] == {
         "status": 42 << 8,
@@ -31,24 +34,21 @@ def test_stdout_stderr(tmp_path):
         "core_dump": False,
     }
 
-    assert stdout_path.read_text() == (
-        "message 0 to stdout\n"
-        "message 2 to stdout\n"
-    )
-    assert stderr_path.read_text() == (
-        "message 1 to stderr\n"
-    )
+    assert stdout_path.read_text() == ("message 0 to stdout\nmessage 2 to stdout\n")
+    assert stderr_path.read_text() == ("message 1 to stderr\n")
 
 
 def test_stdout_stderr_merge(tmp_path):
     stderr_path = tmp_path / "stderr"
-    res = run1({
-        "argv": [SCRIPTS_DIR / "test.py", "--exit", "42"],
-        "fds": [
-            ["stderr", {"file": {"path": str(stderr_path)}}],
-            ["stdout", {"dup": {"fd": 2}}],
-        ]
-    })
+    res = run1(
+        {
+            "argv": [SCRIPTS_DIR / "test.py", "--exit", "42"],
+            "fds": [
+                ["stderr", {"file": {"path": str(stderr_path)}}],
+                ["stdout", {"dup": {"fd": 2}}],
+            ],
+        }
+    )
 
     assert res["status"] == {
         "status": 42 << 8,
@@ -59,9 +59,5 @@ def test_stdout_stderr_merge(tmp_path):
     }
 
     assert stderr_path.read_text() == (
-        "message 0 to stdout\n"
-        "message 1 to stderr\n"
-        "message 2 to stdout\n"
+        "message 0 to stdout\nmessage 1 to stderr\nmessage 2 to stdout\n"
     )
-
-

@@ -43,7 +43,8 @@ version = {attr = "procstar.__version__"}
 testpaths = "tests/"
 
 [tool.ruff]
-select = ["F", "E999"]
+lint.select = ["F"]
+line-length = 100
 
 [tool.bumpversion]
 current_version = "0.6.2"
@@ -70,6 +71,7 @@ dev = [
     "maturin[patchelf]>=1.9.1",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
+    "ruff>=0.12.3",
     "sphinx>=8.1.3",
     "sphinx-rtd-theme>=3.0.2",
 ]

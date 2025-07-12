@@ -1,11 +1,12 @@
-from   contextlib import closing
+from contextlib import closing
 import pytest
 import sys
 
-from   procstar.spec import make_proc, Proc
-from   procstar.testing.inst import Instance
+from procstar.spec import make_proc, Proc
+from procstar.testing.inst import Instance
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 async def poll(async_client, proc_id):
     while (res := await async_client.get_proc(proc_id))["state"] == "running":
@@ -60,13 +61,10 @@ async def test_detached_output():
     with closing(Instance()) as inst:
         async with inst.async_client() as client:
             spec = make_proc(
-                [
-                    sys.executable,
-                    "-c", "print(1048576 * 'x')"
-                ],
+                [sys.executable, "-c", "print(1048576 * 'x')"],
                 fds={
                     "stdout": Proc.Fd.Capture("memory", "utf-8", attached=False),
-                }
+                },
             )
             proc_id = await client.start_proc(spec)
             res = await poll(client, proc_id)
@@ -76,5 +74,3 @@ async def test_detached_output():
             assert res["fds"]["stderr"]["text"] == ""
 
             assert await client.get_output_data(proc_id, "stdout") == "x" * 1048576 + "\n"
-
-

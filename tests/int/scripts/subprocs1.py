@@ -7,6 +7,7 @@ import random
 import subprocess
 import time
 
+
 def work():
     pids = set()
     while random.random() < 0.45:
@@ -39,6 +40,3 @@ while len(pids) > 0:
     pids.remove(os.wait()[0])
 
 os.write(1, b"done\n")
-
-
-

@@ -17,15 +17,13 @@ def elide(string, length, ellipsis="…", pos=1.0):
     if len(string) <= length:
         return string
 
-    keep    = length - len(ellipsis)
-    left    = int(round(pos * keep))
-    right   = keep - left
+    keep = length - len(ellipsis)
+    left = int(round(pos * keep))
+    right = keep - left
 
     result = ellipsis
     if left > 0:
-        result = string[: left] + result
+        result = string[:left] + result
     if right > 0:
-        result += string[-right :]
+        result += string[-right:]
     return result
-
-

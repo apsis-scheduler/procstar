@@ -1,14 +1,15 @@
 import asyncio
-from   collections import Counter
+from collections import Counter
 import itertools
 import os
 import pytest
 import socket
 
-from   procstar import spec
-from   procstar.testing.agent import Assembly
+from procstar import spec
+from procstar.testing.agent import Assembly
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_connect():
@@ -45,7 +46,7 @@ async def test_connect_multi():
     async with Assembly.start(counts=counts) as asm:
         conns = asm.server.connections
         assert len(conns) == 6
-        assert dict(Counter( c.info.conn.group_id for c in conns.values() )) == counts
+        assert dict(Counter(c.info.conn.group_id for c in conns.values())) == counts
 
 
 @pytest.mark.asyncio
@@ -54,8 +55,7 @@ async def test_run_proc():
 
     async with Assembly.start() as asm:
         proc, res = await asm.server.start(
-            proc_id,
-            spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
+            proc_id, spec.make_proc(["/usr/bin/echo", "Hello, world!"]).to_jso()
         )
         assert proc.proc_id == proc_id
 
@@ -96,18 +96,18 @@ async def test_run_procs():
     }
 
     async with Assembly.start() as asm:
-        starts = await asyncio.gather(*( asm.server.start(i, s) for i, s in specs.items() ))
-        ress = dict(zip(specs, await asyncio.gather(*( asm.wait(p) for p, _ in starts ))))
+        starts = await asyncio.gather(*(asm.server.start(i, s) for i, s in specs.items()))
+        ress = dict(zip(specs, await asyncio.gather(*(asm.wait(p) for p, _ in starts))))
 
-        assert all( r.status.exit_code == 0 for r in ress.values() )
+        assert all(r.status.exit_code == 0 for r in ress.values())
         assert ress["e0"].fds.stdout.text == "Hello, world!\n"
         assert ress["e1"].fds.stdout.text == "This is a test.\n"
         assert ress["s0"].fds.stdout.text == ""
         assert ress["s1"].fds.stdout.text == ""
         assert 0.25 < ress["s0"].times.elapsed < 0.5
         assert 0.75 < ress["s1"].times.elapsed < 1.0
-        print([ r.fds.stderr.text for r in ress.values() ])
-        assert all( r.fds.stderr.text == "" for r in ress.values() )
+        print([r.fds.stderr.text for r in ress.values()])
+        assert all(r.fds.stderr.text == "" for r in ress.values())
 
 
 @pytest.mark.asyncio
@@ -120,15 +120,17 @@ async def test_run_multi():
 
     async with Assembly.start(counts=counts) as asm:
         # Start a bunch of processes in various groups.
-        starts = await asyncio.gather(*(
-            asm.server.start(
-                f"proc{i}-{(g := next(group_ids))}",
-                spec.make_proc(["/usr/bin/echo", "group", g]),
-                group_id=g,
+        starts = await asyncio.gather(
+            *(
+                asm.server.start(
+                    f"proc{i}-{(g := next(group_ids))}",
+                    spec.make_proc(["/usr/bin/echo", "group", g]),
+                    group_id=g,
+                )
+                for i in range(64)
             )
-            for i in range(64)
-        ))
-        procs = [ p for p, _ in starts ]
+        )
+        procs = [p for p, _ in starts]
 
         # Each should have been assigned to the right group.
         for proc in procs:
@@ -136,7 +138,7 @@ async def test_run_multi():
             assert asm.server.connections[proc.conn_id].info.conn.group_id == group
 
         # Each should complete successfully.
-        ress = await asyncio.gather(*( asm.wait(p) for p in procs ))
+        ress = await asyncio.gather(*(asm.wait(p) for p in procs))
         for proc, res in zip(procs, ress):
             group = proc.proc_id.split("-", 1)[1]
             assert res.status.exit_code == 0
@@ -151,6 +153,6 @@ async def test_run_multi():
 
 if __name__ == "__main__":
     import logging
+
     logging.getLogger().setLevel(logging.INFO)
     asyncio.run(test_run_proc())
-

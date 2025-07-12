@@ -1,14 +1,16 @@
 import asyncio
-from   contextlib import contextmanager
+from contextlib import contextmanager
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 async def iter_queue(queue: asyncio.Queue):
     while True:
         yield await queue.get()
 
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 class Subscribeable:
     """
@@ -20,7 +22,6 @@ class Subscribeable:
     def __init__(self):
         # Current subscriptions.
         self.__subs = set()
-
 
     class Subscription:
         """
@@ -36,7 +37,6 @@ class Subscribeable:
         def __anext__(self):
             return self.__events.get()
 
-
     @contextmanager
     def subscription(self):
         # Create a queue for events sent to this subscription.
@@ -49,10 +49,6 @@ class Subscribeable:
             # Unregister the subscription.
             self.__subs.remove(events)
 
-
     def _publish(self, event):
         for sub in self.__subs:
             sub.put_nowait(event)
-
-
-

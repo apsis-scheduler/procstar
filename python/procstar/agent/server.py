@@ -3,22 +3,22 @@ WebSocket service for incoming connections from procstar instances.
 """
 
 import asyncio
-from   functools import partial
+from functools import partial
 import logging
 import os
-from   pathlib import Path
+from pathlib import Path
 import ssl
 import websockets
 import websockets.protocol
-from   websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
-from   . import DEFAULT_PORT
-from   .conn import Connection, Connections
-from   .conn import choose_connection, wait_for_connection
-from   .exc import NoConnectionError
-from   .proc import Processes, Process, Result
-from   procstar import proto
-from   procstar.lib.time import now
+from . import DEFAULT_PORT
+from .conn import Connection, Connections
+from .conn import choose_connection, wait_for_connection
+from .exc import NoConnectionError
+from .proc import Processes, Process, Result
+from procstar import proto
+from procstar.lib.time import now
 
 FROM_ENV = object()
 
@@ -29,7 +29,8 @@ TIMEOUT_LOGIN = 60
 
 logger = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def _expand_tls_cert(tls_cert):
     if tls_cert is None:
@@ -69,39 +70,32 @@ def _expand_tls_cert(tls_cert):
 
 # NOTE: the only reason why this function needs to be async is to make it more mockable
 # to reproduce a specific race condition
-async def maybe_set_reconnect_timeout(
-    *, reconnect_timeout, conn: Connection, on_timeout
-):
+async def maybe_set_reconnect_timeout(*, reconnect_timeout, conn: Connection, on_timeout):
     if reconnect_timeout is None:
         return
     # Conn may actually be open if the agently rapidly reconnected
     # concurrently in a new ._serve_connection task. This prevents setting
     # a timeout on connections that are actually live.
     if conn.open:
-        logger.info(
-            f"not setting reconnect timeout: {conn.conn_id}: already reconnected"
-        )
+        logger.info(f"not setting reconnect timeout: {conn.conn_id}: already reconnected")
     else:
-        logger.info(
-            f"setting reconnect timeout: {conn.conn_id}: {reconnect_timeout} s"
-        )
+        logger.info(f"setting reconnect timeout: {conn.conn_id}: {reconnect_timeout} s")
         conn.set_reconnect_timeout(reconnect_timeout, on_timeout)
 
 
 class Server:
-
     def __init__(self):
         self.connections = Connections()
         self.processes = Processes()
 
-
     def run(
-            self, *,
-            host                =FROM_ENV,
-            port                =FROM_ENV,
-            tls_cert            =FROM_ENV,
-            access_token        =FROM_ENV,
-            reconnect_timeout   =None,
+        self,
+        *,
+        host=FROM_ENV,
+        port=FROM_ENV,
+        tls_cert=FROM_ENV,
+        access_token=FROM_ENV,
+        reconnect_timeout=None,
     ):
         """
         Returns a coro that runs the websocket server.
@@ -146,22 +140,23 @@ class Server:
 
         # For debugging TLS handshake.
         if False:
+
             def msg_callback(*args):
                 logger.debug(f"TLS: {args}")
+
             ssl_context._msg_callback = msg_callback
 
         return websockets.serve(
             partial(self._serve_connection, access_token, reconnect_timeout),
-            host, port,
+            host,
+            port,
             ssl=ssl_context,
             max_size=None,  # no message size limit
         )
 
-
     async def run_forever(self, **kw_args):
         _server = await self.run(**kw_args)
         # FIXME: Log the/a server URL.
-
 
     async def _serve_connection(self, access_token, reconnect_timeout, ws):
         """
@@ -204,8 +199,7 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                register_msg.conn, register_msg.proc,
-                register_msg.shutdown_state, time, ws
+                register_msg.conn, register_msg.proc, register_msg.shutdown_state, time, ws
             )
             conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
@@ -224,10 +218,7 @@ class Server:
             if register_msg.proc_ids is not None:
                 # Reconcile proc IDs from the register msg.
                 conn_proc_ids = set(register_msg.proc_ids)
-                our_proc_ids = {
-                    i for i, p in self.processes.items()
-                    if p.conn_id == conn_id
-                }
+                our_proc_ids = {i for i, p in self.processes.items() if p.conn_id == conn_id}
                 for proc_id in conn_proc_ids - our_proc_ids:
                     # New proc ID.
                     self.processes.create(conn, proc_id)
@@ -286,9 +277,7 @@ class Server:
                     # This case isn't expected to be hit without an unforseen
                     # concurrency bug. Including to be extra defensive against timing
                     # out live connections.
-                    logger.warning(
-                        "ignoring reconnect timeout because conn is open: {conn_id}"
-                    )
+                    logger.warning("ignoring reconnect timeout because conn is open: {conn_id}")
                     return
                 logger.warning(f"reconnect timed out: {conn_id}")
                 assert self.connections._pop(conn_id) is conn
@@ -300,12 +289,12 @@ class Server:
             )
 
     async def request_start(
-            self,
-            proc_id,
-            spec,
-            *,
-            group_id=proto.DEFAULT_GROUP,
-            conn_timeout=0,
+        self,
+        proc_id,
+        spec,
+        *,
+        group_id=proto.DEFAULT_GROUP,
+        conn_timeout=0,
     ) -> Process:
         """
         Starts a new process on a connection in `group`.
@@ -331,7 +320,6 @@ class Server:
         await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
         return self.processes.create(conn, proc_id)
 
-
     async def start(self, *args, **kw_args) -> (Process, Result):
         """
         Starts a new process and awaits the initial `Result`.
@@ -341,7 +329,6 @@ class Server:
         # FIXME: Could something else happen in the meanwhile?
         assert isinstance(result, Result), "expected initial result"
         return proc, result
-
 
     async def reconnect(self, conn_id, proc_id, *, conn_timeout=0) -> Process:
         """
@@ -358,8 +345,7 @@ class Server:
         """
         try:
             conn = await asyncio.wait_for(
-                wait_for_connection(self.connections, conn_id),
-                timeout=conn_timeout
+                wait_for_connection(self.connections, conn_id), timeout=conn_timeout
             )
         except asyncio.TimeoutError:
             raise NoConnectionError(conn_id)
@@ -368,6 +354,3 @@ class Server:
             return self.processes[proc_id]
         except KeyError:
             return self.processes.create(conn, proc_id)
-
-
-

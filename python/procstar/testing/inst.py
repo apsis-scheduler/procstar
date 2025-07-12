@@ -7,17 +7,19 @@ import signal
 import subprocess
 import tempfile
 
-from   . import get_procstar_path
+from . import get_procstar_path
 import procstar.http.client
 
 log = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def _build(shutdown, serve, serve_port=None):
     argv = [
         get_procstar_path(),
-        "--log-level", "info",
+        "--log-level",
+        "info",
     ]
 
     match shutdown:
@@ -43,22 +45,20 @@ def _build(shutdown, serve, serve_port=None):
 
 
 class Instance:
-
     def __init__(self, *, shutdown=None, serve=True):
         # FIXME: This is dumb.
         self.serve_port = random.randint(20000, 30000)
         argv, env = _build(
-            shutdown    =shutdown,
-            serve       =serve,
-            serve_port  =self.serve_port,
+            shutdown=shutdown,
+            serve=serve,
+            serve_port=self.serve_port,
         )
         self.dir = tempfile.TemporaryDirectory()
         self.proc = subprocess.Popen(
             argv,
-            env     =env,
-            cwd     =self.dir.name,
+            env=env,
+            cwd=self.dir.name,
         )
-
 
     def close(self):
         # KILL is drastic but otherwise there's a shutdown delay if any
@@ -68,19 +68,11 @@ class Instance:
         self.proc = None
         self.dir.cleanup()
 
-
     @functools.cached_property
     def client(self):
         return procstar.http.client.Client(("localhost", self.serve_port))
 
-
     @contextlib.asynccontextmanager
     async def async_client(self):
         async with httpx.AsyncClient() as http_client:
-            yield procstar.http.client.AsyncClient(
-                ("localhost", self.serve_port),
-                http_client
-            )
-
-
-
+            yield procstar.http.client.AsyncClient(("localhost", self.serve_port), http_client)

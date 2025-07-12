@@ -23,11 +23,17 @@ jobs:
         version: "latest"
         enable-cache: true
 
-    - name: Run Rust tests
-      run: cargo test
+    - name: Install Python dependencies
+      run: uv sync --no-install-project
+
+    - name: Check Python formatting  
+      run: uv run ruff format --check --diff
 
     - name: Check Rust formatting  
       run: cargo fmt --all -- --check
+
+    - name: Run Rust tests
+      run: cargo test
 
     - uses: PyO3/maturin-action@v1
       with:

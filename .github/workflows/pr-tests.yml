@@ -33,7 +33,7 @@ jobs:
     - name: Check ruff linting
       run: uv run ruff check
 
-    - name: Run clippy linting
+    - name: Check clippy linting
       run: cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Check Rust formatting  

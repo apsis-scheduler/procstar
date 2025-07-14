@@ -40,7 +40,7 @@ def test_echo(mode, encoding):
     text = "Hello, world. How are you?\n"
     if encoding == "utf-8":
         assert stdout["text"] == text
-    elif encoding == None:
+    elif encoding is None:
         assert stdout["encoding"] == "base64"
         assert stdout["data"] == base64.b64encode(text.encode()).decode()
 

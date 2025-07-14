@@ -51,8 +51,8 @@ def test_subprocs1():
     for proc in procs.values():
         assert proc["status"]["status"] == 0
         lines = proc["fds"]["stdout"]["text"].splitlines()
-        forked = {int(l[8:]) for l in lines if l.startswith("forked: ")}
-        waited = {int(l[8:]) for l in lines if l.startswith("waited: ")}
+        forked = {int(L[8:]) for L in lines if L.startswith("forked: ")}
+        waited = {int(L[8:]) for L in lines if L.startswith("waited: ")}
         assert forked == waited
         assert lines[-1] == "done"
 
@@ -84,4 +84,4 @@ def test_concurrent_print():
         lines = proc["fds"]["stdout"]["text"].splitlines()
         assert len(lines) == 1 << i
         expected = "x" * ((1 << (22 - i)) + 1)
-        assert all(l == expected for l in lines)
+        assert all(L == expected for L in lines)

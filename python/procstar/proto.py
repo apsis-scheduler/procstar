@@ -278,7 +278,10 @@ def deserialize_message(msg):
     try:
         from_jso = cls.from_jso
     except AttributeError:
-        from_jso = lambda o: cls(**o)
+
+        def from_jso(o):
+            return cls(**o)
+
     try:
         obj = from_jso(jso)
     except (TypeError, ValueError) as exc:

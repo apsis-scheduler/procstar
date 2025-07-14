@@ -30,6 +30,9 @@ jobs:
     - name: Check Python formatting  
       run: uv run ruff format --check --diff
 
+    - name: Check ruff linting
+      run: uv run ruff check
+
     - name: Run clippy linting
       run: cargo clippy --all-targets --all-features -- -D warnings
 

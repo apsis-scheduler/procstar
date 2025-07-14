@@ -48,6 +48,7 @@ async def test_reconnect_timeout_race(monkeypatch):
         res = await asm.wait(proc)
         assert res.status.exit_code == 0
 
+
 @pytest.mark.asyncio
 async def test_dropped_procstart_on_reconnect():
     """
@@ -58,16 +59,16 @@ async def test_dropped_procstart_on_reconnect():
     during the brief window between disconnect and successful reconnect are lost.
     """
     # Use short read timeout to make test faster
-    async with Assembly.start(
-        counts={"default": 1}, args=["--agent-read-timeout", "1"]
-    ) as asm:
+    async with Assembly.start(counts={"default": 1}, args=["--agent-read-timeout", "1"]) as asm:
         # block the event loop for longer than agent read timeout
         time.sleep(2)
         try:
             # request a proc start right away before the agent gets a chance to
             # reconnect
             proc1, _ = await asm.server.start(
-                "proc1", spec.make_proc(["/usr/bin/true"]), conn_timeout=5,
+                "proc1",
+                spec.make_proc(["/usr/bin/true"]),
+                conn_timeout=5,
             )
             await anext(proc1.updates)
         except ProcessUnknownError as e:

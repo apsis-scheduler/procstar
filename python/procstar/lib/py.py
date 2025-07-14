@@ -5,6 +5,7 @@ from typing import Any, Callable, Iterable, Type
 
 logger = logging.getLogger(__name__)
 
+
 class Interval:
     """
     Closed-open interval.

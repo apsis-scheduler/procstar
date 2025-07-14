@@ -4,6 +4,8 @@
 //! Source: `org.freedesktop.systemd1.Manager.xml`.
 //!
 //! You may prefer to adapt it, instead of using it verbatim.
+
+#![allow(clippy::type_complexity)]
 //!
 //! More information can be found in the [Writing a client proxy] section of the zbus
 //! documentation.

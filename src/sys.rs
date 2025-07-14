@@ -34,7 +34,7 @@ struct CStringVec {
 
 impl CStringVec {
     pub fn as_ptr(&self) -> *const *const i8 {
-        self.ptrs.as_ptr() as *const *const i8
+        self.ptrs.as_ptr()
     }
 }
 
@@ -50,10 +50,7 @@ where
             .collect::<Vec<_>>();
 
         // Grab their pointers into an array.
-        let mut ptrs = strs
-            .iter()
-            .map(|s| s.as_ptr() as *const i8)
-            .collect::<Vec<_>>();
+        let mut ptrs = strs.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         // NULL-terminate the pointer array.
         ptrs.push(std::ptr::null());
 
@@ -68,7 +65,7 @@ pub fn close(fd: fd_t) -> io::Result<()> {
     match res {
         -1 => Err(io::Error::last_os_error()),
         0 => Ok(()),
-        _ => panic!("close returned {}", res),
+        _ => panic!("close returned {res}"),
     }
 }
 
@@ -77,7 +74,7 @@ pub fn dup2(fd: fd_t, fd2: fd_t) -> io::Result<()> {
     match res {
         -1 => Err(io::Error::last_os_error()),
         _ if res == fd2 => Ok(()),
-        _ => panic!("dup2 returned {}", res),
+        _ => panic!("dup2 returned {res}"),
     }
 }
 
@@ -90,15 +87,12 @@ pub fn execv(exe: String, args: Vec<String>) -> io::Result<()> {
 
 pub fn execve(exe: String, args: Vec<String>, env: Env) -> io::Result<()> {
     // Construct NAME=val strings for env vars.
-    let env: Vec<String> = env
-        .into_iter()
-        .map(|(n, v)| format!("{}={}", n, v))
-        .collect();
+    let env: Vec<String> = env.into_iter().map(|(n, v)| format!("{n}={v}")).collect();
 
     let exe = CString::new(exe).unwrap();
     let res = unsafe {
         libc::execve(
-            exe.as_ptr() as *const i8,
+            exe.as_ptr(),
             CStringVec::from(args).as_ptr(),
             CStringVec::from(env).as_ptr(),
         )
@@ -114,7 +108,7 @@ pub fn fork() -> io::Result<pid_t> {
     match child_pid {
         -1 => Err(io::Error::last_os_error()),
         _ if child_pid >= 0 => Ok(child_pid),
-        _ => panic!("fork returned {}", child_pid),
+        _ => panic!("fork returned {child_pid}"),
     }
 }
 
@@ -158,19 +152,19 @@ pub fn mkstemp(template: &str) -> io::Result<(PathBuf, fd_t)> {
     match fd {
         -1 => Err(io::Error::last_os_error()),
         _ if fd >= 0 => Ok((PathBuf::from(path.into_string().unwrap()), fd)),
-        _ => panic!("mkstemp returned {}", fd),
+        _ => panic!("mkstemp returned {fd}"),
     }
 }
 
 pub fn open(path: &Path, oflag: c_int, mode: c_int) -> io::Result<fd_t> {
     let fd = unsafe {
         let path = CString::new(path.to_str().unwrap()).unwrap();
-        libc::open(path.as_ptr() as *const i8, oflag, mode)
+        libc::open(path.as_ptr(), oflag, mode)
     };
     match fd {
         -1 => Err(io::Error::last_os_error()),
         _ if fd >= 0 => Ok(fd),
-        _ => panic!("open returned {}", fd),
+        _ => panic!("open returned {fd}"),
     }
 }
 
@@ -190,7 +184,7 @@ pub fn pipe() -> io::Result<RWPair<RawFd>> {
             read: fildes[0],
             write: fildes[1],
         }),
-        ret => panic!("pipe returned {}", ret),
+        ret => panic!("pipe returned {ret}"),
     }
 }
 
@@ -198,7 +192,7 @@ pub fn read(fd: fd_t, buf: &mut [u8]) -> io::Result<usize> {
     match unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) } {
         -1 => Err(io::Error::last_os_error()),
         n if n >= 0 => Ok(n as usize),
-        ret => panic!("read returned {}", ret),
+        ret => panic!("read returned {ret}"),
     }
 }
 
@@ -211,7 +205,7 @@ pub fn read_from_file(fd: RawFd, start: u64, stop: Option<u64>) -> io::Result<Ve
     file.seek(std::io::SeekFrom::Start(start))?;
     let buf = if let Some(stop) = stop {
         // Read to indicated stop position.
-        let mut buf = vec![0; if start < stop { stop - start } else { 0 } as usize];
+        let mut buf = vec![0; stop.saturating_sub(start) as usize];
         file.read_exact(&mut buf)?;
         buf
     } else {
@@ -273,7 +267,7 @@ pub fn wait(pid: pid_t, block: bool) -> Option<WaitInfo> {
                     return None;
                 }
             }
-            Err(err) => panic!("wait4 failed: {}", err),
+            Err(err) => panic!("wait4 failed: {err}"),
         };
     }
 }
@@ -284,7 +278,7 @@ pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
     match unsafe { libc::write(fd, data.as_ptr() as *const libc::c_void, data.len()) } {
         -1 => Err(io::Error::last_os_error()),
         n if n >= 0 => Ok(n),
-        ret => panic!("write returned {}", ret),
+        ret => panic!("write returned {ret}"),
     }
 }
 
@@ -293,10 +287,10 @@ pub fn write(fd: fd_t, data: &[u8]) -> io::Result<ssize_t> {
 pub fn fstat(fd: fd_t) -> io::Result<libc::stat> {
     unsafe {
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        match { libc::fstat(fd, stat.as_mut_ptr()) } {
+        match libc::fstat(fd, stat.as_mut_ptr()) {
             -1 => Err(io::Error::last_os_error()),
             0 => Ok(stat.assume_init()),
-            ret => panic!("fstat returned {}", ret),
+            ret => panic!("fstat returned {ret}"),
         }
     }
 }
@@ -319,12 +313,12 @@ pub fn fcntl_setfd(fd: RawFd, flags: i32) -> io::Result<()> {
 
 pub fn set_cloexec(fd: RawFd) -> io::Result<()> {
     let flags = fcntl_getfd(fd)?;
-    return if flags & libc::FD_CLOEXEC == 0 {
+    if flags & libc::FD_CLOEXEC == 0 {
         fcntl_setfd(fd, flags | libc::FD_CLOEXEC)
     } else {
         // Already set; nothing to do.
         Ok(())
-    };
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -341,7 +335,7 @@ pub fn kill(pid: pid_t, signum: c_int) -> io::Result<()> {
             })
         }
         0 => Ok(()),
-        ret => panic!("kill returned {}", ret),
+        ret => panic!("kill returned {ret}"),
     }
 }
 
@@ -395,8 +389,8 @@ pub fn get_hostname() -> String {
             buffer.truncate(len);
             String::from_utf8(buffer).unwrap()
         }
-        -1 => panic!("gethostname failed: {}", ret),
-        _ => panic!("gethostname invalid ressult: {}", ret),
+        -1 => panic!("gethostname failed: {ret}"),
+        _ => panic!("gethostname invalid ressult: {ret}"),
     }
 }
 
@@ -420,7 +414,6 @@ lazy_static! {
                     .unwrap()
                     .trim()
                     .split(' ')
-                    .into_iter()
                     .next()
                     .unwrap()
                     .parse::<f64>()
@@ -434,8 +427,5 @@ lazy_static! {
 
 /// Returns the value of an environment variable.
 pub fn getenv(name: &str) -> Option<String> {
-    std::env::vars()
-        .filter(|(n, _)| n == name)
-        .next()
-        .map(|(_, v)| v)
+    std::env::vars().find(|(n, _)| n == name).map(|(_, v)| v)
 }

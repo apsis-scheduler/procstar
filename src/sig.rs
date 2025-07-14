@@ -67,15 +67,13 @@ lazy_static! {
 pub fn parse_signum(signum: &str) -> Option<Signum> {
     if let Some(signum) = SIGNAL_NUMS.get(signum) {
         Some(*signum)
-    } else if let Ok(signum) = signum.parse::<c_int>() {
-        Some(signum)
     } else {
-        None
+        signum.parse::<c_int>().ok()
     }
 }
 
 pub fn get_abbrev(signum: Signum) -> Option<&'static str> {
-    SIGNAL_ABBREVS.get(&signum).as_deref().copied()
+    SIGNAL_ABBREVS.get(&signum).copied()
 }
 
 //------------------------------------------------------------------------------

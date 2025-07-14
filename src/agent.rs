@@ -44,7 +44,7 @@ pub struct Connection {
 impl Connection {
     pub fn new(url: &Url, conn_id: Option<&str>, group_id: Option<&str>) -> Self {
         let url = url.clone();
-        let conn_id = conn_id.map_or_else(|| proto::get_default_conn_id(), |n| n.to_string());
+        let conn_id = conn_id.map_or_else(proto::get_default_conn_id, |n| n.to_string());
         let group_id = group_id.map_or(proto::DEFAULT_GROUP.to_string(), |n| n.to_string());
         let restricted_exe = get_restricted_exe();
         let conn = ConnectionInfo {
@@ -57,7 +57,7 @@ impl Connection {
     }
 }
 
-fn deserialize(data: &Vec<u8>) -> Result<IncomingMessage, Error> {
+fn deserialize(data: &[u8]) -> Result<IncomingMessage, Error> {
     Ok(rmp_serde::decode::from_slice::<IncomingMessage>(data)?)
 }
 
@@ -94,8 +94,7 @@ async fn handle(
         Message::Pong(_) => Ok(None),
         Message::Close(_) => Err(Error::from(proto::Error::Close)),
         _ => Err(Error::from(proto::Error::WrongMessageType(format!(
-            "unexpected ws msg: {:?}",
-            msg
+            "unexpected ws msg: {msg:?}"
         )))),
     }
 }
@@ -120,8 +119,7 @@ async fn receive(receiver: &mut SocketReceiver) -> Result<IncomingMessage, Error
             "websocket closed".to_owned(),
         ))?,
         _ => Err(proto::Error::WrongMessageType(format!(
-            "unexpected ws msg: {:?}",
-            ws_msg
+            "unexpected ws msg: {ws_msg:?}"
         )))?,
     };
 
@@ -208,13 +206,19 @@ pub struct ConnectConfig {
     pub count_max: u64,
 }
 
+impl Default for ConnectConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectConfig {
     pub fn new() -> Self {
         Self {
             interval_start: Duration::from_secs(1),
             interval_mult: 2.0,
             interval_max: Duration::from_secs(60),
-            count_max: std::u64::MAX,
+            count_max: u64::MAX,
         }
     }
 }

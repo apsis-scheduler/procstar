@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::vec::Vec;
 
 use crate::spec;
 
@@ -7,16 +6,11 @@ use crate::spec;
 
 pub type Env = BTreeMap<String, String>;
 
-lazy_static! {
-    /// Env vars that are not inherited.
-    static ref EXCLUSIONS: Vec<&'static str> = {
-        let mut x = Vec::new();
-        x.push("PROCSTAR_AGENT_CERT");
-        x.push("PROCSTAR_AGENT_KEY");
-        x.push("PROCSTAR_AGENT_TOKEN");
-        x
-    };
-}
+const EXCLUSIONS: [&str; 3] = [
+    "PROCSTAR_AGENT_CERT",
+    "PROCSTAR_AGENT_KEY",
+    "PROCSTAR_AGENT_TOKEN",
+];
 
 pub fn build<I: Iterator<Item = (String, String)>>(start_env: I, spec: &spec::Env) -> Env {
     let mut env: Env = match &spec.inherit {

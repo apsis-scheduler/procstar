@@ -49,3 +49,6 @@ zbus = { version = "5.7.1", features = ["tokio"] }
 # name = "pipeclose"
 # path = "src/pipeclose.rs"
 
+[lints.clippy]
+result_large_err = "allow"
+

@@ -1,3 +1,5 @@
+#![allow(clippy::large_enum_variant)]
+
 use derive_debug::Dbg;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,7 +36,7 @@ pub const DEFAULT_GROUP: &str = "default";
 
 /// Expands the agent server hostname.
 pub fn expand_hostname(hostname: &Option<String>) -> Option<String> {
-    return hostname.clone().or_else(|| getenv("PROCSTAR_AGENT_HOST"));
+    hostname.clone().or_else(|| getenv("PROCSTAR_AGENT_HOST"))
 }
 
 /// Expands the agent server port.
@@ -42,13 +44,13 @@ pub fn expand_port(port: Option<u32>) -> Option<u32> {
     port.or_else(|| {
         getenv("PROCSTAR_AGENT_PORT").map(|p| {
             p.parse()
-                .unwrap_or_else(|err| panic!("invalid agent port: {}: {}", p, err))
+                .unwrap_or_else(|err| panic!("invalid agent port: {p}: {err}"))
         })
     })
 }
 
 pub fn get_default_conn_id() -> String {
-    return uuid::Uuid::new_v4().to_string();
+    uuid::Uuid::new_v4().to_string()
 }
 
 //------------------------------------------------------------------------------
@@ -65,10 +67,10 @@ impl std::fmt::Display for Error {
         match *self {
             Error::Close => f.write_str("closed"),
             Error::UnexpectedMessage(ref msg) => {
-                f.write_fmt(format_args!("wrong message: {:?}", msg))
+                f.write_fmt(format_args!("wrong message: {msg:?}"))
             }
             Error::WrongMessageType(ref msg) => {
-                f.write_fmt(format_args!("wrong WebSocket message: {}", msg))
+                f.write_fmt(format_args!("wrong WebSocket message: {msg}"))
             }
         }
     }
@@ -114,8 +116,8 @@ pub enum IncomingMessage {
 
 //------------------------------------------------------------------------------
 
-fn format_data(_data: &Vec<u8>) -> String {
-    return "...".to_owned();
+fn format_data(_data: &[u8]) -> String {
+    "...".to_owned()
 }
 
 /// Outgoing messages, originating here and sent to the websocket server.
@@ -212,7 +214,7 @@ pub async fn handle_incoming(
         }
 
         IncomingMessage::ProcResultRequest { ref proc_id } => {
-            if let Some(proc) = procs.get(&proc_id) {
+            if let Some(proc) = procs.get(proc_id) {
                 let proc_id = proc_id.clone();
                 let res = proc.borrow().to_result();
                 Some(OutgoingMessage::ProcResult { proc_id, res })
@@ -226,7 +228,7 @@ pub async fn handle_incoming(
             ref proc_id,
             signum,
         } => {
-            if let Some(proc) = procs.get(&proc_id) {
+            if let Some(proc) = procs.get(proc_id) {
                 if let Err(err) = proc.borrow().send_signal(signum) {
                     Some(incoming_error(msg, &err.to_string()))
                 } else {

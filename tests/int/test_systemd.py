@@ -14,9 +14,7 @@ def test_accounting():
     res = run1(
         {
             "argv": ["/usr/bin/true"],
-            "systemd_properties": {
-                "slice": {"memory_accounting": True, "tasks_accounting": True}
-            },
+            "systemd_properties": {"slice": {"memory_accounting": True, "tasks_accounting": True}},
         }
     )
     accounting = res["cgroup_accounting"]
@@ -36,9 +34,7 @@ def test_oom():
                 "--sleep",
                 "10",
             ],
-            "systemd_properties": {
-                "slice": {"memory_max": 268435456, "memory_swap_max": 0}
-            },
+            "systemd_properties": {"slice": {"memory_max": 268435456, "memory_swap_max": 0}},
         }
     )
     assert res["status"]["signal"] == "SIGKILL"

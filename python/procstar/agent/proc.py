@@ -3,21 +3,22 @@ Processes on connected procstar instances.
 """
 
 import asyncio
-from   collections.abc import Mapping
-from   dataclasses import dataclass
-from   functools import cached_property
+from collections.abc import Mapping
+from dataclasses import dataclass
+from functools import cached_property
 import logging
 
-from   .exc import ProcessUnknownError
-from   procstar import proto
-from   procstar.lib.asyn import iter_queue
-from   procstar.lib.py import Interval
-from   procstar.proto import ProcSignalRequest
+from .exc import ProcessUnknownError
+from procstar import proto
+from procstar.lib.asyn import iter_queue
+from procstar.lib.py import Interval
+from procstar.proto import ProcSignalRequest
 import procstar.lib.json
 
 logger = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 class ProcessDeletedError(RuntimeError):
     """
@@ -29,7 +30,6 @@ class ProcessDeletedError(RuntimeError):
         self.proc_id = proc_id
 
 
-
 class ConnectionTimeoutError(RuntimeError):
     """
     The connection on which the process was running timed out.
@@ -38,7 +38,6 @@ class ConnectionTimeoutError(RuntimeError):
     def __init__(self, conn_id):
         super().__init__(f"agent reconnect timeout: conn_id {conn_id}")
         self.conn_id = conn_id
-
 
 
 class AgentMessageError(RuntimeError):
@@ -52,7 +51,6 @@ class AgentMessageError(RuntimeError):
         self.err = err
 
 
-
 # Derive from Jso to convert dict into object semantics.
 class Result(procstar.lib.json.Jso):
     """
@@ -60,12 +58,12 @@ class Result(procstar.lib.json.Jso):
     """
 
 
-
 @dataclass
 class FdData:
     """
     The fd name.
     """
+
     fd: str
 
     """
@@ -84,8 +82,8 @@ class FdData:
     data: bytes = b""
 
 
+# -------------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------------
 
 class Process:
     """
@@ -107,15 +105,12 @@ class Process:
         self.errors = []
         self.__msgs = asyncio.Queue()
 
-
     @property
     def conn_id(self):
         return self.__conn.conn_id
 
-
     def _on_message(self, msg):
         self.__msgs.put_nowait(msg)
-
 
     @cached_property
     async def updates(self):
@@ -138,10 +133,10 @@ class Process:
                 case proto.ProcFdData(_, fd, start, stop, encoding, data):
                     # FIXME: Process data.
                     yield FdData(
-                        fd      =fd,
+                        fd=fd,
                         interval=Interval(start, stop),
                         encoding=encoding,
-                        data    =data,
+                        data=data,
                     )
 
                 case proto.ProcDelete(_):
@@ -168,25 +163,24 @@ class Process:
                 case _:
                     assert False, f"unexpected msg: {msg!r}"
 
-
     def request_result(self):
         """
         Returns a coro that sends a request for updated result.
         """
         return self.__conn.try_send(proto.ProcResultRequest(self.proc_id))
 
-
     def request_fd_data(self, fd, *, interval=Interval(0, None)):
         """
         Returns a coro that requests updated output data,
         """
-        return self.__conn.try_send(proto.ProcFdDataRequest(
-            proc_id =self.proc_id,
-            fd      =fd,
-            start   =interval.start,
-            stop    =interval.stop,
-        ))
-
+        return self.__conn.try_send(
+            proto.ProcFdDataRequest(
+                proc_id=self.proc_id,
+                fd=fd,
+                start=interval.start,
+                stop=interval.stop,
+            )
+        )
 
     def send_signal(self, signum):
         """
@@ -194,13 +188,11 @@ class Process:
         """
         return self.__conn.send(proto.ProcSignalRequest(self.proc_id, signum))
 
-
     def request_delete(self):
         """
         Returns a coro that requests deletion of the proc.
         """
         return self.__conn.send(proto.ProcDeleteRequest(self.proc_id))
-
 
     async def delete(self):
         """
@@ -212,8 +204,8 @@ class Process:
             pass
 
 
+# -------------------------------------------------------------------------------
 
-#-------------------------------------------------------------------------------
 
 class Processes(Mapping):
     """
@@ -225,7 +217,6 @@ class Processes(Mapping):
     def __init__(self):
         self.__procs = {}
 
-
     def create(self, conn, proc_id) -> Process:
         """
         Creates and returns a new process on `connection` with `proc_id`.
@@ -235,7 +226,6 @@ class Processes(Mapping):
         assert proc_id not in self.__procs
         self.__procs[proc_id] = proc = Process(conn, proc_id)
         return proc
-
 
     def on_message(self, conn, msg):
         """
@@ -310,32 +300,22 @@ class Processes(Mapping):
             case _:
                 logger.error(f"unknown msg: {msg}")
 
-
-
     # Mapping methods
 
     def __contains__(self, proc_id):
         return self.__procs.__contains__(proc_id)
 
-
     def __getitem__(self, proc_id):
         return self.__procs.__getitem__(proc_id)
-
 
     def __len__(self):
         return self.__procs.__len__()
 
-
     def __iter__(self):
         return self.__procs.__iter__()
-
 
     def values(self):
         return self.__procs.values()
 
-
     def items(self):
         return self.__procs.items()
-
-
-

@@ -1,12 +1,13 @@
 import functools
 import logging
 import os
-from   pathlib import Path
+from pathlib import Path
 import subprocess
 
 logger = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @functools.cache
 def get_procstar_path() -> Path:
@@ -24,12 +25,7 @@ def get_procstar_path() -> Path:
         path = project_root / "target" / "debug" / "procstar"
 
         logger.info("building procstar binary...")
-        subprocess.run(
-            ["cargo", "build"],
-            cwd=project_root,
-            check=True,
-            capture_output=True
-        )
+        subprocess.run(["cargo", "build"], cwd=project_root, check=True, capture_output=True)
 
         if not path.exists():
             raise FileNotFoundError(f"debug binary not found after build: {path}")
@@ -42,4 +38,3 @@ def get_procstar_path() -> Path:
 # Use a self-signed cert for localhost for integration tests.
 TLS_CERT_PATH = Path(__file__).parent / "localhost.crt"
 TLS_KEY_PATH = TLS_CERT_PATH.with_suffix(".key")
-

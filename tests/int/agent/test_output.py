@@ -2,13 +2,14 @@ import logging
 import pytest
 import sys
 
-from   procstar import proto
-from   procstar.spec import Proc, make_proc
-from   procstar.testing.agent import Assembly
+from procstar import proto
+from procstar.spec import Proc, make_proc
+from procstar.testing.agent import Assembly
 
 logger = logging.getLogger(__name__)
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("mode", Proc.Fd.Capture.MODES)
 @pytest.mark.asyncio
@@ -26,7 +27,7 @@ async def test_fd_output(mode):
                 fds={
                     "stdout": Proc.Fd.Capture(mode, "utf-8", attached=False),
                 },
-            ).to_jso()
+            ).to_jso(),
         )
 
         assert res.status is None
@@ -62,12 +63,12 @@ async def test_fd_output_large(mode):
                 fds={
                     "stdout": Proc.Fd.Capture(mode, "utf-8", attached=False),
                 },
-            ).to_jso()
+            ).to_jso(),
         )
         assert res.state == "running"
         assert res.status is None
 
-        res = await(anext(proc.updates))
+        res = await anext(proc.updates)
         assert res.status.exit_code == 0
         assert res.fds.stdout.type == "detached"
 
@@ -76,18 +77,16 @@ async def test_fd_output_large(mode):
 
         # Request the entire stdout.
         await conn.send(proto.ProcFdDataRequest(PROC_ID, "stdout"))
-        fd_data = await(anext(proc.updates))
+        fd_data = await anext(proc.updates)
         assert fd_data.encoding == "utf-8"
         assert fd_data.data == b"x" * SIZE
 
         await proc.delete()
 
 
-
 if __name__ == "__main__":
     import asyncio
     from procstar.lib import logging
+
     logging.configure(level="debug")
     asyncio.run(test_fd_output_large("tempfile"))
-
-

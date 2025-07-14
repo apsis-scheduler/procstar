@@ -1,32 +1,43 @@
-from   procstar.testing.proc import run, run1
+from procstar.testing.proc import run, run1
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def test_exe():
     # This argv[0] is bogus.
-    res = run({"specs": {"test_exe": {
-        "argv": ["foobar", "Hello, world!"],
-        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
-    }}})
+    res = run(
+        {
+            "specs": {
+                "test_exe": {
+                    "argv": ["foobar", "Hello, world!"],
+                    "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
+                }
+            }
+        }
+    )
     assert res["test_exe"]["state"] == "error"
 
     # But we can override it with exe.
-    res = run1({
-        "exe": "/usr/bin/echo",
-        "argv": ["foobar", "Hello, world!"],
-        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
-    })
+    res = run1(
+        {
+            "exe": "/usr/bin/echo",
+            "argv": ["foobar", "Hello, world!"],
+            "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
+        }
+    )
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"]["text"] == "Hello, world!\n"
 
 
 def test_exe_argv0():
     # Use bash to tell us the argv[0] it sees.
-    res = run1({
-        "exe": "/usr/bin/bash",
-        "argv": ["Not really bash!", "-c", "echo $0"],
-        "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
-    })
+    res = run1(
+        {
+            "exe": "/usr/bin/bash",
+            "argv": ["Not really bash!", "-c", "echo $0"],
+            "fds": [["stdout", {"capture": {"encoding": "utf-8"}}]],
+        }
+    )
     assert res["status"]["status"] == 0
     assert res["fds"]["stdout"]["text"] == "Not really bash!\n"
 
@@ -87,5 +98,3 @@ def test_restrict_exe_multi():
     assert res["echo"]["state"] == "error"
     assert res["true"]["state"] == "terminated"
     assert res["true"]["status"]["status"] == 0
-
-

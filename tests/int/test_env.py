@@ -1,11 +1,12 @@
 import os
-from   pathlib import Path
+from pathlib import Path
 
-from   procstar.testing.proc import run_spec
+from procstar.testing.proc import run_spec
 
 SPECS_DIR = Path(__file__).parent / "specs"
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+
 
 def test_env_vars():
     res = run_spec(SPECS_DIR / "test_env_vars.json")["test"]
@@ -28,5 +29,3 @@ def test_env_inherit_names():
     # Some vars not present, so printenv returns a failure code.
     assert res["status"]["exit_code"] > 0
     assert res["fds"]["stdout"]["text"].splitlines() == ["foobar", user]
-
-

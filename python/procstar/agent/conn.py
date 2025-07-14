@@ -85,7 +85,9 @@ class Stats:
     num_sent: int = 0
 
     def to_jso(self):
-        niso = lambda t: None if t is None else t.isoformat()
+        def niso(t):
+            return None if t is None else t.isoformat()
+
         return {
             "connected": self.connected,
             "first_connect_time": niso(self.first_connect_time),

@@ -43,7 +43,6 @@ version = {attr = "procstar.__version__"}
 testpaths = "tests/"
 
 [tool.ruff]
-lint.select = ["F"]
 line-length = 100
 
 [tool.bumpversion]

@@ -41,6 +41,31 @@ pytest
 python -c "import procstar"
 ```
 
+## Pre-commit Hooks
+
+This project uses pre-commit hooks to automatically format and lint code before commits. The hooks include:
+- `ruff format` - Format Python code
+- `ruff check` - Lint Python code with auto-fixes
+- `cargo fmt` - Format Rust code
+- `cargo clippy` - Lint Rust code
+
+### Setup
+
+Pre-commit is already included as a dev dependency. To install the hooks:
+
+```bash
+uv run pre-commit install
+```
+
+### Manual Run
+
+To run all hooks on all files:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+The hooks will automatically run before each commit and may modify files to fix formatting or linting issues.
 
 # Packaging
 

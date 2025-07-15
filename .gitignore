@@ -4,3 +4,5 @@ work/
 build/bdist.*
 build/lib
 /dist/
+# Keep pypi-index for GitHub Pages serving
+!/pypi-index

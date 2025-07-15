@@ -32,12 +32,6 @@ jobs:
       with:
         cache: true
 
-    - uses: PyO3/maturin-action@v1
-      with:
-        command: build
-        sccache: true
-        args: --release
-
     - name: Install uv
       uses: astral-sh/setup-uv@v4
       with:
@@ -60,6 +54,12 @@ jobs:
         echo "git-tag=v$(uvx bump-my-version show current_version)" | tee -a $GITHUB_OUTPUT
       env:
         GH_TOKEN: ${{ github.token }}
+
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        sccache: true
+        args: --release
 
     - name: Create pypi-index directory
       if: steps.bump.outputs.bumped == 'true'

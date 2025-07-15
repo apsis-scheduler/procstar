@@ -3,7 +3,7 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      release_type:
+      release-type:
         description: 'Type of release'
         required: true
         default: 'patch'
@@ -51,7 +51,7 @@ jobs:
 
         echo "previous-version=$(uvx bump-my-version show current_version)" | tee -a $GITHUB_OUTPUT
 
-        uvx bump-my-version bump --allow-dirty ${{ inputs.bump-type }}
+        uvx bump-my-version bump --allow-dirty ${{ inputs.release-type }}
 
         ([[ $? -gt 0 ]] && echo "bumped=false" || echo "bumped=true") | tee -a $GITHUB_OUTPUT
         echo "current-version=$(uvx bump-my-version show current_version)" | tee -a $GITHUB_OUTPUT

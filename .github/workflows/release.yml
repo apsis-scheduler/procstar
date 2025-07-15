@@ -62,7 +62,6 @@ jobs:
     - name: Push bumped version
       if: steps.bump.outputs.bumped == 'true'
       run: |
-        target_ref=${{ github.head_ref && format('refs/heads/{0}', github.head_ref) || github.ref }}
         git push origin HEAD:${{ github.ref }}
         git push origin ${{ steps.bump.outputs.git-tag }}
 

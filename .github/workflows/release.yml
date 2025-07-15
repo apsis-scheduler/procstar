@@ -70,7 +70,7 @@ jobs:
     - name: Generate PyPI index with dumb-pypi
       if: steps.bump.outputs.bumped == 'true'
       run: |
-        uvx dumb-pypi --package-dir pypi-index --output-dir pypi-index
+        uvx dumb-pypi --package-list <(cd ./pypi-index && ls *.whl) --output-dir pypi-index --packages-url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
 
     - name: Setup Pages
       if: steps.bump.outputs.bumped == 'true'

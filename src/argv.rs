@@ -122,6 +122,6 @@ pub fn get_connect_config(args: &Args) -> agent::ConnectConfig {
         count_max: args.connect_count_max.unwrap_or(df.count_max),
         read_timeout: args
             .agent_read_timeout
-            .map_or(df.read_timeout, |s| Duration::from_secs_f64(s)),
+            .map_or(df.read_timeout, Duration::from_secs_f64),
     }
 }

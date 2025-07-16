@@ -1,6 +1,6 @@
 # This recipe presupposes Rust and assumes RUSTUP_HOME is set accordingly.
 
-{% set version = "0.7.1" %}
+{% set version = "0.7.2" %}
 
 about:
   home: https://github.com/apsis-scheduler/procstar

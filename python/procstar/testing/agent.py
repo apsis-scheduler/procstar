@@ -208,7 +208,7 @@ class Assembly:
                 for task in tasks:
                     task.cancel()
 
-    def start_procstar(self, *, group_id=proto.DEFAULT_GROUP, args=[]):
+    def start_procstar(self, *, group_id=proto.DEFAULT_GROUP, args=()):
         """
         Starts a single procstar instance.
         """
@@ -246,6 +246,7 @@ class Assembly:
         counts={"default": 1},
         access_token=DEFAULT,
         reconnect_timeout=None,
+        args=(),
     ):
         """
         Async context manager for a ready-to-go assembly.
@@ -255,7 +256,7 @@ class Assembly:
         """
         asm = cls(access_token=access_token, reconnect_timeout=reconnect_timeout)
         await asm.start_server()
-        await asm.start_procstars(counts)
+        await asm.start_procstars(counts, args=args)
         try:
             yield asm
         finally:

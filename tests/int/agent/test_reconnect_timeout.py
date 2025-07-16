@@ -1,9 +1,11 @@
 import asyncio
 import shutil
+import time
 
 import pytest
 
 from procstar import spec
+from procstar.agent.exc import ProcessUnknownError
 from procstar.agent.proc import ConnectionTimeoutError
 from procstar.agent.server import maybe_set_reconnect_timeout
 from procstar.testing.agent import Assembly
@@ -44,4 +46,33 @@ async def test_reconnect_timeout_race(monkeypatch):
         await asm.server.connections[conn_id].ws.close()
 
         res = await asm.wait(proc)
+        assert res.status.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_dropped_procstart_on_reconnect():
+    """
+    Replicates the bug where ProcStartRequest messages are dropped when
+    the agent reconnects after a ping timeout due to blocked Python event loop.
+
+    This test demonstrates the specific timing issue where messages sent
+    during the brief window between disconnect and successful reconnect are lost.
+    """
+    # Use short read timeout to make test faster
+    async with Assembly.start(counts={"default": 1}, args=["--agent-read-timeout", "1"]) as asm:
+        # block the event loop for longer than agent read timeout
+        time.sleep(2)
+        try:
+            # request a proc start right away before the agent gets a chance to
+            # reconnect
+            proc1, _ = await asm.server.start(
+                "proc1",
+                spec.make_proc(["/usr/bin/true"]),
+                conn_timeout=5,
+            )
+            await anext(proc1.updates)
+        except ProcessUnknownError as e:
+            assert False, f"ProcStartRequest dropped: {e}"
+
+        res = await asm.wait(proc1)
         assert res.status.exit_code == 0

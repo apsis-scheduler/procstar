@@ -204,6 +204,8 @@ pub struct ConnectConfig {
     pub interval_max: Duration,
     /// Maximum consecutive failed connection attempts.
     pub count_max: u64,
+    /// Agent websocket read timeout.
+    pub read_timeout: Duration,
 }
 
 impl Default for ConnectConfig {
@@ -219,6 +221,7 @@ impl ConnectConfig {
             interval_mult: 2.0,
             interval_max: Duration::from_secs(60),
             count_max: u64::MAX,
+            read_timeout: READ_TIMEOUT,
         }
     }
 }
@@ -281,7 +284,7 @@ pub async fn run(
         let mut receiver = tokio_stream::StreamExt::timeout_repeating(
             receiver,
             // Avoid the instant first tick from a standard interval
-            time::interval_at(time::Instant::now() + READ_TIMEOUT, READ_TIMEOUT),
+            time::interval_at(time::Instant::now() + cfg.read_timeout, cfg.read_timeout),
         );
 
         // Simultaneously wait for an incoming websocket message or a
@@ -300,7 +303,7 @@ pub async fn run(
                 res = receiver.next() => {
                     let ws_msg = match res {
                         None => { warn!("msg stream end"); break },
-                        Some(Err(_)) => {warn!("timeout error after {:?}", READ_TIMEOUT); break; }
+                        Some(Err(_)) => {warn!("timeout error after {:?}", cfg.read_timeout); break; }
                         Some(Ok(ws_msg)) => ws_msg,
                     };
 

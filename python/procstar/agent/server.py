@@ -15,9 +15,10 @@ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from . import DEFAULT_PORT
 from .conn import Connection, Connections
 from .conn import choose_connection, wait_for_connection
-from .exc import NoConnectionError
+from .exc import NoConnectionError, WebSocketNotOpen
 from .proc import Processes, Process, Result
 from procstar import proto
+from procstar.lib.py import retry_exception
 from procstar.lib.time import now
 
 FROM_ENV = object()
@@ -199,7 +200,11 @@ class Server:
         # Add or re-add the connection.
         try:
             conn = self.connections._add(
-                register_msg.conn, register_msg.proc, register_msg.shutdown_state, time, ws
+                register_msg.conn,
+                register_msg.proc,
+                register_msg.shutdown_state,
+                time,
+                ws,
             )
             conn.info.stats.num_received += 1  # the Register message
         except RuntimeError as exc:
@@ -311,13 +316,21 @@ class Server:
         except AttributeError:
             pass
 
-        conn = await choose_connection(
-            self.connections,
-            group_id,
-            timeout=conn_timeout,
-        )
+        async def choose_and_start():
+            conn = await choose_connection(
+                self.connections,
+                group_id,
+                timeout=conn_timeout,
+            )
+            # raises a WebSocketNotOpen if the conn was closed after choosing the
+            # connection
+            await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
+            return conn
 
-        await conn.send(proto.ProcStartRequest(specs={proc_id: spec}))
+        # We try twice sequentially to avoid an unfortunately common case where an agent
+        # disconnects directly after the connection is chosen. This is prone to
+        # happening after the event loop is unintentionally blocked for period of time.
+        conn = await retry_exception(choose_and_start, (WebSocketNotOpen,), retries=1, interval=0)
         return self.processes.create(conn, proc_id)
 
     async def start(self, *args, **kw_args) -> (Process, Result):

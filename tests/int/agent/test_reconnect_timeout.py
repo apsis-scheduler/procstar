@@ -72,7 +72,6 @@ async def test_dropped_procstart_on_reconnect():
             )
             await anext(proc1.updates)
         except ProcessUnknownError as e:
-            # This is the expected behavior - the message was dropped
             assert False, f"ProcStartRequest dropped: {e}"
 
         res = await asm.wait(proc1)

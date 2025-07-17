@@ -59,6 +59,10 @@ jobs:
       with:
         command: build
         sccache: true
+        manylinux: auto
+        container: quay.io/pypa/manylinux_2_28_x86_64:latest
+        before-script-linux: |
+          dnf install -y perl-IPC-Cmd
         args: --release
 
     - name: Create pypi-index directory

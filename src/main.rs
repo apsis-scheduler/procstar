@@ -101,15 +101,35 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
 
 async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
     if args.wait {
-        // Run until no processes are left, or until we receive a shutdown
-        // signal.
-        tokio::select! {
-            _ = procs.wait_idle() => {},
-            _ = procs.wait_for_shutdown() => {},
-        };
+        if args.agent {
+            // For --wait --agent: wait for exactly one run to be assigned, then disconnect
+            // First, wait for at least one process to be assigned (work arrives)
+            while procs.is_empty() {
+                // Wait for work to be assigned or shutdown signal
+                tokio::select! {
+                    _ = procs.wait_for_shutdown() => return,
+                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {},
+                }
+            }
 
-        // Ready to shut down now.
-        procs.set_shutdown(shutdown::State::Done);
+            // Work has been assigned! Set shutdown to Idling to prevent accepting more work
+            procs.set_shutdown(shutdown::State::Idling);
+
+            // Now wait for the single assigned process to complete and be deleted
+            tokio::select! {
+                _ = procs.wait_idle() => {},
+                _ = procs.wait_for_shutdown() => {},
+            };
+
+            // Work completed, agent should disconnect (Done state will be set by check_idling())
+        } else {
+            // Non-agent mode: just wait until idle then exit
+            tokio::select! {
+                _ = procs.wait_idle() => {},
+                _ = procs.wait_for_shutdown() => {},
+            };
+            procs.set_shutdown(shutdown::State::Done);
+        }
     }
 }
 

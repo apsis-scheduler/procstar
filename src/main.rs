@@ -101,56 +101,64 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
     }
 }
 
+async fn run_agent_until_idle(args: &argv::Args, procs: &SharedProcs) {
+    // For --wait --agent: wait for at least one process to be assigned,
+    // then wait for all processes to be deleted before disconnecting
+    let mut sub = procs.subscribe();
+
+    // If already has work, skip waiting for first assignment
+    if procs.is_empty() {
+        // Wait for first process assignment with configurable timeout
+        let timeout_duration = Duration::from_secs(args.wait_timeout);
+        let timeout_sleep = sleep(timeout_duration);
+        tokio::pin!(timeout_sleep);
+
+        loop {
+            tokio::select! {
+                _ = procs.wait_for_shutdown() => return,
+                _ = &mut timeout_sleep => {
+                    warn!("agent timeout: no work assigned after {} seconds, shutting down", args.wait_timeout);
+                    procs.set_shutdown(shutdown::State::Done);
+                    return;
+                },
+                notification = sub.recv() => {
+                    match notification {
+                        Some(Notification::Start(_)) => break,
+                        Some(_) => continue,
+                        None => return,
+                    }
+                }
+            }
+        }
+    }
+
+    // At least one process has been assigned! Continue accepting processes
+    // and only shutdown when all assigned processes are deleted
+    tokio::select! {
+        _ = procs.wait_idle() => {},
+        _ = procs.wait_for_shutdown() => {},
+    };
+    procs.set_shutdown(shutdown::State::Done);
+}
+
+async fn run_standalone_until_idle(procs: &SharedProcs) {
+    // Non-agent mode: just wait until idle then exit
+    tokio::select! {
+        _ = procs.wait_idle() => {},
+        _ = procs.wait_for_shutdown() => {},
+    };
+    procs.set_shutdown(shutdown::State::Done);
+}
+
 async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
     if !args.wait {
         return;
     }
 
     if args.agent {
-        // For --wait --agent: wait for at least one process to be assigned,
-        // then wait for all processes to be deleted before disconnecting
-        let mut sub = procs.subscribe();
-
-        // If already has work, skip waiting for first assignment
-        if procs.is_empty() {
-            // Wait for first process assignment with configurable timeout
-            let timeout_duration = Duration::from_secs(args.wait_timeout);
-            let timeout_sleep = sleep(timeout_duration);
-            tokio::pin!(timeout_sleep);
-
-            loop {
-                tokio::select! {
-                    _ = procs.wait_for_shutdown() => return,
-                    _ = &mut timeout_sleep => {
-                        warn!("agent timeout: no work assigned after {} seconds, shutting down", args.wait_timeout);
-                        procs.set_shutdown(shutdown::State::Done);
-                        return;
-                    },
-                    notification = sub.recv() => {
-                        match notification {
-                            Some(Notification::Start(_)) => break,
-                            Some(_) => continue,
-                            None => return,
-                        }
-                    }
-                }
-            }
-        }
-
-        // At least one process has been assigned! Continue accepting processes
-        // and only shutdown when all assigned processes are deleted
-        tokio::select! {
-            _ = procs.wait_idle() => {},
-            _ = procs.wait_for_shutdown() => {},
-        };
-        procs.set_shutdown(shutdown::State::Done);
+        run_agent_until_idle(args, procs).await;
     } else {
-        // Non-agent mode: just wait until idle then exit
-        tokio::select! {
-            _ = procs.wait_idle() => {},
-            _ = procs.wait_for_shutdown() => {},
-        };
-        procs.set_shutdown(shutdown::State::Done);
+        run_standalone_until_idle(procs).await;
     }
 }
 

@@ -6,7 +6,7 @@ use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
 use procstar::http;
-use procstar::procs::{restrict_exe, start_procs, SharedProcs};
+use procstar::procs::{restrict_exe, start_procs, SharedProcs, Notification};
 use procstar::proto;
 use procstar::res;
 use procstar::shutdown;
@@ -103,27 +103,37 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
     if !args.wait {
         return;
     }
+
     if args.agent {
         // For --wait --agent: wait for exactly one run to be assigned, then disconnect
-        // First, wait for at least one process to be assigned (work arrives)
-        while procs.is_empty() {
-            // Wait for work to be assigned or shutdown signal
-            tokio::select! {
-                _ = procs.wait_for_shutdown() => return,
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {},
+        let mut sub = procs.subscribe();
+        
+        // If already has work, skip waiting
+        if procs.is_empty() {
+            // Wait for first process assignment
+            loop {
+                tokio::select! {
+                    _ = procs.wait_for_shutdown() => return,
+                    notification = sub.recv() => {
+                        match notification {
+                            Some(Notification::Start(_)) => break,
+                            Some(_) => continue,
+                            None => return,
+                        }
+                    }
+                }
             }
         }
 
-        // Work has been assigned! Set shutdown to Idling to prevent accepting more work
+        // Process has been assigned! Set shutdown to Idling to prevent accepting other processes
         procs.set_shutdown(shutdown::State::Idling);
 
-        // Now wait for the single assigned process to complete and be deleted
+        // Now wait for the single assigned process to complete
         tokio::select! {
             _ = procs.wait_idle() => {},
             _ = procs.wait_for_shutdown() => {},
         };
-
-        // Work completed, agent should disconnect (Done state will be set by check_idling())
+        // Process completed and deleted, agent should disconnect
     } else {
         // Non-agent mode: just wait until idle then exit
         tokio::select! {

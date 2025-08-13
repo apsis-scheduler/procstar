@@ -15,6 +15,8 @@ use procstar::sig::{SIGINT, SIGQUIT, SIGTERM, SIGUSR1};
 use procstar::spec;
 use procstar::systemd::api::{maybe_connect, SharedSystemdClient};
 use std::rc::Rc;
+use std::time::Duration;
+use tokio::time::sleep;
 
 //------------------------------------------------------------------------------
 
@@ -111,10 +113,19 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
 
         // If already has work, skip waiting for first assignment
         if procs.is_empty() {
-            // Wait for first process assignment
+            // Wait for first process assignment with configurable timeout
+            let timeout_duration = Duration::from_secs(args.wait_timeout);
+            let timeout_sleep = sleep(timeout_duration);
+            tokio::pin!(timeout_sleep);
+
             loop {
                 tokio::select! {
                     _ = procs.wait_for_shutdown() => return,
+                    _ = &mut timeout_sleep => {
+                        warn!("agent timeout: no work assigned after {} seconds, shutting down", args.wait_timeout);
+                        procs.set_shutdown(shutdown::State::Done);
+                        return;
+                    },
                     notification = sub.recv() => {
                         match notification {
                             Some(Notification::Start(_)) => break,

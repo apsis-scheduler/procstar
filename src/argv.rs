@@ -45,6 +45,9 @@ pub struct Args {
     /// When idle (all processes deleted), exit
     #[arg(short = 'w', long)]
     pub wait: bool,
+    /// Timeout in seconds for wait mode when no work is assigned
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub wait_timeout: u64,
 
     /// Run an HTTP service
     #[arg(short, long)]

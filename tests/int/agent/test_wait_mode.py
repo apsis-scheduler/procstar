@@ -93,3 +93,23 @@ async def test_agent_shutdown_before_receiving_work():
 
         # Connection should be cleaned up
         assert conn_id not in asm.server.connections
+
+
+@pytest.mark.asyncio
+async def test_agent_timeout_no_work():
+    """
+    Test that agent times out and shuts down when no work is assigned within the timeout period.
+    """
+    async with Assembly.start(args=["--wait", "--wait-timeout", "1"]) as asm:
+        # Verify agent starts with active connection
+        active_conns = asm.server.connections._get_open_conns_in_group("default")
+        assert len(active_conns) == 1, f"Expected 1 active connection, got {len(active_conns)}"
+
+        # Wait for timeout
+        await asyncio.sleep(1)
+
+        # Agent should have shut down due to timeout - no more active connections
+        active_conns = asm.server.connections._get_open_conns_in_group("default")
+        assert len(active_conns) == 0, (
+            f"Expected no active connections after timeout, got {len(active_conns)}"
+        )

@@ -6,7 +6,7 @@ use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
 use procstar::http;
-use procstar::procs::{restrict_exe, start_procs, Notification, SharedProcs};
+use procstar::procs::{restrict_exe, start_procs, Notification, NotificationSub, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::shutdown;
@@ -16,7 +16,14 @@ use procstar::spec;
 use procstar::systemd::api::{maybe_connect, SharedSystemdClient};
 use std::rc::Rc;
 use std::time::Duration;
-use tokio::time::sleep;
+
+//------------------------------------------------------------------------------
+
+#[derive(Debug)]
+enum WaitError {
+    Timeout,
+    Shutdown,
+}
 
 //------------------------------------------------------------------------------
 
@@ -101,39 +108,34 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
     }
 }
 
-async fn run_agent_until_idle(args: &argv::Args, procs: &SharedProcs) {
-    // For --wait --agent: wait for at least one process to be assigned,
-    // then wait for all processes to be deleted before disconnecting
-    let mut sub = procs.subscribe();
-
-    // If already has work, skip waiting for first assignment
-    if procs.is_empty() {
-        // Wait for first process assignment with configurable timeout
-        let timeout_duration = Duration::from_secs(args.wait_timeout);
-        let timeout_sleep = sleep(timeout_duration);
-        tokio::pin!(timeout_sleep);
-
-        loop {
-            tokio::select! {
-                _ = procs.wait_for_shutdown() => return,
-                _ = &mut timeout_sleep => {
-                    warn!("agent timeout: no work assigned after {} seconds, shutting down", args.wait_timeout);
-                    procs.set_shutdown(shutdown::State::Done);
-                    return;
-                },
-                notification = sub.recv() => {
-                    match notification {
-                        Some(Notification::Start(_)) => break,
-                        Some(_) => continue,
-                        None => return,
-                    }
+async fn wait_for_first_assignment(
+    procs: &SharedProcs,
+    mut sub: NotificationSub,
+    timeout_secs: u64,
+) -> Result<(), WaitError> {
+    let timeout_duration = Duration::from_secs(timeout_secs);
+    tokio::select! {
+        _ = tokio::time::sleep(timeout_duration) => {
+            warn!(
+                "agent timeout: no work assigned after {} seconds, shutting down",
+                timeout_secs
+            );
+            procs.set_shutdown(shutdown::State::Done);
+            Err(WaitError::Timeout)
+        }
+        _ = procs.wait_for_shutdown() => Err(WaitError::Shutdown),
+        result = async {
+            while let Some(notification) = sub.recv().await {
+                if let Notification::Start(_) = notification {
+                    return Ok(());
                 }
             }
-        }
+            Err(WaitError::Shutdown) // channel closed
+        } => result,
     }
+}
 
-    // At least one process has been assigned! Continue accepting processes
-    // and only shutdown when all assigned processes are deleted
+async fn wait_until_idle_then_shutdown(procs: &SharedProcs) {
     tokio::select! {
         _ = procs.wait_idle() => {},
         _ = procs.wait_for_shutdown() => {},
@@ -141,13 +143,18 @@ async fn run_agent_until_idle(args: &argv::Args, procs: &SharedProcs) {
     procs.set_shutdown(shutdown::State::Done);
 }
 
-async fn run_standalone_until_idle(procs: &SharedProcs) {
-    // Non-agent mode: just wait until idle then exit
-    tokio::select! {
-        _ = procs.wait_idle() => {},
-        _ = procs.wait_for_shutdown() => {},
-    };
-    procs.set_shutdown(shutdown::State::Done);
+async fn run_agent_until_idle(args: &argv::Args, procs: &SharedProcs) {
+    if procs.is_empty() {
+        let sub = procs.subscribe();
+        if wait_for_first_assignment(procs, sub, args.wait_timeout)
+            .await
+            .is_err()
+        {
+            return; // early exit on timeout or shutdown
+        }
+    }
+    // Wait until idle or shutdown
+    wait_until_idle_then_shutdown(procs).await;
 }
 
 async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
@@ -158,7 +165,7 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
     if args.agent {
         run_agent_until_idle(args, procs).await;
     } else {
-        run_standalone_until_idle(procs).await;
+        wait_until_idle_then_shutdown(procs).await;
     }
 }
 

@@ -6,7 +6,7 @@ use log::*;
 // use procstar::fd::parse_fd;
 use procstar::agent;
 use procstar::http;
-use procstar::procs::{restrict_exe, start_procs, SharedProcs, Notification};
+use procstar::procs::{restrict_exe, start_procs, Notification, SharedProcs};
 use procstar::proto;
 use procstar::res;
 use procstar::shutdown;
@@ -105,10 +105,11 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
     }
 
     if args.agent {
-        // For --wait --agent: wait for exactly one run to be assigned, then disconnect
+        // For --wait --agent: wait for at least one process to be assigned,
+        // then wait for all processes to be deleted before disconnecting
         let mut sub = procs.subscribe();
-        
-        // If already has work, skip waiting
+
+        // If already has work, skip waiting for first assignment
         if procs.is_empty() {
             // Wait for first process assignment
             loop {
@@ -125,15 +126,13 @@ async fn maybe_run_until_idle(args: &argv::Args, procs: &SharedProcs) {
             }
         }
 
-        // Process has been assigned! Set shutdown to Idling to prevent accepting other processes
-        procs.set_shutdown(shutdown::State::Idling);
-
-        // Now wait for the single assigned process to complete
+        // At least one process has been assigned! Continue accepting processes
+        // and only shutdown when all assigned processes are deleted
         tokio::select! {
             _ = procs.wait_idle() => {},
             _ = procs.wait_for_shutdown() => {},
         };
-        // Process completed and deleted, agent should disconnect
+        procs.set_shutdown(shutdown::State::Done);
     } else {
         // Non-agent mode: just wait until idle then exit
         tokio::select! {

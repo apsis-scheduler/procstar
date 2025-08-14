@@ -114,8 +114,25 @@ async fn wait_for_first_assignment(
     timeout_secs: u64,
 ) -> Result<(), WaitError> {
     let timeout_duration = Duration::from_secs(timeout_secs);
-    tokio::select! {
-        _ = tokio::time::sleep(timeout_duration) => {
+
+    let work_future = async {
+        loop {
+            tokio::select! {
+                _ = procs.wait_for_shutdown() => return Err(WaitError::Shutdown),
+                notification = sub.recv() => {
+                    match notification {
+                        Some(Notification::Start(_)) => return Ok(()),
+                        Some(_) => continue,  // ignore other notification types
+                        None => return Err(WaitError::Shutdown), // channel closed
+                    }
+                }
+            }
+        }
+    };
+
+    match tokio::time::timeout(timeout_duration, work_future).await {
+        Ok(result) => result,
+        Err(_) => {
             warn!(
                 "agent timeout: no work assigned after {} seconds, shutting down",
                 timeout_secs
@@ -123,15 +140,6 @@ async fn wait_for_first_assignment(
             procs.set_shutdown(shutdown::State::Done);
             Err(WaitError::Timeout)
         }
-        _ = procs.wait_for_shutdown() => Err(WaitError::Shutdown),
-        result = async {
-            while let Some(notification) = sub.recv().await {
-                if let Notification::Start(_) = notification {
-                    return Ok(());
-                }
-            }
-            Err(WaitError::Shutdown) // channel closed
-        } => result,
     }
 }
 

@@ -19,14 +19,6 @@ use std::time::Duration;
 
 //------------------------------------------------------------------------------
 
-#[derive(Debug)]
-enum WaitError {
-    Timeout,
-    Shutdown,
-}
-
-//------------------------------------------------------------------------------
-
 async fn maybe_run_http(
     args: &argv::Args,
     procs: &SharedProcs,
@@ -108,37 +100,10 @@ async fn maybe_run_until_exit(args: &argv::Args, procs: &SharedProcs) {
     }
 }
 
-async fn wait_for_first_assignment(
-    procs: &SharedProcs,
-    mut sub: NotificationSub,
-    timeout_secs: u64,
-) -> Result<(), WaitError> {
-    let timeout_duration = Duration::from_secs(timeout_secs);
-
-    let work_future = async {
-        loop {
-            match sub.recv().await {
-                Some(Notification::Start(_)) => return Ok(()),
-                Some(_) => continue,
-                None => return Err(WaitError::Shutdown),
-            }
-        }
-    };
-
-    tokio::select! {
-        _ = procs.wait_for_shutdown() => Err(WaitError::Shutdown),
-        result = tokio::time::timeout(timeout_duration, work_future) => {
-            match result {
-                Ok(r) => r,
-                Err(_) => {
-                    warn!(
-                        "agent timeout: no work assigned after {} seconds, shutting down",
-                        timeout_secs
-                    );
-                    procs.set_shutdown(shutdown::State::Done);
-                    Err(WaitError::Timeout)
-                }
-            }
+async fn wait_for_first_assignment(mut sub: NotificationSub) {
+    while let Some(notification) = sub.recv().await {
+        if let Notification::Start(_) = notification {
+            return;
         }
     }
 }
@@ -153,15 +118,23 @@ async fn wait_until_idle_then_shutdown(procs: &SharedProcs) {
 
 async fn run_agent_until_idle(args: &argv::Args, procs: &SharedProcs) {
     if procs.is_empty() {
-        let sub = procs.subscribe();
-        if wait_for_first_assignment(procs, sub, args.wait_timeout)
-            .await
-            .is_err()
-        {
-            return; // early exit on timeout or shutdown
+        tokio::select! {
+            _ = procs.wait_for_shutdown() => return,
+            result = tokio::time::timeout(
+                Duration::from_secs(args.wait_timeout),
+                wait_for_first_assignment(procs.subscribe()),
+            ) => {
+                if result.is_err() {
+                    warn!(
+                        "agent timeout: no work assigned after {} seconds, shutting down",
+                        args.wait_timeout
+                    );
+                    procs.set_shutdown(shutdown::State::Done);
+                    return;
+                }
+            }
         }
     }
-    // Wait until idle or shutdown
     wait_until_idle_then_shutdown(procs).await;
 }
 

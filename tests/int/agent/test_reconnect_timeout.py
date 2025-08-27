@@ -1,5 +1,6 @@
 import asyncio
 import shutil
+import signal
 import time
 
 import pytest
@@ -76,3 +77,39 @@ async def test_dropped_procstart_on_reconnect():
 
         res = await asm.wait(proc1)
         assert res.status.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_reconnect_timeout_after_shutdown_done(caplog):
+    """
+    Test that no KeyError occurs when connection shuts down with ShutdownState.done.
+
+    This test verifies the fix for a bug where:
+    - A Procstar connection disconnects and sends ShutdownState.done
+    - The connection is removed from connections.__conns
+    - But a reconnect timeout was still being set up
+    - When the timeout fired, it tried to pop the already-removed connection causing KeyError
+
+    After the fix, reconnect timeouts should NOT be set when ShutdownState.done is received,
+    since such connections are permanently removed and should not reconnect.
+    """
+    async with Assembly.start(reconnect_timeout=0.5) as asm:
+        conn = next(iter(asm.server.connections.values()))
+        conn_id = conn.info.conn.conn_id
+
+        procstar_proc = asm.conn_procs[conn_id]
+        # Send SIGINT to trigger ShutdownState.done (graceful shutdown)
+        procstar_proc.send_signal(signal.SIGINT)
+
+        # Wait for graceful shutdown and timeout to fire
+        await asyncio.sleep(1)
+
+        # Verify the KeyError did not occurr in the logs
+        keyerror_found = any(
+            conn_id in record.message and "KeyError" in record.message for record in caplog.records
+        )
+        task_exception_found = any(
+            "Task exception was never retrieved" in record.message for record in caplog.records
+        )
+
+        assert not keyerror_found and not task_exception_found, "No errors expected in the logs."

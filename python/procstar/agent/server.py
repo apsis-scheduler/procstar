@@ -274,24 +274,24 @@ class Server:
         finally:
             if done:
                 assert self.connections._pop(conn_id) is conn
+            else:
+                # Else don't drop the connection yet; the agent may reconnect.  But
+                # we may add a timeout to do this.
+                def on_timeout(conn):
+                    if conn.open:
+                        # This case isn't expected to be hit without an unforseen
+                        # concurrency bug. Including to be extra defensive against timing
+                        # out live connections.
+                        logger.warning("ignoring reconnect timeout because conn is open: {conn_id}")
+                        return
+                    logger.warning(f"reconnect timed out: {conn_id}")
+                    assert self.connections._pop(conn_id) is conn
+                    # Let processes know that a connection timeout occurred.
+                    self.processes.on_message(conn, proto.ConnectionTimeout())
 
-            # Else don't drop the connection yet; the agent may reconnect.  But
-            # we may add a timeout to do this.
-            def on_timeout(conn):
-                if conn.open:
-                    # This case isn't expected to be hit without an unforseen
-                    # concurrency bug. Including to be extra defensive against timing
-                    # out live connections.
-                    logger.warning("ignoring reconnect timeout because conn is open: {conn_id}")
-                    return
-                logger.warning(f"reconnect timed out: {conn_id}")
-                assert self.connections._pop(conn_id) is conn
-                # Let processes know that a connection timeout occurred.
-                self.processes.on_message(conn, proto.ConnectionTimeout())
-
-            await maybe_set_reconnect_timeout(
-                reconnect_timeout=reconnect_timeout, conn=conn, on_timeout=on_timeout
-            )
+                await maybe_set_reconnect_timeout(
+                    reconnect_timeout=reconnect_timeout, conn=conn, on_timeout=on_timeout
+                )
 
     async def request_start(
         self,

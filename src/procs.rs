@@ -37,12 +37,19 @@ type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 type Slice = String;
 type Scope = String;
 
+/// Deadline for the diagnostic scope lookup at exit, so a stalled D-Bus call
+/// cannot delay recording the process's termination.
+const DIAG_TIMEOUT: Duration = Duration::from_secs(10);
+
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
     pub slice: Option<Slice>,
     pub scope: Option<Scope>,
     pub systemd_enabled: bool,
+    /// True once the process has been reaped by `wait()`, even if its
+    /// termination has not been recorded yet (units are being finalized).
+    pub reaped: bool,
 
     pub errors: Vec<String>,
 
@@ -73,6 +80,7 @@ impl Proc {
             slice,
             scope,
             systemd_enabled,
+            reaped: false,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
@@ -87,6 +95,10 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
+        if self.reaped {
+            // The pid may already belong to another process.
+            return Err(Error::NoProc);
+        }
         match kill(self.pid, signum) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(Error::NoProc),
@@ -494,13 +506,19 @@ async fn finalize_slice(
     // Best effort: the scope is still loaded if it failed (e.g. oom-kill);
     // after a clean exit it is usually already unloaded.
     let scope_result = match scope {
-        Some(scope) => match systemd.get_scope_state(scope).await {
-            Ok((_active_state, result)) => Some(result),
-            Err(err) => {
-                debug!("scope state {scope}: {err}");
-                None
+        Some(scope) => {
+            match tokio::time::timeout(DIAG_TIMEOUT, systemd.get_scope_state(scope)).await {
+                Ok(Ok((_active_state, result))) => Some(result),
+                Ok(Err(err)) => {
+                    debug!("scope state {scope}: {err}");
+                    None
+                }
+                Err(_) => {
+                    warn!("scope state {scope}: timed out");
+                    None
+                }
             }
-        },
+        }
         None => None,
     };
 
@@ -545,7 +563,9 @@ async fn wait_for_proc(
             let stop_instant = Instant::now();
 
             let (slice, scope) = {
-                let proc = proc.borrow();
+                let mut proc = proc.borrow_mut();
+                // No more signals to this pid: it may be reused.
+                proc.reaped = true;
                 (proc.slice.clone(), proc.scope.clone())
             };
             // important: don't await while proc is borrowed mutably to avoid runtime

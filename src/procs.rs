@@ -26,7 +26,7 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
-use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::api::{is_no_such_unit, job_result_ok, SharedSystemdClient, UnitType};
 use crate::systemd::cgroup::CGroupAccounting;
 use crate::systemd::manager::UnitProperty;
 
@@ -37,8 +37,13 @@ type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 type Slice = String;
 type Scope = String;
 
-/// Deadline for the diagnostic scope lookup at exit, so a stalled D-Bus call
-/// cannot delay recording the process's termination.
+/// How long to wait for a systemd unit stop job before giving up.
+const UNIT_STOP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Overall budget for finalizing a process's systemd units, including D-Bus
+/// calls, reads and the retry.
+const FINALIZE_BUDGET: Duration = Duration::from_secs(90);
+/// Deadline for a single diagnostic D-Bus call or cgroup read, so that a
+/// stalled lookup cannot consume the budget before the units are stopped.
 const DIAG_TIMEOUT: Duration = Duration::from_secs(10);
 
 // FIXME: Refactor this into enum for running, error, terminated procs.
@@ -61,6 +66,7 @@ pub struct Proc {
     pub proc_stat: Option<ProcStat>,
     pub cgroup_accounting: Option<CGroupAccounting>,
     pub scope_result: Option<String>,
+    pub cleanup_incomplete: bool,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -86,6 +92,7 @@ impl Proc {
             proc_stat: None,
             cgroup_accounting: None,
             scope_result: None,
+            cleanup_incomplete: false,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -181,6 +188,7 @@ impl Proc {
             cgroup_accounting: self.cgroup_accounting.clone(),
             systemd_enabled: self.systemd_enabled,
             scope_result: self.scope_result.clone(),
+            cleanup_incomplete: self.cleanup_incomplete,
             times,
             status,
             rusage,
@@ -492,51 +500,181 @@ impl SharedProcs {
     }
 }
 
-/// Reads the slice's cgroup accounting and the scope's systemd result, then
-/// stops the slice as before.  Returns (accounting, scope result).
-async fn finalize_slice(
-    slice: Option<&Slice>,
-    scope: Option<&Scope>,
-    systemd: Option<SharedSystemdClient>,
-) -> (Option<CGroupAccounting>, Option<String>) {
-    let (Some(systemd), Some(slice)) = (systemd, slice) else {
-        return (None, None);
-    };
+/// Outcome of finalizing the systemd units of a terminated process.  Filled in
+/// progressively, so that evidence collected before a timeout or a retry is
+/// kept.
+#[derive(Default)]
+struct UnitsFinal {
+    cgroup_accounting: Option<CGroupAccounting>,
+    scope_result: Option<String>,
+    cleanup_incomplete: bool,
+}
 
-    // Best effort: the scope is still loaded if it failed (e.g. oom-kill);
-    // after a clean exit it is usually already unloaded.
-    let scope_result = match scope {
-        Some(scope) => {
-            match tokio::time::timeout(DIAG_TIMEOUT, systemd.get_scope_state(scope)).await {
-                Ok(Ok((_active_state, result))) => Some(result),
-                Ok(Err(err)) => {
-                    debug!("scope state {scope}: {err}");
-                    None
+impl UnitsFinal {
+    /// Records a scope result.  A failure result (e.g. oom-kill) replaces an
+    /// earlier "success", since the scope can fail after a first read; but a
+    /// later "success" never erases a recorded failure, since systemd resets
+    /// the result when a failed unit is reset.
+    fn record_scope_result(&mut self, result: Option<String>) {
+        match (result, &self.scope_result) {
+            (None, _) => {}
+            (Some(new), Some(old)) if new == "success" && old != "success" => {}
+            (Some(new), _) => self.scope_result = Some(new),
+        }
+    }
+
+    /// Records cgroup accounting; a later successful read replaces an earlier
+    /// one, a failed read keeps what was collected.
+    fn record_accounting(&mut self, accounting: Option<CGroupAccounting>) {
+        if accounting.is_some() {
+            self.cgroup_accounting = accounting;
+        }
+    }
+}
+
+/// Stops a unit, waiting up to `UNIT_STOP_TIMEOUT`.  Returns true only if
+/// the stop job completed successfully or the unit was confirmed gone.
+async fn stop_unit(systemd: &SharedSystemdClient, name: &str) -> bool {
+    match systemd.stop_and_wait(name, UNIT_STOP_TIMEOUT).await {
+        Ok(Some(result)) if job_result_ok(&result) => true,
+        Ok(Some(result)) => {
+            warn!("stop {name}: job result {result}");
+            false
+        }
+        Ok(None) => {
+            warn!("stop {name}: timed out");
+            false
+        }
+        Err(err) if is_no_such_unit(&err) => true,
+        Err(err) => {
+            error!("stop {name}: {err}");
+            false
+        }
+    }
+}
+
+/// Reads the scope's result into `fin` and resets the scope if it failed, so
+/// that systemd unloads the transient unit.  The result is recorded before
+/// the reset is awaited, so a stalled reset cannot lose it.  Returns whether
+/// the scope is settled: confirmed gone, inactive, or reset.
+async fn settle_scope(systemd: &SharedSystemdClient, scope: &str, fin: &mut UnitsFinal) -> bool {
+    let state = tokio::time::timeout(DIAG_TIMEOUT, systemd.get_scope_state(scope)).await;
+    match state {
+        Ok(Ok((active_state, result))) => {
+            fin.record_scope_result(Some(result.clone()));
+            match active_state.as_str() {
+                "failed" => {
+                    debug!("resetting failed scope: {scope} ({result})");
+                    match tokio::time::timeout(DIAG_TIMEOUT, systemd.reset_failed_unit(scope)).await
+                    {
+                        Ok(Ok(())) => true,
+                        Ok(Err(err)) => {
+                            error!("reset failed {scope}: {err}");
+                            false
+                        }
+                        Err(_) => {
+                            warn!("reset failed {scope}: timed out");
+                            false
+                        }
+                    }
                 }
-                Err(_) => {
-                    warn!("scope state {scope}: timed out");
-                    None
+                "inactive" => true,
+                other => {
+                    warn!("scope {scope} still {other}");
+                    false
                 }
             }
         }
-        None => None,
-    };
+        // Unloaded already: the normal case after a successful stop.
+        Ok(Err(err)) if is_no_such_unit(&err) => true,
+        Ok(Err(err)) => {
+            error!("scope state {scope}: {err}");
+            false
+        }
+        Err(_) => {
+            warn!("scope state {scope}: timed out");
+            false
+        }
+    }
+}
 
-    let cgroup_accounting = match systemd.get_slice_cgroup_path(slice).await {
-        Ok(cgroup_path) => CGroupAccounting::load_or_log(&cgroup_path),
-        Err(err) => {
+async fn read_accounting(systemd: &SharedSystemdClient, slice: &Slice) -> Option<CGroupAccounting> {
+    match tokio::time::timeout(DIAG_TIMEOUT, systemd.get_slice_cgroup_path(slice)).await {
+        Ok(Ok(cgroup_path)) => CGroupAccounting::load_or_log(&cgroup_path),
+        Ok(Err(err)) => {
             error!("getting slice {slice} cgroup failed: {err}");
             None
         }
+        Err(_) => {
+            warn!("getting slice {slice} cgroup: timed out");
+            None
+        }
+    }
+}
+
+/// Finalizes the systemd units of a terminated process, in bounded time:
+/// stops the scope (terminating any remaining processes in it), collects the
+/// scope result and the slice's cgroup accounting, resets the scope if it
+/// failed so that it is unloaded, and stops the slice.  Diagnostic failures
+/// never prevent cleanup, and evidence collected before a timeout is kept.
+async fn finalize_units(
+    slice: Option<&Slice>,
+    scope: Option<&Scope>,
+    systemd: Option<SharedSystemdClient>,
+) -> UnitsFinal {
+    let mut fin = UnitsFinal::default();
+    let (Some(systemd), Some(slice)) = (systemd, slice) else {
+        return fin;
     };
+    let budget = tokio::time::timeout(
+        FINALIZE_BUDGET,
+        finalize_units_inner(slice, scope, &systemd, &mut fin),
+    )
+    .await;
+    if budget.is_err() {
+        error!("finalizing units for {slice} exceeded {FINALIZE_BUDGET:?}");
+        fin.cleanup_incomplete = true;
+    }
+    fin
+}
+
+async fn finalize_units_inner(
+    slice: &Slice,
+    scope: Option<&Scope>,
+    systemd: &SharedSystemdClient,
+    fin: &mut UnitsFinal,
+) {
+    // Stop the scope first; the primary process has exited but children may
+    // still be running in it.
+    let mut ok = true;
+    if let Some(scope) = scope {
+        ok &= stop_unit(systemd, scope).await;
+        ok &= settle_scope(systemd, scope, fin).await;
+    }
+
+    // Collect accounting from the slice, which persists until we stop it and
+    // whose hierarchical counters include the scope's events.
+    fin.record_accounting(read_accounting(systemd, slice).await);
 
     debug!("stopping slice: {}", slice);
-    systemd
-        .stop(slice)
-        .await
-        .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
+    ok &= stop_unit(systemd, slice).await;
 
-    (cgroup_accounting, scope_result)
+    if !ok {
+        // One bounded follow-up: a scope may have failed (e.g. oom-kill) only
+        // after the stop timed out; re-check, re-read, reset, retry the stops.
+        warn!("unit cleanup incomplete for {slice}; retrying once");
+        ok = true;
+        if let Some(scope) = scope {
+            ok &= stop_unit(systemd, scope).await;
+            ok &= settle_scope(systemd, scope, fin).await;
+        }
+        fin.record_accounting(read_accounting(systemd, slice).await);
+        ok &= stop_unit(systemd, slice).await;
+        if !ok {
+            error!("unit cleanup incomplete for {slice}");
+        }
+    }
+    fin.cleanup_incomplete = !ok;
 }
 
 async fn wait_for_proc(
@@ -570,8 +708,7 @@ async fn wait_for_proc(
             };
             // important: don't await while proc is borrowed mutably to avoid runtime
             // borrow check failures
-            let (cgroup_accounting, scope_result) =
-                finalize_slice(slice.as_ref(), scope.as_ref(), systemd).await;
+            let fin = finalize_units(slice.as_ref(), scope.as_ref(), systemd).await;
 
             let mut proc = proc.borrow_mut();
 
@@ -579,8 +716,9 @@ async fn wait_for_proc(
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
-            proc.cgroup_accounting = cgroup_accounting;
-            proc.scope_result = scope_result;
+            proc.cgroup_accounting = fin.cgroup_accounting;
+            proc.scope_result = fin.scope_result;
+            proc.cleanup_incomplete = fin.cleanup_incomplete;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
@@ -839,4 +977,41 @@ pub async fn start_procs(
     assert!(pipes.close().unwrap() == 0);
 
     Ok(tasks)
+}
+
+#[cfg(test)]
+mod units_final_tests {
+    use super::UnitsFinal;
+
+    #[test]
+    fn later_scope_result_replaces_earlier() {
+        let mut fin = UnitsFinal::default();
+        fin.record_scope_result(Some("success".into()));
+        fin.record_scope_result(Some("oom-kill".into()));
+        assert_eq!(fin.scope_result.as_deref(), Some("oom-kill"));
+        fin.record_scope_result(None);
+        assert_eq!(fin.scope_result.as_deref(), Some("oom-kill"));
+    }
+
+    #[test]
+    fn success_after_reset_does_not_erase_failure() {
+        // After ResetFailedUnit, systemd reports Result=success again; the
+        // retry must not overwrite the recorded oom-kill with it.
+        let mut fin = UnitsFinal::default();
+        fin.record_scope_result(Some("oom-kill".into()));
+        fin.record_scope_result(Some("success".into()));
+        assert_eq!(fin.scope_result.as_deref(), Some("oom-kill"));
+        // but a different failure result is recorded
+        fin.record_scope_result(Some("timeout".into()));
+        assert_eq!(fin.scope_result.as_deref(), Some("timeout"));
+    }
+
+    #[test]
+    fn failed_accounting_read_keeps_earlier() {
+        let mut fin = UnitsFinal::default();
+        fin.record_accounting(Some(Default::default()));
+        assert!(fin.cgroup_accounting.is_some());
+        fin.record_accounting(None);
+        assert!(fin.cgroup_accounting.is_some());
+    }
 }

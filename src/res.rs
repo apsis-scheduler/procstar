@@ -235,6 +235,11 @@ pub struct ProcRes {
     #[serde(default)]
     pub scope_result: Option<String>,
 
+    /// True if cleaning up the systemd units for this process did not
+    /// complete; a transient unit may have been left behind.
+    #[serde(default)]
+    pub cleanup_incomplete: bool,
+
     /// Process timing.
     pub times: Times,
 

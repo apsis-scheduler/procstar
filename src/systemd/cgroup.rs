@@ -1,6 +1,6 @@
 // TODO: load other interesting accounting files
 
-use log::error;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -112,23 +112,105 @@ impl CPUStat {
     }
 }
 
+/// Counters from `memory.events` / `memory.events.local`.  See the cgroup v2
+/// documentation; `oom_kill` counts OOM victims in the cgroup (also from a
+/// system-wide OOM), `oom` counts times this cgroup itself ran out of memory,
+/// `max` counts times usage hit `memory.max`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct MemoryEvents {
+    pub low: u64,
+    pub high: u64,
+    pub max: u64,
+    pub oom: u64,
+    pub oom_kill: u64,
+    pub oom_group_kill: Option<u64>,
+}
+
+impl MemoryEvents {
+    fn load(path: &PathBuf) -> Result<Self, Error> {
+        let mut map: HashMap<String, u64> = load_flat_keyed(path)?;
+        let mut take = |key: &str| map.remove(key).ok_or(Error::Parse(path.clone()));
+        let low = take("low")?;
+        let high = take("high")?;
+        let max = take("max")?;
+        let oom = take("oom")?;
+        let oom_kill = take("oom_kill")?;
+        let oom_group_kill = map.remove("oom_group_kill");
+        Ok(Self {
+            low,
+            high,
+            max,
+            oom,
+            oom_kill,
+            oom_group_kill,
+        })
+    }
+}
+
+/// The effective `memory.max` of the cgroup: either unlimited (`"max"`) or a
+/// byte count.  Absent when the file could not be read.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum MemoryMax {
+    Unlimited(String),
+    Bytes(u64),
+}
+
+impl MemoryMax {
+    fn load(path: &PathBuf) -> Result<Self, Error> {
+        let text = std::fs::read_to_string(path)?.trim().to_owned();
+        if text == "max" {
+            Ok(MemoryMax::Unlimited(text))
+        } else {
+            text.parse()
+                .map(MemoryMax::Bytes)
+                .map_err(|_| Error::Parse(path.clone()))
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Memory {
     pub current: u64,
     pub peak: u64,
     pub swap_current: u64,
     pub swap_peak: u64,
+    /// Hierarchical event counters for this cgroup and its descendants.
+    #[serde(default)]
+    pub events: Option<MemoryEvents>,
+    /// Event counters local to this cgroup.
+    #[serde(default)]
+    pub events_local: Option<MemoryEvents>,
+    /// The effective `memory.max` at termination.
+    #[serde(default)]
+    pub max: Option<MemoryMax>,
 }
 
 impl Memory {
     pub fn load(cgroup_path: &Path) -> Result<Self, Error> {
         let load_scalar = |filename| load_scalar(&cgroup_path.join(filename));
+        let optional = |name: &str, err: &Error| {
+            debug!("{}: {}: {}", cgroup_path.display(), name, err);
+        };
+
+        let events = MemoryEvents::load(&cgroup_path.join("memory.events"))
+            .inspect_err(|e| optional("memory.events", e))
+            .ok();
+        let events_local = MemoryEvents::load(&cgroup_path.join("memory.events.local"))
+            .inspect_err(|e| optional("memory.events.local", e))
+            .ok();
+        let max = MemoryMax::load(&cgroup_path.join("memory.max"))
+            .inspect_err(|e| optional("memory.max", e))
+            .ok();
 
         Ok(Memory {
             current: load_scalar("memory.current")?,
             peak: load_scalar("memory.peak")?,
             swap_current: load_scalar("memory.swap.current")?,
             swap_peak: load_scalar("memory.swap.peak")?,
+            events,
+            events_local,
+            max,
         })
     }
 }

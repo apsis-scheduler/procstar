@@ -1,6 +1,8 @@
 use super::cgroup::CGROUP_ROOT;
 use super::manager::{ManagerProxy, UnitProperty};
+use super::scope::ScopeProxy;
 use super::slice::SliceProxy;
+use super::unit::UnitProxy;
 use futures_util::StreamExt;
 use log::debug;
 use std::path::PathBuf;
@@ -74,6 +76,17 @@ impl SystemdClient {
     pub async fn stop(&self, name: &str) -> Result<(), zbus::Error> {
         self.manager_proxy.stop_unit(name, "replace").await?;
         Ok(())
+    }
+
+    /// Returns `(ActiveState, Result)` of a scope unit, if it is still loaded.
+    pub async fn get_scope_state(&self, name: &str) -> Result<(String, String), zbus::Error> {
+        let unit_path = self.manager_proxy.get_unit(name).await?;
+        let unit_proxy = UnitProxy::new(&self.connection, &unit_path).await?;
+        let scope_proxy = ScopeProxy::new(&self.connection, &unit_path).await?;
+        Ok((
+            unit_proxy.active_state().await?,
+            scope_proxy.result().await?,
+        ))
     }
 }
 

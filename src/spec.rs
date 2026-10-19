@@ -65,18 +65,13 @@ type Result<T> = std::result::Result<T, Error>;
 // Env spec
 //------------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub enum EnvInherit {
     None,
+    #[default]
     All,
     Vars(Vec<String>),
-}
-
-impl Default for EnvInherit {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 impl<'de> Deserialize<'de> for EnvInherit {
@@ -127,12 +122,13 @@ pub struct Env {
 // Fd spec
 //------------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub enum OpenFlag {
     // FIXME: Generalize.
     /// Equivalent to `Read` for stdin, `Write` for stdout/stderr,
     /// `ReadWrite` for others.
+    #[default]
     Default,
 
     /// Open existing file for reading.
@@ -151,49 +147,34 @@ pub enum OpenFlag {
     ReadWrite,
 }
 
-impl Default for OpenFlag {
-    fn default() -> Self {
-        Self::Default
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum CaptureMode {
+    #[default]
     TempFile,
     Memory,
 }
 
-impl Default for CaptureMode {
-    fn default() -> Self {
-        Self::TempFile
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum CaptureEncoding {
     #[serde(rename = "utf-8")]
+    #[default]
     Utf8,
-}
-
-impl Default for CaptureEncoding {
-    fn default() -> Self {
-        Self::Utf8
-    }
 }
 
 fn get_default_mode() -> c_int {
     0o666
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "lowercase")]
 pub enum Fd {
     /// Inherit this fd from the parent process, if any.
+    #[default]
     Inherit,
 
     /// Close this fd, if it's open.
@@ -250,12 +231,6 @@ impl Fd {
     }
 }
 
-impl Default for Fd {
-    fn default() -> Self {
-        Self::Inherit
-    }
-}
-
 pub fn parse_fd(fd: &str) -> std::result::Result<RawFd, Error> {
     match fd {
         "stdin" => Ok(0),
@@ -278,7 +253,7 @@ pub type PipeFds = HashSet<(ProcId, RawFd)>;
 /// pipes.
 pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
     // Check for duplicate fds.
-    for (_proc_id, proc) in procs.iter() {
+    for proc in procs.values() {
         let mut fds = HashSet::<RawFd>::new();
         for (fd_name, _) in proc.fds.iter() {
             if !fds.insert(parse_fd(fd_name)?) {
@@ -298,7 +273,7 @@ pub fn validate_procs_fds(procs: &Procs) -> std::result::Result<(), Error> {
         }
     }
     // Match up read pipes.
-    for (_proc_id, proc) in procs.iter() {
+    for proc in procs.values() {
         for (_, fd) in proc.fds.iter() {
             if let Fd::PipeRead {
                 proc_id: from_proc_id,

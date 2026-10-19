@@ -26,7 +26,7 @@ use crate::spec;
 use crate::spec::ProcId;
 use crate::state::State;
 use crate::sys::{execve, fork, kill, setsid, wait, WaitInfo};
-use crate::systemd::api::{SharedSystemdClient, UnitType};
+use crate::systemd::api::{is_no_such_unit, job_result_ok, SharedSystemdClient, UnitType};
 use crate::systemd::cgroup::CGroupAccounting;
 use crate::systemd::manager::UnitProperty;
 
@@ -39,6 +39,9 @@ type Scope = String;
 
 /// How long to wait for a systemd unit stop job before giving up.
 const UNIT_STOP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Overall budget for finalizing a process's systemd units, including D-Bus
+/// calls, reads and the retry.
+const FINALIZE_BUDGET: Duration = Duration::from_secs(90);
 
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
@@ -493,45 +496,55 @@ struct UnitsFinal {
     cleanup_incomplete: bool,
 }
 
-/// Stops a unit, waiting up to `UNIT_STOP_TIMEOUT`.  Returns true if the stop
-/// completed (or the unit was already gone).
+/// Stops a unit, waiting up to `UNIT_STOP_TIMEOUT`.  Returns true only if
+/// the stop job completed successfully or the unit was confirmed gone.
 async fn stop_unit(systemd: &SharedSystemdClient, name: &str) -> bool {
     match systemd.stop_and_wait(name, UNIT_STOP_TIMEOUT).await {
-        Ok(true) => true,
-        Ok(false) => {
+        Ok(Some(result)) if job_result_ok(&result) => true,
+        Ok(Some(result)) => {
+            warn!("stop {name}: job result {result}");
+            false
+        }
+        Ok(None) => {
             warn!("stop {name}: timed out");
             false
         }
+        Err(err) if is_no_such_unit(&err) => true,
         Err(err) => {
-            // Most likely the unit is already unloaded.
-            debug!("stop {name}: {err}");
-            true
+            error!("stop {name}: {err}");
+            false
         }
     }
 }
 
 /// Reads the scope's result and resets it if it failed, so that systemd
-/// unloads the transient unit.  Returns (result, ok).
+/// unloads the transient unit.  Returns (result, settled), where settled is
+/// true only if the scope is confirmed gone, inactive, or reset.
 async fn settle_scope(systemd: &SharedSystemdClient, scope: &str) -> (Option<String>, bool) {
     match systemd.get_scope_state(scope).await {
         Ok((active_state, result)) => {
-            let ok = if active_state == "failed" {
-                debug!("resetting failed scope: {scope} ({result})");
-                systemd
-                    .reset_failed_unit(scope)
-                    .await
-                    .map_err(|err| error!("reset failed {scope}: {err}"))
-                    .is_ok()
-            } else {
-                true
+            let settled = match active_state.as_str() {
+                "failed" => {
+                    debug!("resetting failed scope: {scope} ({result})");
+                    systemd
+                        .reset_failed_unit(scope)
+                        .await
+                        .map_err(|err| error!("reset failed {scope}: {err}"))
+                        .is_ok()
+                }
+                "inactive" => true,
+                other => {
+                    warn!("scope {scope} still {other}");
+                    false
+                }
             };
-            (Some(result), ok)
+            (Some(result), settled)
         }
+        // Unloaded already: the normal case after a successful stop.
+        Err(err) if is_no_such_unit(&err) => (None, true),
         Err(err) => {
-            // The scope has already been unloaded, which is the normal case
-            // when it stopped successfully.
-            debug!("scope state {scope}: {err}");
-            (None, true)
+            error!("scope state {scope}: {err}");
+            (None, false)
         }
     }
 }
@@ -546,21 +559,48 @@ async fn finalize_units(
     scope: Option<&Scope>,
     systemd: Option<SharedSystemdClient>,
 ) -> UnitsFinal {
+    let (Some(systemd), Some(slice)) = (systemd, slice) else {
+        return UnitsFinal {
+            cgroup_accounting: None,
+            scope_result: None,
+            cleanup_incomplete: false,
+        };
+    };
+    match tokio::time::timeout(
+        FINALIZE_BUDGET,
+        finalize_units_inner(slice, scope, &systemd),
+    )
+    .await
+    {
+        Ok(fin) => fin,
+        Err(_) => {
+            error!("finalizing units for {slice} exceeded {FINALIZE_BUDGET:?}");
+            UnitsFinal {
+                cgroup_accounting: None,
+                scope_result: None,
+                cleanup_incomplete: true,
+            }
+        }
+    }
+}
+
+async fn finalize_units_inner(
+    slice: &Slice,
+    scope: Option<&Scope>,
+    systemd: &SharedSystemdClient,
+) -> UnitsFinal {
     let mut fin = UnitsFinal {
         cgroup_accounting: None,
         scope_result: None,
         cleanup_incomplete: false,
-    };
-    let (Some(systemd), Some(slice)) = (systemd, slice) else {
-        return fin;
     };
 
     // Stop the scope first; the primary process has exited but children may
     // still be running in it.
     let mut ok = true;
     if let Some(scope) = scope {
-        ok &= stop_unit(&systemd, scope).await;
-        let (result, settled) = settle_scope(&systemd, scope).await;
+        ok &= stop_unit(systemd, scope).await;
+        let (result, settled) = settle_scope(systemd, scope).await;
         fin.scope_result = result;
         ok &= settled;
     }
@@ -573,7 +613,7 @@ async fn finalize_units(
     }
 
     debug!("stopping slice: {}", slice);
-    ok &= stop_unit(&systemd, slice).await;
+    ok &= stop_unit(systemd, slice).await;
 
     if !ok {
         // One bounded follow-up: a scope may have failed only after the stop
@@ -581,11 +621,14 @@ async fn finalize_units(
         warn!("unit cleanup incomplete for {slice}; retrying once");
         ok = true;
         if let Some(scope) = scope {
-            ok &= stop_unit(&systemd, scope).await;
-            let (_, settled) = settle_scope(&systemd, scope).await;
+            ok &= stop_unit(systemd, scope).await;
+            let (result, settled) = settle_scope(systemd, scope).await;
+            if fin.scope_result.is_none() {
+                fin.scope_result = result;
+            }
             ok &= settled;
         }
-        ok &= stop_unit(&systemd, slice).await;
+        ok &= stop_unit(systemd, slice).await;
         if !ok {
             error!("unit cleanup incomplete for {slice}");
         }

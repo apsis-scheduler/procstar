@@ -80,20 +80,27 @@ impl SystemdClient {
     }
 
     /// Stops a unit and waits for the stop job to finish, up to `timeout`.
-    /// Returns `Ok(false)` if the job had not finished by then.
-    pub async fn stop_and_wait(&self, name: &str, timeout: Duration) -> Result<bool, zbus::Error> {
+    /// Returns the job result (`"done"`, `"canceled"`, `"failed"`, ...), or
+    /// `None` if the job had not finished by then.
+    pub async fn stop_and_wait(
+        &self,
+        name: &str,
+        timeout: Duration,
+    ) -> Result<Option<String>, zbus::Error> {
         let mut removed_stream = self.manager_proxy.receive_job_removed().await?;
         let job_path = self.manager_proxy.stop_unit(name, "replace").await?;
         let wait = async {
             while let Some(job_removed) = removed_stream.next().await {
                 if let Ok(args) = job_removed.args() {
                     if *job_path == *args.job() {
-                        break;
+                        return args.result().to_string();
                     }
                 }
             }
+            // The signal stream ended; treat as unknown outcome.
+            String::from("unknown")
         };
-        Ok(tokio::time::timeout(timeout, wait).await.is_ok())
+        Ok(tokio::time::timeout(timeout, wait).await.ok())
     }
 
     /// Resets the failed state of a unit, so a transient unit is unloaded.
@@ -115,6 +122,16 @@ impl SystemdClient {
 
 pub type SharedSystemdClient = Rc<SystemdClient>;
 
+/// Whether a D-Bus error says the unit does not exist (already unloaded).
+pub fn is_no_such_unit(err: &zbus::Error) -> bool {
+    matches!(err, zbus::Error::MethodError(name, _, _) if name.ends_with("NoSuchUnit"))
+}
+
+/// Whether a systemd job result means the job did what was asked.
+pub fn job_result_ok(result: &str) -> bool {
+    matches!(result, "done" | "skipped")
+}
+
 pub async fn maybe_connect() -> Option<SystemdClient> {
     if !CGROUP_ROOT.join("cgroup.controllers").is_file() {
         debug!("cgroup v2 hierarchy not detected");
@@ -126,4 +143,18 @@ pub async fn maybe_connect() -> Option<SystemdClient> {
             debug!("unable to create systemd client: {err}");
         })
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::job_result_ok;
+
+    #[test]
+    fn test_job_result_ok() {
+        assert!(job_result_ok("done"));
+        assert!(job_result_ok("skipped"));
+        for r in ["canceled", "timeout", "failed", "dependency", "unknown"] {
+            assert!(!job_result_ok(r), "{r}");
+        }
+    }
 }

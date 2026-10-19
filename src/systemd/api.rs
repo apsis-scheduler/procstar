@@ -1,10 +1,13 @@
 use super::cgroup::CGROUP_ROOT;
 use super::manager::{ManagerProxy, UnitProperty};
+use super::scope::ScopeProxy;
 use super::slice::SliceProxy;
+use super::unit::UnitProxy;
 use futures_util::StreamExt;
 use log::debug;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 use uuid::Uuid;
 
 // TODO: make this portable
@@ -74,6 +77,39 @@ impl SystemdClient {
     pub async fn stop(&self, name: &str) -> Result<(), zbus::Error> {
         self.manager_proxy.stop_unit(name, "replace").await?;
         Ok(())
+    }
+
+    /// Stops a unit and waits for the stop job to finish, up to `timeout`.
+    /// Returns `Ok(false)` if the job had not finished by then.
+    pub async fn stop_and_wait(&self, name: &str, timeout: Duration) -> Result<bool, zbus::Error> {
+        let mut removed_stream = self.manager_proxy.receive_job_removed().await?;
+        let job_path = self.manager_proxy.stop_unit(name, "replace").await?;
+        let wait = async {
+            while let Some(job_removed) = removed_stream.next().await {
+                if let Ok(args) = job_removed.args() {
+                    if *job_path == *args.job() {
+                        break;
+                    }
+                }
+            }
+        };
+        Ok(tokio::time::timeout(timeout, wait).await.is_ok())
+    }
+
+    /// Resets the failed state of a unit, so a transient unit is unloaded.
+    pub async fn reset_failed_unit(&self, name: &str) -> Result<(), zbus::Error> {
+        self.manager_proxy.reset_failed_unit(name).await
+    }
+
+    /// Returns `(ActiveState, Result)` of a scope unit, if it is still loaded.
+    pub async fn get_scope_state(&self, name: &str) -> Result<(String, String), zbus::Error> {
+        let unit_path = self.manager_proxy.get_unit(name).await?;
+        let unit_proxy = UnitProxy::new(&self.connection, &unit_path).await?;
+        let scope_proxy = ScopeProxy::new(&self.connection, &unit_path).await?;
+        Ok((
+            unit_proxy.active_state().await?,
+            scope_proxy.result().await?,
+        ))
     }
 }
 

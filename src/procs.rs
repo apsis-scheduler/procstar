@@ -35,11 +35,17 @@ use crate::systemd::manager::UnitProperty;
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
 type Slice = String;
+type Scope = String;
+
+/// How long to wait for a systemd unit stop job before giving up.
+const UNIT_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
     pub slice: Option<Slice>,
+    pub scope: Option<Scope>,
+    pub systemd_enabled: bool,
 
     pub errors: Vec<String>,
 
@@ -50,6 +56,8 @@ pub struct Proc {
     pub wait_info: Option<WaitInfo>,
     pub proc_stat: Option<ProcStat>,
     pub cgroup_accounting: Option<CGroupAccounting>,
+    pub scope_result: Option<String>,
+    pub cleanup_incomplete: bool,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -58,6 +66,8 @@ impl Proc {
     pub fn new(
         pid: pid_t,
         slice: Option<Slice>,
+        scope: Option<Scope>,
+        systemd_enabled: bool,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,
@@ -65,10 +75,14 @@ impl Proc {
         Self {
             pid,
             slice,
+            scope,
+            systemd_enabled,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
             cgroup_accounting: None,
+            scope_result: None,
+            cleanup_incomplete: false,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -158,6 +172,9 @@ impl Proc {
             proc_stat,
             proc_statm,
             cgroup_accounting: self.cgroup_accounting.clone(),
+            systemd_enabled: self.systemd_enabled,
+            scope_result: self.scope_result.clone(),
+            cleanup_incomplete: self.cleanup_incomplete,
             times,
             status,
             rusage,
@@ -469,27 +486,112 @@ impl SharedProcs {
     }
 }
 
-async fn finalize_slice(
-    slice: Option<&String>,
-    systemd: Option<SharedSystemdClient>,
-) -> Option<CGroupAccounting> {
-    let systemd = systemd?;
-    let slice = slice?;
+/// Outcome of finalizing the systemd units of a terminated process.
+struct UnitsFinal {
+    cgroup_accounting: Option<CGroupAccounting>,
+    scope_result: Option<String>,
+    cleanup_incomplete: bool,
+}
 
-    let cgroup_path = systemd
-        .get_slice_cgroup_path(slice)
-        .await
-        .map_err(|e| error!("getting slice {slice} cgroup failed: {e}"))
-        .ok()?;
-    let cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path);
+/// Stops a unit, waiting up to `UNIT_STOP_TIMEOUT`.  Returns true if the stop
+/// completed (or the unit was already gone).
+async fn stop_unit(systemd: &SharedSystemdClient, name: &str) -> bool {
+    match systemd.stop_and_wait(name, UNIT_STOP_TIMEOUT).await {
+        Ok(true) => true,
+        Ok(false) => {
+            warn!("stop {name}: timed out");
+            false
+        }
+        Err(err) => {
+            // Most likely the unit is already unloaded.
+            debug!("stop {name}: {err}");
+            true
+        }
+    }
+}
+
+/// Reads the scope's result and resets it if it failed, so that systemd
+/// unloads the transient unit.  Returns (result, ok).
+async fn settle_scope(systemd: &SharedSystemdClient, scope: &str) -> (Option<String>, bool) {
+    match systemd.get_scope_state(scope).await {
+        Ok((active_state, result)) => {
+            let ok = if active_state == "failed" {
+                debug!("resetting failed scope: {scope} ({result})");
+                systemd
+                    .reset_failed_unit(scope)
+                    .await
+                    .map_err(|err| error!("reset failed {scope}: {err}"))
+                    .is_ok()
+            } else {
+                true
+            };
+            (Some(result), ok)
+        }
+        Err(err) => {
+            // The scope has already been unloaded, which is the normal case
+            // when it stopped successfully.
+            debug!("scope state {scope}: {err}");
+            (None, true)
+        }
+    }
+}
+
+/// Finalizes the systemd units of a terminated process, in bounded time:
+/// stops the scope (terminating any remaining processes in it), collects the
+/// scope result and the slice's cgroup accounting, resets the scope if it
+/// failed so that it is unloaded, and stops the slice.  Diagnostic failures
+/// never prevent cleanup.
+async fn finalize_units(
+    slice: Option<&Slice>,
+    scope: Option<&Scope>,
+    systemd: Option<SharedSystemdClient>,
+) -> UnitsFinal {
+    let mut fin = UnitsFinal {
+        cgroup_accounting: None,
+        scope_result: None,
+        cleanup_incomplete: false,
+    };
+    let (Some(systemd), Some(slice)) = (systemd, slice) else {
+        return fin;
+    };
+
+    // Stop the scope first; the primary process has exited but children may
+    // still be running in it.
+    let mut ok = true;
+    if let Some(scope) = scope {
+        ok &= stop_unit(&systemd, scope).await;
+        let (result, settled) = settle_scope(&systemd, scope).await;
+        fin.scope_result = result;
+        ok &= settled;
+    }
+
+    // Collect accounting from the slice, which persists until we stop it and
+    // whose hierarchical counters include the scope's events.
+    match systemd.get_slice_cgroup_path(slice).await {
+        Ok(cgroup_path) => fin.cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path),
+        Err(err) => error!("getting slice {slice} cgroup failed: {err}"),
+    }
 
     debug!("stopping slice: {}", slice);
-    systemd
-        .stop(slice)
-        .await
-        .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
+    ok &= stop_unit(&systemd, slice).await;
 
-    cgroup_accounting
+    if !ok {
+        // One bounded follow-up: a scope may have failed only after the stop
+        // timed out; re-check, reset, and retry the stops.
+        warn!("unit cleanup incomplete for {slice}; retrying once");
+        ok = true;
+        if let Some(scope) = scope {
+            ok &= stop_unit(&systemd, scope).await;
+            let (_, settled) = settle_scope(&systemd, scope).await;
+            ok &= settled;
+        }
+        ok &= stop_unit(&systemd, slice).await;
+        if !ok {
+            error!("unit cleanup incomplete for {slice}");
+        }
+    }
+    fin.cleanup_incomplete = !ok;
+    fin
 }
 
 async fn wait_for_proc(
@@ -515,10 +617,13 @@ async fn wait_for_proc(
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            let slice = proc.borrow().slice.clone();
+            let (slice, scope) = {
+                let proc = proc.borrow();
+                (proc.slice.clone(), proc.scope.clone())
+            };
             // important: don't await while proc is borrowed mutably to avoid runtime
             // borrow check failures
-            let cgroup_accounting = finalize_slice(slice.as_ref(), systemd).await;
+            let fin = finalize_units(slice.as_ref(), scope.as_ref(), systemd).await;
 
             let mut proc = proc.borrow_mut();
 
@@ -526,7 +631,9 @@ async fn wait_for_proc(
             assert!(proc.wait_info.is_none());
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
-            proc.cgroup_accounting = cgroup_accounting;
+            proc.cgroup_accounting = fin.cgroup_accounting;
+            proc.scope_result = fin.scope_result;
+            proc.cleanup_incomplete = fin.cleanup_incomplete;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
@@ -584,9 +691,9 @@ async fn set_up_slice(
     pid: u32,
     systemd_properties: spec::SystemdProperties,
     systemd: Option<SharedSystemdClient>,
-) -> Result<Option<Slice>, Error> {
+) -> Result<(Option<Slice>, Option<Scope>), Error> {
     let Some(systemd) = systemd else {
-        return Ok(None);
+        return Ok((None, None));
     };
 
     let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
@@ -599,11 +706,11 @@ async fn set_up_slice(
     scope_properties.push(UnitProperty::from(("PIDs", vec![pid])));
     scope_properties.push(UnitProperty::from(("Slice", &slice)));
 
-    systemd
+    let scope = systemd
         .start_transient_unit(UnitType::Scope, &scope_properties)
         .await?;
 
-    Ok(Some(slice))
+    Ok((Some(slice), Some(scope)))
 }
 
 /// Starts zero or more new processes.  `input` maps new proc IDs to
@@ -725,7 +832,8 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
-                let slice =
+                let systemd_enabled = systemd.is_some();
+                let (slice, scope) =
                     set_up_slice(child_pid as u32, systemd_properties, systemd.clone()).await?;
 
                 exec_ready_event.write(1_u64).unwrap();
@@ -744,7 +852,15 @@ pub async fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, slice, start_time, start_instant, fd_handlers);
+                let mut proc = Proc::new(
+                    child_pid,
+                    slice,
+                    scope,
+                    systemd_enabled,
+                    start_time,
+                    start_instant,
+                    fd_handlers,
+                );
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);

@@ -49,6 +49,9 @@ pub struct Proc {
     pub slice: Option<Slice>,
     pub scope: Option<Scope>,
     pub systemd_enabled: bool,
+    /// True once the process has been reaped by `wait()`, even if its
+    /// termination has not been recorded yet (units are being finalized).
+    pub reaped: bool,
 
     pub errors: Vec<String>,
 
@@ -80,6 +83,7 @@ impl Proc {
             slice,
             scope,
             systemd_enabled,
+            reaped: false,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
@@ -95,6 +99,10 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
+        if self.reaped {
+            // The pid may already belong to another process.
+            return Err(Error::NoProc);
+        }
         match kill(self.pid, signum) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(Error::NoProc),
@@ -489,11 +497,32 @@ impl SharedProcs {
     }
 }
 
-/// Outcome of finalizing the systemd units of a terminated process.
+/// Outcome of finalizing the systemd units of a terminated process.  Filled in
+/// progressively, so that evidence collected before a timeout or a retry is
+/// kept.
+#[derive(Default)]
 struct UnitsFinal {
     cgroup_accounting: Option<CGroupAccounting>,
     scope_result: Option<String>,
     cleanup_incomplete: bool,
+}
+
+impl UnitsFinal {
+    /// Records a scope result; a later observation replaces an earlier one,
+    /// since the scope can fail (e.g. oom-kill) after a first read.
+    fn record_scope_result(&mut self, result: Option<String>) {
+        if result.is_some() {
+            self.scope_result = result;
+        }
+    }
+
+    /// Records cgroup accounting; a later successful read replaces an earlier
+    /// one, a failed read keeps what was collected.
+    fn record_accounting(&mut self, accounting: Option<CGroupAccounting>) {
+        if accounting.is_some() {
+            self.cgroup_accounting = accounting;
+        }
+    }
 }
 
 /// Stops a unit, waiting up to `UNIT_STOP_TIMEOUT`.  Returns true only if
@@ -549,92 +578,83 @@ async fn settle_scope(systemd: &SharedSystemdClient, scope: &str) -> (Option<Str
     }
 }
 
+async fn read_accounting(systemd: &SharedSystemdClient, slice: &Slice) -> Option<CGroupAccounting> {
+    match systemd.get_slice_cgroup_path(slice).await {
+        Ok(cgroup_path) => CGroupAccounting::load_or_log(&cgroup_path),
+        Err(err) => {
+            error!("getting slice {slice} cgroup failed: {err}");
+            None
+        }
+    }
+}
+
 /// Finalizes the systemd units of a terminated process, in bounded time:
 /// stops the scope (terminating any remaining processes in it), collects the
 /// scope result and the slice's cgroup accounting, resets the scope if it
 /// failed so that it is unloaded, and stops the slice.  Diagnostic failures
-/// never prevent cleanup.
+/// never prevent cleanup, and evidence collected before a timeout is kept.
 async fn finalize_units(
     slice: Option<&Slice>,
     scope: Option<&Scope>,
     systemd: Option<SharedSystemdClient>,
 ) -> UnitsFinal {
+    let mut fin = UnitsFinal::default();
     let (Some(systemd), Some(slice)) = (systemd, slice) else {
-        return UnitsFinal {
-            cgroup_accounting: None,
-            scope_result: None,
-            cleanup_incomplete: false,
-        };
+        return fin;
     };
-    match tokio::time::timeout(
+    let budget = tokio::time::timeout(
         FINALIZE_BUDGET,
-        finalize_units_inner(slice, scope, &systemd),
+        finalize_units_inner(slice, scope, &systemd, &mut fin),
     )
-    .await
-    {
-        Ok(fin) => fin,
-        Err(_) => {
-            error!("finalizing units for {slice} exceeded {FINALIZE_BUDGET:?}");
-            UnitsFinal {
-                cgroup_accounting: None,
-                scope_result: None,
-                cleanup_incomplete: true,
-            }
-        }
+    .await;
+    if budget.is_err() {
+        error!("finalizing units for {slice} exceeded {FINALIZE_BUDGET:?}");
+        fin.cleanup_incomplete = true;
     }
+    fin
 }
 
 async fn finalize_units_inner(
     slice: &Slice,
     scope: Option<&Scope>,
     systemd: &SharedSystemdClient,
-) -> UnitsFinal {
-    let mut fin = UnitsFinal {
-        cgroup_accounting: None,
-        scope_result: None,
-        cleanup_incomplete: false,
-    };
-
+    fin: &mut UnitsFinal,
+) {
     // Stop the scope first; the primary process has exited but children may
     // still be running in it.
     let mut ok = true;
     if let Some(scope) = scope {
         ok &= stop_unit(systemd, scope).await;
         let (result, settled) = settle_scope(systemd, scope).await;
-        fin.scope_result = result;
+        fin.record_scope_result(result);
         ok &= settled;
     }
 
     // Collect accounting from the slice, which persists until we stop it and
     // whose hierarchical counters include the scope's events.
-    match systemd.get_slice_cgroup_path(slice).await {
-        Ok(cgroup_path) => fin.cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path),
-        Err(err) => error!("getting slice {slice} cgroup failed: {err}"),
-    }
+    fin.record_accounting(read_accounting(systemd, slice).await);
 
     debug!("stopping slice: {}", slice);
     ok &= stop_unit(systemd, slice).await;
 
     if !ok {
-        // One bounded follow-up: a scope may have failed only after the stop
-        // timed out; re-check, reset, and retry the stops.
+        // One bounded follow-up: a scope may have failed (e.g. oom-kill) only
+        // after the stop timed out; re-check, re-read, reset, retry the stops.
         warn!("unit cleanup incomplete for {slice}; retrying once");
         ok = true;
         if let Some(scope) = scope {
             ok &= stop_unit(systemd, scope).await;
             let (result, settled) = settle_scope(systemd, scope).await;
-            if fin.scope_result.is_none() {
-                fin.scope_result = result;
-            }
+            fin.record_scope_result(result);
             ok &= settled;
         }
+        fin.record_accounting(read_accounting(systemd, slice).await);
         ok &= stop_unit(systemd, slice).await;
         if !ok {
             error!("unit cleanup incomplete for {slice}");
         }
     }
     fin.cleanup_incomplete = !ok;
-    fin
 }
 
 async fn wait_for_proc(
@@ -661,7 +681,9 @@ async fn wait_for_proc(
             let stop_instant = Instant::now();
 
             let (slice, scope) = {
-                let proc = proc.borrow();
+                let mut proc = proc.borrow_mut();
+                // No more signals to this pid: it may be reused.
+                proc.reaped = true;
                 (proc.slice.clone(), proc.scope.clone())
             };
             // important: don't await while proc is borrowed mutably to avoid runtime
@@ -935,4 +957,28 @@ pub async fn start_procs(
     assert!(pipes.close().unwrap() == 0);
 
     Ok(tasks)
+}
+
+#[cfg(test)]
+mod units_final_tests {
+    use super::UnitsFinal;
+
+    #[test]
+    fn later_scope_result_replaces_earlier() {
+        let mut fin = UnitsFinal::default();
+        fin.record_scope_result(Some("success".into()));
+        fin.record_scope_result(Some("oom-kill".into()));
+        assert_eq!(fin.scope_result.as_deref(), Some("oom-kill"));
+        fin.record_scope_result(None);
+        assert_eq!(fin.scope_result.as_deref(), Some("oom-kill"));
+    }
+
+    #[test]
+    fn failed_accounting_read_keeps_earlier() {
+        let mut fin = UnitsFinal::default();
+        fin.record_accounting(Some(Default::default()));
+        assert!(fin.cgroup_accounting.is_some());
+        fin.record_accounting(None);
+        assert!(fin.cgroup_accounting.is_some());
+    }
 }

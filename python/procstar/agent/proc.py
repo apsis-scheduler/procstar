@@ -59,6 +59,17 @@ class Result(procstar.lib.json.Jso):
 
 
 @dataclass
+class SignalNotDelivered:
+    """
+    The agent could not deliver a requested signal because the process was
+    already gone (reaped, or never started).  Clients that infer anything from
+    having sent a signal, such as a timeout, should take this into account.
+    """
+
+    signum: int | None
+
+
+@dataclass
 class FdData:
     """
     The fd name.
@@ -120,6 +131,7 @@ class Process:
         The iterator may:
         - yield a `Result` instance
         - yield a `FdData` instance
+        - yield a `SignalNotDelivered` instance
         - terminate if the process is deleted
         - raise `ProcessUnknownError` if the proc ID is unknown
         - raise `ConnectionTimeoutError` if the connection timed out
@@ -148,10 +160,12 @@ class Process:
 
                 case proto.RequestError(msg, err):
                     if msg.get("type", "") == ProcSignalRequest.__name__ and err == "no process":
-                        # This is a mitigation for the following race condition:
-                        # since there is no synchronization mechanism between `send_signal` and `wait_for_proc`,
-                        # it is possible that the process is already gone when we send the signal.
+                        # There is no synchronization between `send_signal` and
+                        # the agent reaping the process, so the process may be
+                        # gone by the time the signal arrives.  Tell the client,
+                        # so it does not assume the signal was delivered.
                         logger.info(f"failed to send signal: no process {msg.get('proc_id')}")
+                        yield SignalNotDelivered(signum=msg.get("signum"))
                     else:
                         logger.error(f"agent error: {err}")
                         raise AgentMessageError(msg, err)

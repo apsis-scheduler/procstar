@@ -35,11 +35,21 @@ use crate::systemd::manager::UnitProperty;
 type FdHandlers = Vec<(RawFd, SharedFdHandler)>;
 
 type Slice = String;
+type Scope = String;
+
+/// Deadline for the diagnostic scope lookup at exit, so a stalled D-Bus call
+/// cannot delay recording the process's termination.
+const DIAG_TIMEOUT: Duration = Duration::from_secs(10);
 
 // FIXME: Refactor this into enum for running, error, terminated procs.
 pub struct Proc {
     pub pid: pid_t,
     pub slice: Option<Slice>,
+    pub scope: Option<Scope>,
+    pub systemd_enabled: bool,
+    /// True once the process has been reaped by `wait()`, even if its
+    /// termination has not been recorded yet (units are being finalized).
+    pub reaped: bool,
 
     pub errors: Vec<String>,
 
@@ -50,6 +60,7 @@ pub struct Proc {
     pub wait_info: Option<WaitInfo>,
     pub proc_stat: Option<ProcStat>,
     pub cgroup_accounting: Option<CGroupAccounting>,
+    pub scope_result: Option<String>,
     pub stop_time: Option<DateTime<Utc>>,
     pub elapsed: Option<Duration>,
 }
@@ -58,6 +69,8 @@ impl Proc {
     pub fn new(
         pid: pid_t,
         slice: Option<Slice>,
+        scope: Option<Scope>,
+        systemd_enabled: bool,
         start_time: DateTime<Utc>,
         start_instant: Instant,
         fd_handlers: FdHandlers,
@@ -65,10 +78,14 @@ impl Proc {
         Self {
             pid,
             slice,
+            scope,
+            systemd_enabled,
+            reaped: false,
             errors: Vec::new(),
             wait_info: None,
             proc_stat: None,
             cgroup_accounting: None,
+            scope_result: None,
             fd_handlers,
             start_time,
             stop_time: None,
@@ -78,6 +95,10 @@ impl Proc {
     }
 
     pub fn send_signal(&self, signum: Signum) -> Result<(), Error> {
+        if self.reaped {
+            // The pid may already belong to another process.
+            return Err(Error::NoProc);
+        }
         match kill(self.pid, signum) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(Error::NoProc),
@@ -158,6 +179,8 @@ impl Proc {
             proc_stat,
             proc_statm,
             cgroup_accounting: self.cgroup_accounting.clone(),
+            systemd_enabled: self.systemd_enabled,
+            scope_result: self.scope_result.clone(),
             times,
             status,
             rusage,
@@ -469,19 +492,43 @@ impl SharedProcs {
     }
 }
 
+/// Reads the slice's cgroup accounting and the scope's systemd result, then
+/// stops the slice as before.  Returns (accounting, scope result).
 async fn finalize_slice(
-    slice: Option<&String>,
+    slice: Option<&Slice>,
+    scope: Option<&Scope>,
     systemd: Option<SharedSystemdClient>,
-) -> Option<CGroupAccounting> {
-    let systemd = systemd?;
-    let slice = slice?;
+) -> (Option<CGroupAccounting>, Option<String>) {
+    let (Some(systemd), Some(slice)) = (systemd, slice) else {
+        return (None, None);
+    };
 
-    let cgroup_path = systemd
-        .get_slice_cgroup_path(slice)
-        .await
-        .map_err(|e| error!("getting slice {slice} cgroup failed: {e}"))
-        .ok()?;
-    let cgroup_accounting = CGroupAccounting::load_or_log(&cgroup_path);
+    // Best effort: the scope is still loaded if it failed (e.g. oom-kill);
+    // after a clean exit it is usually already unloaded.
+    let scope_result = match scope {
+        Some(scope) => {
+            match tokio::time::timeout(DIAG_TIMEOUT, systemd.get_scope_state(scope)).await {
+                Ok(Ok((_active_state, result))) => Some(result),
+                Ok(Err(err)) => {
+                    debug!("scope state {scope}: {err}");
+                    None
+                }
+                Err(_) => {
+                    warn!("scope state {scope}: timed out");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    let cgroup_accounting = match systemd.get_slice_cgroup_path(slice).await {
+        Ok(cgroup_path) => CGroupAccounting::load_or_log(&cgroup_path),
+        Err(err) => {
+            error!("getting slice {slice} cgroup failed: {err}");
+            None
+        }
+    };
 
     debug!("stopping slice: {}", slice);
     systemd
@@ -489,7 +536,7 @@ async fn finalize_slice(
         .await
         .unwrap_or_else(|err| error!("stop slice failed {slice}: {err}"));
 
-    cgroup_accounting
+    (cgroup_accounting, scope_result)
 }
 
 async fn wait_for_proc(
@@ -515,10 +562,16 @@ async fn wait_for_proc(
             let stop_time = Utc::now();
             let stop_instant = Instant::now();
 
-            let slice = proc.borrow().slice.clone();
+            let (slice, scope) = {
+                let mut proc = proc.borrow_mut();
+                // No more signals to this pid: it may be reused.
+                proc.reaped = true;
+                (proc.slice.clone(), proc.scope.clone())
+            };
             // important: don't await while proc is borrowed mutably to avoid runtime
             // borrow check failures
-            let cgroup_accounting = finalize_slice(slice.as_ref(), systemd).await;
+            let (cgroup_accounting, scope_result) =
+                finalize_slice(slice.as_ref(), scope.as_ref(), systemd).await;
 
             let mut proc = proc.borrow_mut();
 
@@ -527,6 +580,7 @@ async fn wait_for_proc(
             proc.wait_info = Some(wait_info);
             proc.proc_stat = proc_stat;
             proc.cgroup_accounting = cgroup_accounting;
+            proc.scope_result = scope_result;
             proc.stop_time = Some(stop_time);
             proc.elapsed = Some(stop_instant.duration_since(proc.start_instant));
             break;
@@ -584,9 +638,9 @@ async fn set_up_slice(
     pid: u32,
     systemd_properties: spec::SystemdProperties,
     systemd: Option<SharedSystemdClient>,
-) -> Result<Option<Slice>, Error> {
+) -> Result<(Option<Slice>, Option<Scope>), Error> {
     let Some(systemd) = systemd else {
-        return Ok(None);
+        return Ok((None, None));
     };
 
     let slice_properties: Vec<UnitProperty> = systemd_properties.slice.into();
@@ -599,11 +653,11 @@ async fn set_up_slice(
     scope_properties.push(UnitProperty::from(("PIDs", vec![pid])));
     scope_properties.push(UnitProperty::from(("Slice", &slice)));
 
-    systemd
+    let scope = systemd
         .start_transient_unit(UnitType::Scope, &scope_properties)
         .await?;
 
-    Ok(Some(slice))
+    Ok((Some(slice), Some(scope)))
 }
 
 /// Starts zero or more new processes.  `input` maps new proc IDs to
@@ -725,7 +779,8 @@ pub async fn start_procs(
                 let start_time = Utc::now();
                 let start_instant = Instant::now();
 
-                let slice =
+                let systemd_enabled = systemd.is_some();
+                let (slice, scope) =
                     set_up_slice(child_pid as u32, systemd_properties, systemd.clone()).await?;
 
                 exec_ready_event.write(1_u64).unwrap();
@@ -744,7 +799,15 @@ pub async fn start_procs(
                     .collect::<Vec<_>>();
 
                 // Construct the record of this running proc.
-                let mut proc = Proc::new(child_pid, slice, start_time, start_instant, fd_handlers);
+                let mut proc = Proc::new(
+                    child_pid,
+                    slice,
+                    scope,
+                    systemd_enabled,
+                    start_time,
+                    start_instant,
+                    fd_handlers,
+                );
 
                 // Attach any fd errors.
                 proc.errors.append(&mut fd_errs);

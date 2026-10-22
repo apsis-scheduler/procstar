@@ -225,6 +225,16 @@ pub struct ProcRes {
     /// Accounting information read from the cgroup filesystem.
     pub cgroup_accounting: Option<CGroupAccounting>,
 
+    /// Whether systemd/cgroup integration was active for this process.  When
+    /// false, no `systemd_properties` (such as memory limits) were applied.
+    #[serde(default)]
+    pub systemd_enabled: bool,
+
+    /// Result of the systemd scope unit at termination, e.g. "success" or
+    /// "oom-kill", if the unit was still loaded when the process terminated.
+    #[serde(default)]
+    pub scope_result: Option<String>,
+
     /// Process timing.
     pub times: Times,
 

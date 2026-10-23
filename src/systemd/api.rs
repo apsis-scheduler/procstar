@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use log::debug;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 use uuid::Uuid;
 
 // TODO: make this portable
@@ -78,6 +79,35 @@ impl SystemdClient {
         Ok(())
     }
 
+    /// Stops a unit and waits for the stop job to finish, up to `timeout`.
+    /// Returns the job result (`"done"`, `"canceled"`, `"failed"`, ...), or
+    /// `None` if the job had not finished by then.
+    pub async fn stop_and_wait(
+        &self,
+        name: &str,
+        timeout: Duration,
+    ) -> Result<Option<String>, zbus::Error> {
+        let mut removed_stream = self.manager_proxy.receive_job_removed().await?;
+        let job_path = self.manager_proxy.stop_unit(name, "replace").await?;
+        let wait = async {
+            while let Some(job_removed) = removed_stream.next().await {
+                if let Ok(args) = job_removed.args() {
+                    if *job_path == *args.job() {
+                        return args.result().to_string();
+                    }
+                }
+            }
+            // The signal stream ended; treat as unknown outcome.
+            String::from("unknown")
+        };
+        Ok(tokio::time::timeout(timeout, wait).await.ok())
+    }
+
+    /// Resets the failed state of a unit, so a transient unit is unloaded.
+    pub async fn reset_failed_unit(&self, name: &str) -> Result<(), zbus::Error> {
+        self.manager_proxy.reset_failed_unit(name).await
+    }
+
     /// Returns `(ActiveState, Result)` of a scope unit, if it is still loaded.
     pub async fn get_scope_state(&self, name: &str) -> Result<(String, String), zbus::Error> {
         let unit_path = self.manager_proxy.get_unit(name).await?;
@@ -92,6 +122,16 @@ impl SystemdClient {
 
 pub type SharedSystemdClient = Rc<SystemdClient>;
 
+/// Whether a D-Bus error says the unit does not exist (already unloaded).
+pub fn is_no_such_unit(err: &zbus::Error) -> bool {
+    matches!(err, zbus::Error::MethodError(name, _, _) if name.ends_with("NoSuchUnit"))
+}
+
+/// Whether a systemd job result means the job did what was asked.
+pub fn job_result_ok(result: &str) -> bool {
+    matches!(result, "done" | "skipped")
+}
+
 pub async fn maybe_connect() -> Option<SystemdClient> {
     if !CGROUP_ROOT.join("cgroup.controllers").is_file() {
         debug!("cgroup v2 hierarchy not detected");
@@ -103,4 +143,18 @@ pub async fn maybe_connect() -> Option<SystemdClient> {
             debug!("unable to create systemd client: {err}");
         })
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::job_result_ok;
+
+    #[test]
+    fn test_job_result_ok() {
+        assert!(job_result_ok("done"));
+        assert!(job_result_ok("skipped"));
+        for r in ["canceled", "timeout", "failed", "dependency", "unknown"] {
+            assert!(!job_result_ok(r), "{r}");
+        }
+    }
 }

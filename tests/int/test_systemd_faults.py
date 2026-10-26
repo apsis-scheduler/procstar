@@ -45,29 +45,65 @@ requires_cgroups = pytest.mark.skipif(
 
 def _readline(pipe, timeout):
     """
-    Reads one line, or raises if nothing arrives within `timeout`.
+    Reads one complete line within `timeout`, or raises.
+
+    The deadline covers receiving the whole line: a helper that writes a few
+    bytes and then stalls must not be able to block us.
     """
+    fd = pipe.fileno()
+    deadline = time.monotonic() + timeout
+    buf = bytearray()
     selector = selectors.DefaultSelector()
-    selector.register(pipe, selectors.EVENT_READ)
+    selector.register(fd, selectors.EVENT_READ)
     try:
-        if not selector.select(timeout):
-            raise AssertionError(f"no output within {timeout} s")
-        return pipe.readline().strip()
+        while b"\n" not in buf:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise AssertionError(f"no complete line within {timeout} s, got {bytes(buf)!r}")
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                raise AssertionError(f"pipe closed, got {bytes(buf)!r}")
+            buf += chunk
     finally:
         selector.close()
+    return buf.split(b"\n", 1)[0].decode().strip()
 
 
-def _kill_group(proc):
+class Helper:
     """
-    Kills `proc` and anything it started.
+    A child process in a session of its own, so that everything it starts can
+    be killed with it.
     """
-    if proc is None or proc.poll() is not None:
-        return
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        proc.kill()
-    proc.wait()
+
+    def __init__(self, argv, env=None):
+        self.proc = subprocess.Popen(
+            argv,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        # With start_new_session the child leads its own group, so this is its
+        # pid; remember it rather than asking later, when it may be gone.
+        self.pgid = self.proc.pid
+
+    def readline(self, timeout):
+        assert self.proc.stdout is not None
+        return _readline(self.proc.stdout, timeout)
+
+    def kill(self):
+        """
+        Kills the whole group, whether or not the leader is still alive:
+        descendants can outlive it and keep its pipes open.
+        """
+        try:
+            os.killpg(self.pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.proc.wait()
+        for pipe in (self.proc.stdout, self.proc.stderr):
+            if pipe is not None:
+                pipe.close()
 
 
 class FakeSystemd:
@@ -83,23 +119,15 @@ class FakeSystemd:
 
     def __enter__(self):
         try:
-            self.__bus = subprocess.Popen(
-                ["dbus-daemon", "--session", "--print-address", "--nofork"],
-                stdout=subprocess.PIPE,
-                text=True,
-                start_new_session=True,
-            )
-            address = _readline(self.__bus.stdout, STARTUP_TIMEOUT)
+            self.__bus = Helper(["dbus-daemon", "--session", "--print-address", "--nofork"])
+            address = self.__bus.readline(STARTUP_TIMEOUT)
             assert address, "dbus-daemon printed no address"
             self.env = {**os.environ, "DBUS_SESSION_BUS_ADDRESS": address}
-            self.__service = subprocess.Popen(
+            self.__service = Helper(
                 [str(FAKE_SYSTEMD)],
                 env={**self.env, "FAKE_SYSTEMD_MODE": self.mode},
-                stdout=subprocess.PIPE,
-                text=True,
-                start_new_session=True,
             )
-            ready = _readline(self.__service.stdout, STARTUP_TIMEOUT)
+            ready = self.__service.readline(STARTUP_TIMEOUT)
             assert ready == "ready", f"fake systemd said {ready!r}"
             return self
         except BaseException:
@@ -108,8 +136,9 @@ class FakeSystemd:
             raise
 
     def __exit__(self, *_exc):
-        _kill_group(self.__service)
-        _kill_group(self.__bus)
+        for helper in (self.__service, self.__bus):
+            if helper is not None:
+                helper.kill()
 
     def run(self, spec):
         """
@@ -123,24 +152,24 @@ class FakeSystemd:
             "from procstar.testing.proc import run1;"
             "print('RESULT:' + json.dumps(run1(json.loads(sys.argv[1]))))"
         )
-        proc = subprocess.Popen(
+        runner = Helper(
             [sys.executable, "-c", script, json.dumps(spec)],
             env={**self.env, "PROCSTAR": str(get_procstar_path())},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
         )
         try:
-            out, err = proc.communicate(timeout=DEADLINE)
+            out, err = runner.proc.communicate(timeout=DEADLINE)
         except subprocess.TimeoutExpired:
-            _kill_group(proc)
             raise AssertionError(f"{self.mode}: no result within {DEADLINE} s") from None
+        finally:
+            # Sweep the group even on success: the agent must not outlive it.
+            runner.kill()
         result = next(
-            (line for line in out.splitlines() if line.startswith("RESULT:")),
+            (line for line in out.decode().splitlines() if line.startswith("RESULT:")),
             None,
         )
-        assert result is not None, f"no result: rc={proc.returncode} err={err[-2000:]}"
+        assert result is not None, (
+            f"no result: rc={runner.proc.returncode} err={err.decode()[-2000:]}"
+        )
         return json.loads(result[len("RESULT:") :])
 
 
